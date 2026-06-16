@@ -142,7 +142,3 @@ For details on network variables, service accounts, and Terraform variable propa
 - **Frontend**: React (TypeScript) built with **Stitch** for high information density.
 - **Security**: **Identity-Aware Proxy (IAP)** natively integrated with Cloud Run for enterprise-grade authentication, restricting access to authorized users within the organization.
 - **Deployment**: **Unified Container** architecture hosted on **Google Cloud Run**.
-
-## Observability
-
-Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging. See the [observability guide](https://googlecloudplatform.github.io/agent-starter-pack/guide/observability) for more details.
