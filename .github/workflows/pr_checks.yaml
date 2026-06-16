@@ -1,0 +1,55 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'data_ingestion/**'
+      - 'tests/**'
+      - 'deployment/**'
+      - 'uv.lock'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      GOOGLE_CLOUD_REGION: ${{ vars.REGION }}
+      GOOGLE_GENAI_USE_VERTEXAI: "True"
+      GOOGLE_CLOUD_BILLING_ACCOUNT: ${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }}
+      GOOGLE_CLOUD_BILLING_LOCATION: ${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }}
+      GOOGLE_CLOUD_BILLING_PROJECT: ${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }}
+      BILLING_EXPORT_DATASET: ${{ vars.BILLING_EXPORT_DATASET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.WIF_POOL_ID }}/providers/${{ secrets.WIF_PROVIDER_ID }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+          create_credentials_file: true
+          project_id: ${{ vars.CICD_PROJECT_ID }}
+
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv and dependencies
+        run: |
+          pip install uv==0.11.16
+          uv sync --locked
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration

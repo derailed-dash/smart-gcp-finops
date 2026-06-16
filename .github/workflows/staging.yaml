@@ -1,0 +1,67 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'data_ingestion/**'
+      - 'tests/**'
+      - 'deployment/**'
+      - 'uv.lock'
+
+jobs:
+  deploy_and_test_staging:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.WIF_POOL_ID }}/providers/${{ secrets.WIF_PROVIDER_ID }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+          create_credentials_file: true
+          project_id: ${{ vars.CICD_PROJECT_ID }}
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v3'
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ vars.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t ${{ vars.REGION }}-docker.pkg.dev/${{ vars.CICD_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPO_NAME }}/${{ vars.CONTAINER_NAME }} \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            .
+          docker push ${{ vars.REGION }}-docker.pkg.dev/${{ vars.CICD_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPO_NAME }}/${{ vars.CONTAINER_NAME }}
+
+      - name: Deploy to Staging (Cloud Run)
+        run: |
+          gcloud run deploy smart-gcp-finops \
+            --image ${{ vars.REGION }}-docker.pkg.dev/${{ vars.CICD_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPO_NAME }}/${{ vars.CONTAINER_NAME }} \
+            --region ${{ vars.REGION }} \
+            --project ${{ vars.STAGING_PROJECT_ID }} \
+            --service-account ${{ vars.APP_SERVICE_ACCOUNT_STAGING }} \
+            --max-instances ${{ vars.STAGING_MAX_INSTANCES }} \
+            --min-instances ${{ vars.STAGING_MIN_INSTANCES }} \
+            --cpu-boost \
+            --no-allow-unauthenticated \
+            --update-env-vars GOOGLE_CLOUD_PROJECT=${{ vars.STAGING_PROJECT_ID }},GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},COMMIT_SHA=${{ github.sha }},LOG_LEVEL=INFO \
+            --iap
+
+

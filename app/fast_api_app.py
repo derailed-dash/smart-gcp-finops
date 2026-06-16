@@ -1,0 +1,336 @@
+import asyncio
+import json
+import os
+
+import google.auth
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from google.adk.cli.fast_api import get_fast_api_app
+from google.cloud import logging as google_cloud_logging
+
+from app.app_utils.telemetry import setup_telemetry
+from app.app_utils.typing import Feedback
+
+setup_telemetry()
+_, project_id = google.auth.default()
+logging_client = google_cloud_logging.Client()
+logger = logging_client.logger(__name__)
+allow_origins = (
+    os.getenv("ALLOW_ORIGINS", "").split(",")
+    if os.getenv("ALLOW_ORIGINS")
+    else [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+)
+
+# Artifact bucket for ADK (created by Terraform, passed via env var)
+logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
+
+AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# In-memory session configuration - no persistent storage
+session_service_uri = None
+
+artifact_service_uri = f"gs://{logs_bucket_name}" if logs_bucket_name else None
+
+# Enable OpenTelemetry Cloud exporting in Cloud Run (prod) or if explicitly requested locally
+otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
+    os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
+)
+
+app: FastAPI = get_fast_api_app(
+    agents_dir=AGENT_DIR,
+    web=False,
+    artifact_service_uri=artifact_service_uri,
+    allow_origins=allow_origins,
+    session_service_uri=session_service_uri,
+    otel_to_cloud=otel_to_cloud,
+)
+app.title = "smart-gcp-finops"
+app.description = "API for interacting with the Agent smart-gcp-finops"
+
+# Thread-safe lazy-initialisation helper for global ADK session and runner
+_GLOBAL_SESSION_SERVICE = None
+_GLOBAL_SESSION = None
+_GLOBAL_RUNNER = None
+_INIT_LOCK = asyncio.Lock()
+
+
+async def get_global_runner_and_session():
+    """Initialises and returns a persistent global Runner and Session to preserve conversation memory."""
+    global _GLOBAL_SESSION_SERVICE, _GLOBAL_SESSION, _GLOBAL_RUNNER
+    async with _INIT_LOCK:
+        if _GLOBAL_RUNNER is None:
+            from google.adk.runners import Runner
+            from google.adk.sessions import InMemorySessionService
+
+            from app.agent import root_agent
+
+            _GLOBAL_SESSION_SERVICE = InMemorySessionService()
+            _GLOBAL_SESSION = _GLOBAL_SESSION_SERVICE.create_session_sync(
+                user_id="default_user", app_name="smart-gcp-finops"
+            )
+            _GLOBAL_RUNNER = Runner(
+                agent=root_agent,
+                session_service=_GLOBAL_SESSION_SERVICE,
+                app_name="smart-gcp-finops",
+            )
+        return _GLOBAL_RUNNER, _GLOBAL_SESSION
+
+
+@app.get("/api/dashboard")
+def get_dashboard(
+    clientDay: int | None = None, clientMonthDays: int | None = None
+) -> dict:
+    """Returns actual real-time executive dashboard metrics from BQ and CAI."""
+    from app.app_utils.dashboard_data import get_actual_dashboard_metrics
+
+    try:
+        return get_actual_dashboard_metrics(
+            client_day=clientDay, client_month_days=clientMonthDays
+        )
+    except Exception as e:
+        logger.log_text(f"Error compiling dashboard metrics: {e}", severity="ERROR")
+        return {
+            "mtdSpend": 0.0,
+            "mtdChange": 0.0,
+            "forecast": 0.0,
+            "forecastLabel": "Projected end-of-month",
+            "anomaliesCount": 0,
+            "zombieWaste": 0.0,
+            "recentSpikes": [],
+            "zombies": [],
+        }
+
+
+# Custom SSE streaming chat endpoint with heartbeat
+@app.post("/api/chat/stream")
+async def chat_stream(request: Request):
+    """Streams the ADK agent chat responses using Server-Sent Events (SSE).
+
+    Includes a 15-second heartbeat to prevent Cloud Run timeouts.
+    """
+    body = await request.json()
+    message = body.get("message", "")
+
+    runner, session = await get_global_runner_and_session()
+
+    async def event_generator():
+        # Yield initial status/reasoning chunk
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "reasoning": "Step 1: Initialising dynamic billing table discovery...\nStep 2: Connected successfully. Spawning agent workflow...\n"
+                }
+            )
+            + "\n\n"
+        )
+        await asyncio.sleep(0.5)
+
+        from google.adk.agents.run_config import RunConfig, StreamingMode
+        from google.genai import types
+
+        message_content = types.Content(role="user", parts=[types.Part(text=message)])
+
+        event_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def run_agent_in_thread():
+            try:
+                for event in runner.run(
+                    new_message=message_content,
+                    user_id="default_user",
+                    session_id=session.id,
+                    run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+                ):
+                    loop.call_soon_threadsafe(event_queue.put_nowait, event)
+            except Exception as e:
+                loop.call_soon_threadsafe(event_queue.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, None)
+
+        import threading
+
+        threading.Thread(target=run_agent_in_thread, daemon=True).start()
+
+        seen_function_calls = set()
+        seen_function_responses = set()
+        seconds_passed = 0
+        while True:
+            # Proactively check if client has disconnected (closes tab or refreshes)
+            if await request.is_disconnected():
+                logger.log_text(
+                    "Client disconnected from chat stream.", severity="INFO"
+                )
+                break
+
+            try:
+                # Non-blocking wait for next event from the queue (timeouts do not cancel the generator)
+                event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+            except TimeoutError:
+                seconds_passed += 1
+                if seconds_passed >= 15:
+                    yield ": heartbeat\n\n"
+                    seconds_passed = 0
+                continue
+
+            if event is None:
+                break
+
+            if isinstance(event, Exception):
+                logger.log_text(
+                    f"Error in background runner: {event}", severity="ERROR"
+                )
+                import traceback
+
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "reasoning": f"❌ Error: {event!s}\n{traceback.format_exc()}\n"
+                        }
+                    )
+                    + "\n\n"
+                )
+                break
+
+            seconds_passed = 0
+
+            # Stream real-time text chunks
+            is_final = False
+            if hasattr(event, "is_final_response"):
+                try:
+                    is_final = event.is_final_response()
+                except Exception:
+                    pass
+
+            if not is_final and hasattr(event, "content") and event.content:
+                parts = event.content.parts if hasattr(event.content, "parts") else []
+                text_chunk = "".join(
+                    part.text for part in parts if hasattr(part, "text") and part.text
+                )
+                if text_chunk:
+                    yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+
+            # Stream intermediate reasoning/tool status updates
+            if hasattr(event, "status") and event.status:
+                yield "data: " + json.dumps({"reasoning": f"{event.status}\n"}) + "\n\n"
+
+            # Stream granular function calls and responses in flight
+            if hasattr(event, "get_function_calls"):
+                try:
+                    for fc in event.get_function_calls():
+                        if fc and fc.name:
+                            # Build a unique key for deduplication
+                            args_str = ""
+                            if hasattr(fc, "args") and fc.args:
+                                try:
+                                    args_str = json.dumps(fc.args, sort_keys=True)
+                                except Exception:
+                                    args_str = str(fc.args)
+                            fc_id = getattr(fc, "id", "")
+                            call_key = f"{fc.name}:{args_str}:{fc_id}"
+                            if call_key not in seen_function_calls:
+                                seen_function_calls.add(call_key)
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {
+                                            "reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"
+                                        }
+                                    )
+                                    + "\n\n"
+                                )
+                except Exception:
+                    pass
+
+            if hasattr(event, "get_function_responses"):
+                try:
+                    for fr in event.get_function_responses():
+                        if fr and fr.name:
+                            # Build a unique key for deduplication
+                            resp_str = ""
+                            if hasattr(fr, "response") and fr.response:
+                                try:
+                                    resp_str = json.dumps(fr.response, sort_keys=True)
+                                except Exception:
+                                    resp_str = str(fr.response)
+                            fr_id = getattr(fr, "id", "")
+                            resp_key = f"{fr.name}:{resp_str}:{fr_id}"
+                            if resp_key not in seen_function_responses:
+                                seen_function_responses.add(resp_key)
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {
+                                            "reasoning": f"✅ Tool Complete: {fr.name} response received\n"
+                                        }
+                                    )
+                                    + "\n\n"
+                                )
+                except Exception:
+                    pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/feedback")
+def collect_feedback(feedback: Feedback) -> dict[str, str]:
+    """Collect and log feedback.
+
+    Args:
+        feedback: The feedback data to log
+
+    Returns:
+        Success message
+    """
+    logger.log_struct(feedback.model_dump(), severity="INFO")
+    return {"status": "success"}
+
+
+# Serve the static pre-compiled React frontend SPA assets in production
+FRONTEND_DIST = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+)
+
+if os.path.exists(FRONTEND_DIST):
+    # Mount the /assets static assets subfolder
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")),
+        name="assets",
+    )
+
+    # Catch-all route to serve the SPA index.html for any frontend navigation paths
+    @app.get("/{fallback_path:path}")
+    async def spa_fallback(fallback_path: str):
+        # Allow API, events, and feedback endpoints to be processed normally by other routers
+        if (
+            fallback_path.startswith("api")
+            or fallback_path.startswith("events")
+            or fallback_path.startswith("feedback")
+            or fallback_path.startswith("docs")
+            or fallback_path.startswith("openapi.json")
+        ):
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+
+        # Serve the file directly if it exists in the frontend dist directory (e.g. favicon.ico, vite.svg)
+        file_path = os.path.join(FRONTEND_DIST, fallback_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        index_file = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Index file not found")
+
+
+# Main execution
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
