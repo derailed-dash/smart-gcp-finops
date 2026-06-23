@@ -134,7 +134,6 @@ For details on network variables, service accounts, and Terraform variable propa
 
 ## Technical Architecture
 
-
 - **Orchestration**: Built with **Google ADK** for robust agent behavior.
 - **APIs**: Remote BigQuery MCP, Google Developer Knowledge API, and Cloud Asset Inventory.
 - **Data Layer**: Direct semantic access to BigQuery via the **Model Context Protocol (MCP)**.

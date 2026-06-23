@@ -328,7 +328,7 @@ export default function App() {
       }
 
       // Process inline backticks and bold tags ONLY outside of code blocks
-      let formattedLine = line
+      const formattedLine = line
         .replace(/`([^`]+)`/g, '<code style="font-family: var(--font-mono); background: rgba(255, 255, 255, 0.08); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; color: var(--color-primary);">$1</code>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
 
@@ -747,7 +747,7 @@ export default function App() {
   // Compiled dynamic sample questions using real-time spike telemetry
   const sampleQuestions = useMemo(() => {
     let spikeDateText = '23rd May'
-    let isSpikeQuestionDisabled = isLoadingDashboard
+    const isSpikeQuestionDisabled = isLoadingDashboard
     if (hasSpikes && maxIdx !== -1) {
       const peakDateStr = recentSpikes[maxIdx]?.date
       if (peakDateStr) {

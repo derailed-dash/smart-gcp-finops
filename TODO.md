@@ -39,6 +39,8 @@
 [x] Deploy and test on Cloud Run, and ensure it works with IAP
 [x] Setup continuous deployment (CI/CD) of the frontend and backend
 [x] Cache repeating queries, e.g. duplicate queries for zombie resources.
+[ ] Migrate to Gemini Enterprise Agent Runtime, with UI in separate Cloud Run
 [ ] Introduce ADK based evaluation, including trajectory.
+[ ] Create blog series
 [ ] Click a bar?
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

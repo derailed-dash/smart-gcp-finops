@@ -71,7 +71,11 @@ You should read and leverage these resources for guidance and best practices, in
 | https://docs.cloud.google.com/asset-inventory/docs/list-assets | List assets. This gives instructions for how to list assets using Google Cloud Asset Inventory. |
 | https://github.com/derailed-dash/rickbot-adk | Rickbot ADK - it contains a unified container implementation with ReactUI, FastAPI and ADK backend. The doc `https://github.com/derailed-dash/rickbot-adk/blob/main/docs/design.md` describes some of the challenges with this implementation and how to resolve. |
 
-## Other Objectives
+## Blog
+
+I want to build a multi-part blog series, which I'll post on Medium and Dev.to.
+
+### Documenting As We Go
 
 As we go, document steps taken, experience and findings in docs/blog.md. Later, I will build a Medium blog from this content. During this "as we go" phase, the blog.md does not need to be a polished article. It can be a collection of notes, code snippets, and observations. It should:
 
@@ -81,3 +85,33 @@ As we go, document steps taken, experience and findings in docs/blog.md. Later, 
 - The deep dives should be added in the same sequence as the steps we took.
 
 You should update the `blog.md` after any significant investigations, changes or features.
+
+### Creating the Blog Articles
+
+The series should have several parts. I'm thinking:
+
+- 1. Overall Series Goals & Design
+  - The goals of the project
+  - The overall architecture
+  - The technology stack
+  - The design decisions and rationale
+  - Which APIs and MCPs we've used, and why
+  - What other APIs and MCPs could we have used?
+
+- 2. Building the Agentic Solution
+  - Local Dev Environment
+  - Use of Agy IDE, and Agy CLI
+  - MCPs and skills we've used for development
+  - Use of ADK
+  - Bootstrapping with Agents CLI
+  - Implementation of agents
+  - How the agent uses MCP and tools
+  - Any patterns we've used
+
+- 3. Building the UI, using A2UI
+
+- 4. Deployment, Authentication, Terraform, CI/CD
+
+- 5. Migrate to Agent Runtime and Observabilty with Gemini Enterprise Agent Platform
+
+
