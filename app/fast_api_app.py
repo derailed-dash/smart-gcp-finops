@@ -181,7 +181,8 @@ async def chat_stream(request: Request):
 
                 async for event_dict in agent_engine.async_stream_query(
                     message=message,
-                    user_id="default_user"
+                    user_id="default_user",
+                    session_id=session.id
                 ):
                     event = Event.model_validate(event_dict)
                     await event_queue.put(event)
