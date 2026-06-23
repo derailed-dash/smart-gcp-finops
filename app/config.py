@@ -32,19 +32,19 @@ class Settings(BaseSettings):
     )
 
     # Google Project Infrastructure
-    google_cloud_project: str
-    google_cloud_region: str
+    google_cloud_project: str = ""
+    google_cloud_region: str = ""
 
     # GenAI / Vertex AI Configuration
     # These are often used by the underlying Google SDKs
-    google_genai_use_vertexai: bool
+    google_genai_use_vertexai: bool = True
     google_cloud_location: str = "global"  # Used by Gemini model
     gemini_api_key: str | None = None  # Used when google_genai_use_vertexai is False
 
     # Billing
-    google_cloud_billing_account: str
-    google_cloud_billing_location: str
-    google_cloud_billing_project: str
+    google_cloud_billing_account: str = ""
+    google_cloud_billing_location: str = ""
+    google_cloud_billing_project: str = ""
     billing_export_dataset: str = "all_billing_data"
 
     # Infrastructure Scope (Optional)
