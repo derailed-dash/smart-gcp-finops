@@ -98,7 +98,11 @@ def test_chat_stream_remote(mock_model_validate, mock_get_runner, mock_vertex_cl
     async def mock_async_stream(**kwargs):
         yield {"content": "dummy"}
 
+    async def mock_async_create_session(**kwargs):
+        return {"id": "remote-session-123"}
+
     mock_engine.async_stream_query = mock_async_stream
+    mock_engine.async_create_session = mock_async_create_session
 
     with patch.dict("os.environ", {"AGENT_RUNTIME_ID": "projects/123/locations/europe-west1/reasoningEngines/456"}, clear=True):
         response = client.post("/api/chat/stream", json={"message": "hello"})

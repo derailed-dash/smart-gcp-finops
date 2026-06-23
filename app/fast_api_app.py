@@ -58,6 +58,8 @@ _GLOBAL_SESSION_SERVICE = None
 _GLOBAL_SESSION = None
 _GLOBAL_RUNNER = None
 _INIT_LOCK = asyncio.Lock()
+_REMOTE_SESSION_ID = None
+_REMOTE_SESSION_LOCK = asyncio.Lock()
 
 
 async def get_global_runner_and_session():
@@ -128,7 +130,8 @@ async def chat_stream(request: Request):
     message = body.get("message", "")
 
     agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
-    runner, session = await get_global_runner_and_session()
+    if not agent_runtime_id:
+        runner, session = await get_global_runner_and_session()
 
     async def event_generator():
         # Yield initial status/reasoning chunk
@@ -171,21 +174,47 @@ async def chat_stream(request: Request):
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
         async def run_remote_agent():
+            global _REMOTE_SESSION_ID
             try:
                 import vertexai
+                from google.adk.errors.session_not_found_error import (
+                    SessionNotFoundError,
+                )
                 from google.adk.events.event import Event
 
                 location = os.environ.get("GOOGLE_CLOUD_REGION", "europe-west1")
                 client = vertexai.Client(location=location)
                 agent_engine = client.agent_engines.get(name=agent_runtime_id)
 
-                async for event_dict in agent_engine.async_stream_query(
-                    message=message,
-                    user_id="default_user",
-                    session_id=session.id
-                ):
-                    event = Event.model_validate(event_dict)
-                    await event_queue.put(event)
+                async with _REMOTE_SESSION_LOCK:
+                    if _REMOTE_SESSION_ID is None:
+                        session_obj = await agent_engine.async_create_session(user_id="default_user")
+                        _REMOTE_SESSION_ID = (
+                            session_obj.get("id")
+                            if isinstance(session_obj, dict)
+                            else getattr(session_obj, "id", None)
+                        )
+                        if not _REMOTE_SESSION_ID:
+                            _REMOTE_SESSION_ID = str(session_obj)
+
+                try:
+                    async for event_dict in agent_engine.async_stream_query(
+                        message=message,
+                        user_id="default_user",
+                        session_id=_REMOTE_SESSION_ID
+                    ):
+                        event = Event.model_validate(event_dict)
+                        await event_queue.put(event)
+                except SessionNotFoundError:
+                    logger.log_text("Remote session not found/expired. Resetting session and retrying.", severity="WARNING")
+                    async with _REMOTE_SESSION_LOCK:
+                        _REMOTE_SESSION_ID = None
+                    async for event_dict in agent_engine.async_stream_query(
+                        message=message,
+                        user_id="default_user"
+                    ):
+                        event = Event.model_validate(event_dict)
+                        await event_queue.put(event)
             except Exception as e:
                 await event_queue.put(e)
             finally:
