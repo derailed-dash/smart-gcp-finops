@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # GenAI / Vertex AI Configuration
     # These are often used by the underlying Google SDKs
     google_genai_use_vertexai: bool
-    google_cloud_location: str = "global"  # Used by Gemini model
+    google_cloud_location: str = "europe-west1"  # Used by Gemini model
     gemini_api_key: str | None = None  # Used when google_genai_use_vertexai is False
 
     # Billing

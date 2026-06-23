@@ -67,17 +67,20 @@ make install && make playground
 | -------------------- | ----------------------------------------------------------------- |
 | `make install`       | Install dependencies using `uv`                                   |
 | `make playground`    | Launch local development environment (ADK Dev UI)                 |
-| `make run-backend`   | Run the Backend BFF Server (FastAPI + ADK Agent)                  |
+| `make run-backend`   | Run the Backend BFF Server locally (runs agent locally unless `AGENT_RUNTIME_ID` is set) |
 | `make run-frontend`  | Launch the Vite Dev Server for the React UI                       |
 | `make lint`          | Run backend code quality checks (`ruff`, `codespell`, `ty`)       |
 | `make test-ui`       | Run frontend compiler and lint checks (TypeScript, ESLint)        |
 | `make test`          | Run unit and integration tests (`pytest`)                         |
-| `make docker-build`  | Build the unified production container locally                    |
-| `make docker-run`    | Run the unified container locally with ADC credentials            |
+| `make build`         | Shortcut to build the unified production container image locally    |
+| `make docker-build`  | Build the unified production container image (React + FastAPI) locally |
+| `make docker-run`    | Run the built container locally (runs agent locally unless `AGENT_RUNTIME_ID` is set) |
 | `make run`           | Shortcut for `make docker-run` to run the container locally        |
 | `make tf-plan`       | Initialize Terraform and plan infrastructure deployment           |
 | `make tf-apply`      | Initialize Terraform and apply deployment configuration           |
-| `make deploy-cloud-run` | Deploy unified container to Cloud Run using Cloud Build          |
+| `make deploy-agent-runtime` | Deploy backend agent code to Gemini Enterprise Agent Runtime   |
+| `make get-agent-runtime-id` | Retrieve the deployed agent runtime ID (Reasoning Engine name)  |
+| `make deploy-cloud-run` | Deploy BFF container to Cloud Run using Cloud Build              |
 
 
 ## Local Development & Testing Flow
@@ -121,14 +124,19 @@ Before committing any changes to git, verify both the backend and frontend are h
 
 ## CI/CD & Deployment Flow
 
-FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production:
+FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production. The migration to Gemini Enterprise Agent Runtime splits the application into two deployed targets:
+1. **Agent Logic (Vertex AI Reasoning Engine / Gemini Enterprise Agent Runtime)**: Managed serverless environment hosting the agent's Python code, callbacks, and tools.
+2. **BFF + UI (Cloud Run)**: A lightweight container hosting the static React assets and a FastAPI thin proxy layer.
 
-1. **Continuous Integration (Staging)**: Pushes or merges to the `main` branch automatically build the unified container image and deploy it to the **Staging** environment (`finops-admin-dev`).
-2. **Verification**: Verify the staging environment to ensure all agent tools, BigQuery MCP connections, and React component renders function correctly.
-3. **Manual Gate (Production)**: Once verified, deploy the exact same image to the **Production** environment (`finops-admin-prd`) manually:
-   - Navigate to the **Actions** tab in the GitHub repository.
-   - Select the **Deploy to Production** workflow from the left sidebar.
-   - Click the **Run workflow** dropdown and then the **Run workflow** button.
+### GitHub Actions Pipelines
+
+* **Continuous Integration (Staging)**: 
+  - **Trigger**: Automatic on pushes or merges to the `main` branch. (Pull requests against branches only run linting, unit, and integration tests to ensure code health, but do not deploy anything to GCP).
+  - **Actions**: The [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) workflow automatically packages and deploys the agent logic to the staging Agent Runtime (`finops-admin-dev`), extracts the resulting `AGENT_RUNTIME_ID`, builds the unified container image, and deploys it to the Staging Cloud Run BFF with the correct engine ID.
+* **Verification**: Verify the staging environment to ensure all agent tools, BigQuery MCP connections, and React component renders function correctly.
+* **Manual Gate (Production)**: 
+  - **Trigger**: Manual trigger ("workflow dispatch") in GitHub Actions.
+  - **Actions**: The [.github/workflows/deploy-to-prod.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/deploy-to-prod.yaml) workflow deploys the agent to the production Agent Runtime (`finops-admin-prd`), extracts the production ID, and deploys the BFF container to Production Cloud Run.
 
 For details on network variables, service accounts, and Terraform variable propagation, refer to the [Deployment README](file:///home/dazbo/localdev/smart-gcp-finops/deployment/README.md).
 

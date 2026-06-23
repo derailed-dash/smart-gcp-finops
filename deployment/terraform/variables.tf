@@ -160,7 +160,7 @@ variable "google_genai_use_vertexai" {
 variable "google_cloud_location" {
   type        = string
   description = "The Google Cloud location (region) for Gemini model calls"
-  default     = "global"
+  default     = "europe-west1"
 }
 
 variable "model" {

@@ -70,11 +70,31 @@ deploy-cloud-run:
 		--iap \
 		--set-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=INFO"
 
+# Deploy the agent backend to Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine)
+deploy-agent-runtime: export-requirements
+	uvx google-agents-cli deploy \
+		--deployment-target agent_runtime \
+		--no-confirm-project \
+		--project "$(GOOGLE_CLOUD_PROJECT)" \
+		--region "$(GOOGLE_CLOUD_REGION)" \
+		--service-account "$(SERVICE_SA_EMAIL)" \
+		--service-name "$(SERVICE_NAME)-backend" \
+		--update-env-vars="GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs"
+
+# Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
+get-agent-runtime-id:
+	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
+
+export-requirements:
+	uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
+
 # ==============================================================================
 # Unified Container Targets
 # ==============================================================================
 
 # Build the unified production container locally
+build: docker-build
+
 docker-build:
 	docker build -t smart-gcp-finops:latest .
 
@@ -98,6 +118,7 @@ docker-run:
 		-e GOOGLE_CLOUD_ORGANIZATION="$(GOOGLE_CLOUD_ORGANIZATION)" \
 		-e LOGS_BUCKET_NAME="$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs" \
 		-e LOG_LEVEL="DEBUG" \
+		-e AGENT_RUNTIME_ID="$(AGENT_RUNTIME_ID)" \
 		-e COMMIT_SHA="$(shell git rev-parse HEAD 2>/dev/null || echo '')" \
 		-e GOOGLE_APPLICATION_CREDENTIALS="/code/application_default_credentials.json" \
 		--mount type=bind,source=$${HOME}/.config/gcloud/application_default_credentials.json,target=/code/application_default_credentials.json,readonly \

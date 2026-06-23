@@ -143,6 +143,28 @@ export default function App() {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText, streamingReasoning])
 
+  // Agent connection status mode (local container fallback vs remote agent runtime)
+  const [agentStatus, setAgentStatus] = useState<{ mode: 'local' | 'remote'; agent_runtime_id: string | null }>({
+    mode: 'local',
+    agent_runtime_id: null
+  })
+
+  // Fetch agent status from backend on startup
+  useEffect(() => {
+    const fetchAgentStatus = async () => {
+      try {
+        const response = await fetch('/api/status')
+        if (response.ok) {
+          const data = await response.json()
+          setAgentStatus(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch agent execution status:', err)
+      }
+    }
+    fetchAgentStatus()
+  }, [])
+
   // Fetch actual dashboard metrics from the backend on startup
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -858,9 +880,30 @@ export default function App() {
       <aside className="chat-panel">
         <header className="panel-header">
           <div className="panel-title" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <Sparkles size={20} className="text-glow-emerald" style={{ filter: 'drop-shadow(0 0 4px rgba(0, 245, 155, 0.4))' }} />
               <span style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF', letterSpacing: '0.02em', textShadow: '0 0 10px rgba(255, 255, 255, 0.1)' }}>FinSavant</span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '9px',
+                fontFamily: 'var(--font-mono)',
+                fontWeight: 'bold',
+                letterSpacing: '0.05em',
+                background: agentStatus.mode === 'remote' ? 'rgba(0, 245, 155, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                border: agentStatus.mode === 'remote' ? '1px solid rgba(0, 245, 155, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)',
+                color: agentStatus.mode === 'remote' ? '#00F59B' : '#F59E0B',
+                boxShadow: agentStatus.mode === 'remote' ? '0 0 8px rgba(0, 245, 155, 0.05)' : '0 0 8px rgba(245, 158, 11, 0.05)',
+                marginLeft: '4px'
+              }}
+              title={agentStatus.mode === 'remote' ? `Connected to Remote Vertex Agent Runtime:\n${agentStatus.agent_runtime_id}` : "Running agent locally in container fallback"}
+              >
+                <Cpu size={10} />
+                <span>{agentStatus.mode === 'remote' ? 'VERTEX RUNTIME' : 'IN-CONTAINER FALLBACK'}</span>
+              </div>
             </div>
             <div style={{ 
               fontSize: '12px', 

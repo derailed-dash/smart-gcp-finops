@@ -346,49 +346,57 @@ To prevent Terraform from trying to strip or revert the deployment-metadata and 
 
 ## Deployment Commands
 
-### 1. Initialize Infrastructure
+Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Reasoning Engine), and deploying the container BFF proxy (Cloud Run).
 
-Navigate to the centralized Terraform directory and initialize the backend:
+### 1. Provision Base Infrastructure (Terraform)
 
-```bash
-cd deployment/terraform
-terraform init
-```
-
-### 2. Plan and Apply
-
-You can manage Terraform plans and applications either natively or using the provided root-level `Makefile` shortcuts:
+Terraform sets up all required service accounts, IAM permission bindings (like BigQuery and Cloud Asset viewer roles), logging storage buckets, and Google API enablement.
 
 **Option A: Using Makefile Shortcuts (Recommended)**:
 From the repository root:
 ```bash
-# Preview changes
+# Preview the plan
 make tf-plan
 
-# Apply changes automatically
+# Apply and provision infrastructure
 make tf-apply
 ```
 
-**Option B: Natively in Terraform directory**:
+**Option B: Running natively in the terraform directory**:
 ```bash
+cd deployment/terraform
+terraform init
 terraform plan -var-file=vars/env.tfvars -out=tfplan
 terraform apply tfplan
 ```
 
-### 3. Manual Build, Test, & Deploy (Optional)
+### 2. Deploy Agent Logic to Vertex AI Agent Runtime
 
-Before deploying to Google Cloud Run, you can build and verify the unified container locally:
+Next, compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Reasoning Engine using the CLI:
 
 ```bash
-# Build the unified container
-make docker-build
+make deploy-agent-runtime
+```
+*   **What this does**: It compiles dependencies using `uv` to `app/app_utils/.requirements.txt`, packages the `app` source files, and deploys it to the regional Reasoning Engine shell.
+*   **Result**: Upon successful completion, the CLI writes a `deployment_metadata.json` file to the root of your project containing the newly deployed `remote_agent_runtime_id` (e.g. `projects/PROJECT_NUMBER/locations/europe-west1/reasoningEngines/ENGINE_ID`).
 
-# Run the container locally to verify the React UI on port 8080
-make run
+### 3. Deploy the Cloud Run BFF and Frontend
 
-# Once verified, deploy to Cloud Run using Cloud Build
+Finally, deploy the lightweight frontend container. The deployment script reads the runtime ID from `deployment_metadata.json` and injects it as the `AGENT_RUNTIME_ID` environment variable.
+
+```bash
+# Build the unified container (React assets + FastAPI) and deploy to Cloud Run
 make deploy-cloud-run
 ```
+*   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote reasoning engine instead of running the agent locally inside the container.
+
+---
+
+## CI/CD Pipeline Flow
+
+All of the deployment orchestration steps above are fully automated in our GitHub Actions workflows:
+- **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Vertex AI Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
+- **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run.
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
 

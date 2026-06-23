@@ -1828,3 +1828,34 @@ This ensures robust runaway protection, keeps project sweeps fast and noise-free
 5. **Dashboard Loading Race Condition Guard**: Prevented a startup race condition where a user could click the "Analyze Cost Spikes" button while the dashboard data was still loading (during which time the telemetry date resolved to the fallback `"23rd May"`). We now bind the button's active state to `isLoadingDashboard`, visually rendering it as `"Resolving Spikes..."` with disabled opacity and cursor locks until the telemetry resolves, completely eliminating premature queries.
 
 This ensures the conversational interface is perfectly synchronized with the active visualization layers, enabling a more natural and relevant analytical workflow! Hurrah!
+
+---
+
+### Managed Agent Runtime Migration
+
+**Problem**: The root agent was executing locally inside the FastAPI Backend for Frontend (BFF) container. While this simplified deployment initially, it made it difficult to scale the agent independently from the frontend, restricted our ability to leverage Vertex AI's managed execution, and coupled the UI web server with heavy reasoning and tool executions.
+
+**Resolution**: We migrated the **FinSavant** agent to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) and decoupled it from local execution in FastAPI.
+1. **Infrastructure (Terraform)**: Provisioned the `google_vertex_ai_reasoning_engine` resource shell in `deployment/terraform/service.tf` using a base64-encoded dummy source code tarball to avoid cold start provisioning issues, and configured dynamic `AGENT_RUNTIME_ID` injection into the Cloud Run environment.
+2. **IAM & Impersonation**: Configured role impersonation bindings allowing the Vertex AI service agent to assume the credentials of the application service account (`app_sa`) to safely invoke BigQuery, CAI, and Cloud Assist APIs.
+3. **Dynamic BFF Routing**: Updated `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, it gracefully falls back to local ADK runner execution.
+4. **Agent Runtime Wrapper**: Created `app/agent_runtime_app.py` to wrap our ADK root agent inside `AdkApp`, enabling standard operation exposure and logging.
+5. **CI/CD Pipeline Integration**: Updated the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
+
+This architecture decouples the stateless React web application from the AI reasoning backend while preserving unified container benefits and local testing fallbacks! Hurrah!
+
+---
+
+### Fallback and Execution Mode Visual Indicator
+
+**Problem**: Operators and developers running the application locally or in deployed environments had no way of seeing at a glance whether the BFF proxy was successfully routing queries to the remote Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) or falling back silently to local ReAct execution. This lack of transparency increased the risk of executing heavy queries against local emulators/credentials by mistake.
+
+**Resolution**: I added a dynamic, glassmorphic visual indicator badge to the React panel header:
+1. **BFF Status Endpoint**: Exposed a lightweight GET `/api/status` endpoint in [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) returning `mode: "remote"` (and the full resource ID) or `mode: "local"` depending on the presence of the `AGENT_RUNTIME_ID` environment variable.
+2. **React Integration**: Built a fetch hook in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) that retrieves this status payload on startup and updates local state.
+3. **Cyberpunk Status Badge**: Styled a badge inside the chat header using high-contrast themed HSL colors:
+   * **`IN-CONTAINER FALLBACK`** (amber `#F59E0B` background/border/glow) when running locally.
+   * **`VERTEX RUNTIME`** (neon green `#00F59B` background/border/glow) when pointing to a deployed reasoning engine, complete with a detailed tooltip showing the active resource ID on hover.
+
+This completes the migration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
+

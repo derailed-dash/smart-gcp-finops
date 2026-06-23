@@ -16,6 +16,7 @@ setup_telemetry()
 _, project_id = google.auth.default()
 logging_client = google_cloud_logging.Client()
 logger = logging_client.logger(__name__)
+_background_tasks = set()
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",")
     if os.getenv("ALLOW_ORIGINS")
@@ -81,6 +82,16 @@ async def get_global_runner_and_session():
         return _GLOBAL_RUNNER, _GLOBAL_SESSION
 
 
+@app.get("/api/status")
+def get_status() -> dict:
+    """Returns the operational status of the agent (local fallback vs remote runtime)."""
+    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
+    return {
+        "mode": "remote" if agent_runtime_id else "local",
+        "agent_runtime_id": agent_runtime_id
+    }
+
+
 @app.get("/api/dashboard")
 def get_dashboard(
     clientDay: int | None = None, clientMonthDays: int | None = None
@@ -116,15 +127,21 @@ async def chat_stream(request: Request):
     body = await request.json()
     message = body.get("message", "")
 
+    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
     runner, session = await get_global_runner_and_session()
 
     async def event_generator():
         # Yield initial status/reasoning chunk
+        initial_reasoning = (
+            "Routing query to Gemini Enterprise Agent Runtime...\n"
+            if agent_runtime_id
+            else "Step 1: Initialising dynamic billing table discovery...\nStep 2: Connected successfully. Spawning agent workflow...\n"
+        )
         yield (
             "data: "
             + json.dumps(
                 {
-                    "reasoning": "Step 1: Initialising dynamic billing table discovery...\nStep 2: Connected successfully. Spawning agent workflow...\n"
+                    "reasoning": initial_reasoning
                 }
             )
             + "\n\n"
@@ -153,9 +170,33 @@ async def chat_stream(request: Request):
             finally:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
-        import threading
+        async def run_remote_agent():
+            try:
+                import vertexai
+                from google.adk.events.event import Event
 
-        threading.Thread(target=run_agent_in_thread, daemon=True).start()
+                location = os.environ.get("GOOGLE_CLOUD_REGION", "europe-west1")
+                client = vertexai.Client(location=location)
+                agent_engine = client.agent_engines.get(name=agent_runtime_id)
+
+                async for event_dict in agent_engine.async_stream_query(
+                    message=message,
+                    user_id="default_user"
+                ):
+                    event = Event.model_validate(event_dict)
+                    await event_queue.put(event)
+            except Exception as e:
+                await event_queue.put(e)
+            finally:
+                await event_queue.put(None)
+
+        if agent_runtime_id:
+            task = asyncio.create_task(run_remote_agent())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+        else:
+            import threading
+            threading.Thread(target=run_agent_in_thread, daemon=True).start()
 
         seen_function_calls = set()
         seen_function_responses = set()
