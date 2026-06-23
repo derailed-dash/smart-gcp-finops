@@ -1859,3 +1859,28 @@ This architecture decouples the stateless React web application from the AI reas
 
 This completes the migration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
 
+---
+
+### Decoupled Remote Session Management & SessionNotFoundError Resolution
+
+**Problem**:
+After deploying to the staging environment, the Vertex AI Reasoning Engine (Gemini Enterprise Agent Runtime) failed to respond to any user chat queries, though the executive dashboard metrics loaded successfully. Staging container logs revealed the remote engine was throwing a `google.adk.errors.session_not_found_error.SessionNotFoundError: Session not found: ...` exception. 
+
+**The Cause**:
+In `app/fast_api_app.py`, the backend was unconditionally calling `runner, session = await get_global_runner_and_session()` on every chat request. This action set the active session ID context variable in the local thread/async environment. When making the downstream call to the remote reasoning engine using `agent_engine.async_stream_query()`, the Vertex SDK automatically intercepted and propagated this local session ID to the remote endpoint. Since the remote session store had no knowledge of this locally-generated in-memory session, it raised a `SessionNotFoundError` and stopped execution.
+
+**Resolution**:
+We decoupled the local runner execution context from the remote routing logic:
+1. **Conditional Local Initialisation**:
+   Modified [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) to wrap `get_global_runner_and_session()` inside an `if not agent_runtime_id:` check. This ensures that no local session context is initialised or propagated when routing to Vertex.
+2. **Lazy Remote Session Caching**:
+   Introduced thread-safe lazy remote session management (`_REMOTE_SESSION_ID` and `_REMOTE_SESSION_LOCK`) in the BFF. In remote mode, the BFF now calls `agent_engine.async_create_session(user_id="default_user")` dynamically to initialise and cache a valid session ID from the remote Vertex engine.
+3. **Self-Healing Session Recovery**:
+   Wrapped the remote query execution loop in a try-catch block for `SessionNotFoundError`. If the remote session ID expires or is deleted on the Vertex side, the BFF logs a warning, resets the cached session ID, and retries the query without a session ID to establish a new remote session.
+4. **Mock Testing Updates**:
+   Updated the test suite in [test_fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/tests/unit/test_fast_api_app.py) to mock `async_create_session` so that our tests correctly simulate remote session creation without triggering `MagicMock` coroutine errors.
+5. **Verification**:
+   Executed spelling checks, ruff lints, and unit tests (`pytest tests/unit/`), all of which passed cleanly.
+
+This resolves the staging session propagation bug, allowing multi-turn conversations to run on the remote reasoning engine with self-healing session persistence! Hurrah!
+
