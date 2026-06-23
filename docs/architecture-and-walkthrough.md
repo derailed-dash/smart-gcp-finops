@@ -47,6 +47,17 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 5. **Rich UI Response**: Agent returns `application/json+a2ui` payloads via Server-Sent Events (SSE).
 6. **Client Rendering**: React client renders interactive components based on the A2UI spec.
 
+### Hybrid Execution Mode (Local vs. Remote Agent Runtime)
+
+To facilitate seamless local development and robust managed execution, the system employs a **hybrid execution architecture** controlled by the `AGENT_RUNTIME_ID` environment variable:
+
+*   **Local Fallback Mode (`AGENT_RUNTIME_ID` is unset/empty)**:
+    *   **Trigger**: Default behavior when running the local backend (`make local-backend`), starting the playground (`make playground`), or running the Docker container locally (`make run`).
+    *   **Behavior**: FastAPI loads the agent logic directly from the Python codebase (`from app.agent import root_agent`). It runs the ADK engine locally in a dedicated background thread of the application process. All tools (BigQuery, CAI, etc.) are executed locally using the developer's Application Default Credentials (ADC).
+*   **Remote Execution Mode (`AGENT_RUNTIME_ID` is set)**:
+    *   **Trigger**: Deployed environments (Staging and Production Cloud Run services).
+    *   **Behavior**: FastAPI bypasses local execution and acts as a Backend-for-Frontend (BFF) proxy. It uses the `vertexai` client SDK to connect to the remote Reasoning Engine instance matching the `AGENT_RUNTIME_ID` resource name. User queries are streamed directly to the Vertex AI Agent Runtime, which manages agent execution and tool invocations remotely.
+
 ### Component Diagram
 
 ```text
@@ -236,6 +247,13 @@ The **Agent-to-UI (A2UI)** protocol decouples the backend agent's cognitive loop
 This architecture guarantees that the backend is fully **frontend-agnostic**:
 * **Platform Portability**: The same agent backend can power a React/Vite web application, a native iOS/Android mobile dashboard, or an administrative command-line interface. Each client simply implements an interpreter to map standard JSON elements (e.g. `type: "table"`, `type: "chart"`) to native rendering widgets.
 * **Independent Evolution**: The design system or front-end layout can be completely overhauled without changing a single line of Python agent code or altering tool logic.
+
+### Fallback & Execution Mode Visual Indicator
+To ensure full operational visibility for developers and operators, the React UI includes a visual execution indicator badge located in the main header of the chat panel. 
+* **State Check**: On initialisation, the React client queries the thin BFF status endpoint (`GET /api/status`).
+* **Visual Representation**:
+  * **In-Container Fallback (`mode: "local"`)**: Renders a glassmorphic amber pill badge labelled **`IN-CONTAINER FALLBACK`** (`#F59E0B`), indicating the agent is executing locally inside the BFF container using local Application Default Credentials (ADC).
+  * **Vertex Runtime (`mode: "remote"`)**: Renders a glowing neon-green badge labelled **`VERTEX RUNTIME`** (`#00F59B`), indicating the BFF is proxying queries to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine). Hovering over this badge displays the active Reasoning Engine resource name.
 
 ---
 

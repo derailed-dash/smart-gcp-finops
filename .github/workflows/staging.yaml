@@ -50,7 +50,38 @@ jobs:
             .
           docker push ${{ vars.REGION }}-docker.pkg.dev/${{ vars.CICD_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPO_NAME }}/${{ vars.CONTAINER_NAME }}
 
-      - name: Deploy to Staging (Cloud Run)
+      - name: Install uv and google-agents-cli
+        run: |
+          pip install uv
+          uv pip install google-agents-cli --system
+
+      - name: Export requirements for Agent Runtime
+        run: |
+          uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
+
+      - name: Deploy to Agent Runtime (Staging)
+        run: |
+          uvx google-agents-cli deploy \
+            --deployment-target agent_runtime \
+            --no-confirm-project \
+            --project ${{ vars.STAGING_PROJECT_ID }} \
+            --region ${{ vars.REGION }} \
+            --service-account ${{ vars.APP_SERVICE_ACCOUNT_STAGING }} \
+            --service-name ${{ vars.CONTAINER_NAME }}-backend \
+            --update-env-vars GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }}
+
+      - name: Extract Agent Runtime ID
+        run: |
+          if [ -f deployment_metadata.json ]; then
+            AGENT_RUNTIME_ID=$(jq -r '.remote_agent_runtime_id' deployment_metadata.json)
+            echo "AGENT_RUNTIME_ID=$AGENT_RUNTIME_ID" >> $GITHUB_ENV
+            echo "Extracted Agent Runtime ID: $AGENT_RUNTIME_ID"
+          else
+            echo "deployment_metadata.json not found!"
+            exit 1
+          fi
+
+      - name: Deploy to Staging (Cloud Run BFF)
         run: |
           gcloud run deploy smart-gcp-finops \
             --image ${{ vars.REGION }}-docker.pkg.dev/${{ vars.CICD_PROJECT_ID }}/${{ vars.ARTIFACT_REGISTRY_REPO_NAME }}/${{ vars.CONTAINER_NAME }} \
@@ -61,7 +92,7 @@ jobs:
             --min-instances ${{ vars.STAGING_MIN_INSTANCES }} \
             --cpu-boost \
             --no-allow-unauthenticated \
-            --update-env-vars GOOGLE_CLOUD_PROJECT=${{ vars.STAGING_PROJECT_ID }},GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},COMMIT_SHA=${{ github.sha }},LOG_LEVEL=INFO \
+            --update-env-vars GOOGLE_CLOUD_PROJECT=${{ vars.STAGING_PROJECT_ID }},GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},COMMIT_SHA=${{ github.sha }},LOG_LEVEL=INFO,AGENT_RUNTIME_ID=${{ env.AGENT_RUNTIME_ID }} \
             --iap
 
 

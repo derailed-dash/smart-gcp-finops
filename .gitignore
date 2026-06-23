@@ -206,3 +206,4 @@ tools/a2a-inspector/
 
 gha-creds-*.json
 /deployment/terraform/vars/env.tfvars
+deployment_metadata.json

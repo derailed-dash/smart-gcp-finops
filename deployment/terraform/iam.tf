@@ -137,3 +137,38 @@ resource "google_organization_iam_member" "organization_asset_viewer" {
   role   = "roles/cloudasset.viewer"
   member = "serviceAccount:${google_service_account.app_sa[each.key].email}"
 }
+
+# 8. Resolve the Vertex AI service agent
+resource "google_project_service_identity" "vertex_sa" {
+  provider = google-beta
+  for_each = local.deploy_project_ids
+
+  project = each.value
+  service = "aiplatform.googleapis.com"
+}
+
+# 9. Allow the Vertex AI service agent to act as the application service account (impersonation)
+resource "google_service_account_iam_member" "vertex_agent_runtime_impersonation" {
+  for_each = local.deploy_project_ids
+
+  service_account_id = google_service_account.app_sa[each.key].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = google_project_service_identity.vertex_sa[each.key].member
+}
+
+# 10. Grant the same application SA roles to the Vertex AI service agent for Reasoning Engine execution
+resource "google_project_iam_member" "vertex_ai_sa_permissions" {
+  for_each = {
+    for pair in setproduct(keys(local.deploy_project_ids), var.app_sa_roles) :
+    join(",", pair) => {
+      project = local.deploy_project_ids[pair[0]]
+      role    = pair[1]
+    }
+  }
+
+  project    = each.value.project
+  role       = each.value.role
+  member     = google_project_service_identity.vertex_sa[split(",", each.key)[0]].member
+  depends_on = [resource.google_project_service.deploy_project_services]
+}
+
