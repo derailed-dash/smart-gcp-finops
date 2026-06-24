@@ -1706,6 +1706,10 @@ We integrated the managed Gemini Cloud Assist MCP server and established a stric
    * **Structured Asset Auditing & RCA Route**: Calls only the local CAI and zombie tools (`list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`).
    * **Conceptual Reference Route**: Calls only the Google Developer Knowledge MCP tools (`answer_query` or `search_documents`).
 
+   Here is the visual diagram illustrating our Model Context Protocol (MCP) routing decision tree structure:
+
+   ![Model Context Protocol (MCP) Routing Decision Tree](./images/mcp_routing_architecture.png)
+
 3. **Code Quality and Type Checking Verification**:
    * Refactored [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to resolve python type hints (using union types `LlmRequest | None`) flagged by the strict type-checker `ty`.
    * Executed formatting and quality controls (`make lint`) which completed successfully with zero spelling, linting, or formatting errors.
@@ -1841,6 +1845,11 @@ This ensures the conversational interface is perfectly synchronized with the act
 3. **BFF Routing**: Programmed `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, for local development, it gracefully falls back to local ADK runner execution.
 4. **Agent Runtime Wrapper**: Created `app/agent_runtime_app.py` to wrap our ADK root agent inside `AdkApp`, enabling standard operation exposure and logging.
 5. **CI/CD Pipeline Integration**: Configured the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
+6. **Automatic Agent Registry Enrollment**: Because Gemini Enterprise Agent Runtime is a first-class supported runtime on the Gemini Enterprise Agent Platform, deploying our reasoning engine automatically registers our agent in the central **Agent Registry**. Any updates or deletions we deploy are automatically synchronized in real-time. This provides an enterprise-wide "Agent Catalog" view directly within the Google Cloud console under **Agent Platform Deployments** without writing any extra registration code!
+
+Here is how our deployed agent appears in the Console registry view:
+
+![Deployed Agents in Agent Registry](./images/agent-registry.jpg)
 
 This architecture decouples the stateless React web application from the AI reasoning backend while preserving unified container benefits and local testing fallbacks! Hurrah!
 

@@ -29,7 +29,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Semantic Caching** | Accepted | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
 | **Visual Sync Overlay** | Accepted | Added a glassmorphic vertical scanning overlay inside `App.tsx` that triggers automatically when the JSON A2UI payload is streaming. Rationale: Solves the UX "frozen visual state" by clearly indicating to the user that the canvas data is actively synchronising. |
 | **CI/CD Variable Sync** | Accepted | Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
-| **Agent Runtime Hosting** | Accepted | Adopted Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, and native Vertex AI agent management. |
+| **Agent Runtime Hosting** | Accepted | Adopted Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Vertex AI agent management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
 
 
 
@@ -58,6 +58,7 @@ To facilitate seamless local development and robust managed execution, the syste
 *   **Remote Execution Mode (`AGENT_RUNTIME_ID` is set)**:
     *   **Trigger**: Deployed environments (Staging and Production Cloud Run services).
     *   **Behavior**: FastAPI bypasses local execution and acts as a Backend-for-Frontend (BFF) proxy. It uses the `vertexai` client SDK to connect to the remote Reasoning Engine instance matching the `AGENT_RUNTIME_ID` resource name. User queries are streamed directly to the Vertex AI Agent Runtime, which manages agent execution and tool invocations remotely.
+*   **Automatic Agent Registry Cataloging**: When deployed in Remote Execution Mode, the agent is automatically enrolled in the Google Cloud Console **Agent Registry** catalog (found under **Agent Platform Deployments**). This registration requires zero manual API or configuration calls; the Gemini Enterprise Agent Platform auto-synchronizes URN mapping (e.g. `urn:agent:...`) and deployment metrics in real-time, providing immediate centralized cataloging and administrative visibility for organizational governance.
 
 ### Component Diagram
 
