@@ -22,6 +22,7 @@ locals {
     "serviceusage.googleapis.com",
     "logging.googleapis.com",
     "cloudtrace.googleapis.com",
+    "monitoring.googleapis.com",
     "telemetry.googleapis.com",
     "iap.googleapis.com",
     "cloudbilling.googleapis.com",

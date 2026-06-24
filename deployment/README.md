@@ -80,7 +80,9 @@ For local development and container runtime, configuration is driven by variable
 | `MODEL` | GenAI Reasoning | The primary model ID used by the ADK agent for cost analysis (e.g., `gemini-3.5-flash`). |
 | `FAST_MODEL` | GenAI Caching / Routing | The lite model ID used for semantic caching and request classification (e.g., `gemini-3.1-flash-lite`). |
 | `GOOGLE_CLOUD_ORGANIZATION` | Infrastructure Scope | (Optional) The numeric ID of the Google Cloud Organization to enable Org-wide Cloud Asset searches. |
-
+| `OTEL_TO_CLOUD` | Telemetry / Tracing | Set to `true` to export OpenTelemetry traces to Google Cloud Trace. |
+| `OTEL_SERVICE_NAME` | Telemetry / Tracing | Logical service name used to identify the trace originator (e.g. `smart-gcp-finops-local`). |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Telemetry / Privacy | Controls log content mode: set to `true` in dev/staging to capture full text prompts, and `NO_CONTENT` in production for data privacy. |
 
 ### 3. Google Cloud API Pre-requisites
 

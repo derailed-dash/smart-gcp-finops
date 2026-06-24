@@ -1893,3 +1893,25 @@ We decoupled the local runner execution context from the remote routing logic:
 
 This resolves the staging session propagation bug, allowing multi-turn conversations to run on the remote reasoning engine with self-healing session persistence! Hurrah!
 
+---
+
+### Standard ADK Telemetry & OpenTelemetry Instrumentation
+
+**Problem**:
+While our application had basic logging capabilities, the agent lacked structured OpenTelemetry (OTel) instrumentation for distributed tracing, metrics, and GenAI SDK message capturing. To gain deep observability (e.g. tracking latency, span hierarchies, and tool execution flows) in both local development and deployed Vertex AI/Cloud Run environments, we needed to implement standard ADK telemetry.
+
+**Resolution**:
+We configured and integrated standard ADK telemetry and OpenTelemetry instrumentation:
+1. **API Enablement & Resource Config (Terraform)**:
+   * Added `monitoring.googleapis.com` (Cloud Monitoring API) to the `deploy_project_services` list in [locals.tf](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/deployment/terraform/locals.tf) to support OTel metric exporting.
+   * Updated [service.tf](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/deployment/terraform/service.tf) to inject standard telemetry environment variables `OTEL_SERVICE_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` to both the Cloud Run service and the Vertex AI Reasoning Engine.
+   * Configured `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` conditionally based on the environment tier (`"NO_CONTENT"` in production for data privacy, and `"true"` in staging/development to capture full GenAI prompts and responses).
+2. **Standard OTel Telemetry Setup**:
+   * Updated `setup_telemetry()` in [telemetry.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/app_utils/telemetry.py) to import `get_gcp_exporters`, `get_gcp_resource`, and `maybe_set_otel_providers` from `google.adk.telemetry`.
+   * Programmatically registered standard Google Cloud exporters for Cloud Trace and Cloud Logging when running in a serverless environment or when `OTEL_TO_CLOUD=true` is enabled.
+   * Hooked the Google GenAI SDK into the OpenTelemetry span lifecycle by programmatically calling `GoogleGenAiSdkInstrumentor().instrument()`.
+3. **Verification & Quality Control**:
+   * Ran `make test` and verified all 44 unit tests pass successfully.
+   * Executed formatting and linting controls (`uvx codespell` and `uvx ruff`) to ensure clean code standards.
+
+This enables out-of-the-box distributed tracing and monitoring for all agent runs, tool calls, and model interactions, providing a clear window into our agent's cognitive trajectories! Hurrah!

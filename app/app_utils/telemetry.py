@@ -19,10 +19,7 @@ def setup_telemetry() -> str | None:
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false"
     )
     if bucket and capture_content != "false":
-        logging.info(
-            "Prompt-response logging enabled - mode: NO_CONTENT (metadata only, no prompts/responses)"
-        )
-        os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
+        logging.info("Prompt-response logging enabled - mode: %s", capture_content)
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_UPLOAD_FORMAT", "jsonl")
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK", "upload")
         os.environ.setdefault(
@@ -42,5 +39,53 @@ def setup_telemetry() -> str | None:
         logging.info(
             "Prompt-response logging disabled (set LOGS_BUCKET_NAME=gs://your-bucket and OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT to enable)"
         )
+
+    # Configure OpenTelemetry standard ADK telemetry (tracing, logging, metrics)
+    otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
+        os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
+    )
+
+    if otel_to_cloud:
+        try:
+            import google.auth
+            from google.adk.telemetry.google_cloud import (
+                get_gcp_exporters,
+                get_gcp_resource,
+            )
+            from google.adk.telemetry.setup import maybe_set_otel_providers
+
+            # Ensure OTEL_SERVICE_NAME is set
+            if not os.environ.get("OTEL_SERVICE_NAME"):
+                os.environ["OTEL_SERVICE_NAME"] = "smart-gcp-finops"
+
+            credentials, project_id = google.auth.default()
+            gcp_exporters = get_gcp_exporters(
+                enable_cloud_tracing=True,
+                enable_cloud_logging=True,
+                enable_cloud_metrics=False,
+                google_auth=(credentials, project_id),
+            )
+            otel_resource = get_gcp_resource(project_id)
+
+            maybe_set_otel_providers(
+                otel_hooks_to_setup=[gcp_exporters],
+                otel_resource=otel_resource,
+            )
+            logging.info(
+                "Standard ADK Telemetry initialized with Google Cloud exporters."
+            )
+        except Exception as e:
+            logging.error("Failed to initialize standard ADK Telemetry: %s", e)
+
+    # Call instrumentation for Google GenAI SDK if installed
+    try:
+        from opentelemetry.instrumentation.google_genai import (
+            GoogleGenAiSdkInstrumentor,
+        )
+
+        GoogleGenAiSdkInstrumentor().instrument()
+        logging.info("Google GenAI SDK instrumented successfully.")
+    except Exception as e:
+        logging.warning("Failed to instrument Google GenAI SDK: %s", e)
 
     return bucket

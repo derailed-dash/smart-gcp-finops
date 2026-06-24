@@ -265,6 +265,61 @@ To verify that the unified frontend and backend container builds correctly and s
     *   **Success Criteria**: The browser must display your custom React dashboard (the **Emerald Cyber** interface) and NOT the default ADK Web UI developer interface.
     *   Verify that API requests and chat functionality are fully operational.
 
+### Telemetry & OpenTelemetry Tracing Verification
+
+Standard ADK telemetry and OpenTelemetry tracing are integrated into the application startup sequence. This section explains how tracing works under the hood and how to verify and debug it using a local instance or in the cloud.
+
+#### How Tracing Works Under the Hood
+
+The application telemetry is configured in [telemetry.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/app_utils/telemetry.py) and initialised during backend startup (in [fast_api_app.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/fast_api_app.py) and [agent_runtime_app.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/agent_runtime_app.py)).
+
+1. **Standard ADK Tracing & Logging**: If `OTEL_TO_CLOUD` is set to `"true"` (or when running on Cloud Run), the app uses standard `google.adk.telemetry` APIs to configure Google Cloud Trace and Cloud Logging exporters. This is safely initialised via `maybe_set_otel_providers()`, which ensures existing global OpenTelemetry providers are not overridden.
+2. **GenAI SDK Instrumentation**: The `GoogleGenAiSdkInstrumentor` from `opentelemetry.instrumentation.google_genai` is loaded to instrument all Gemini model calls. This captures detailed metrics and span events for model queries.
+3. **Payload Capture & Logging Hook**:
+   - If `LOGS_BUCKET_NAME` is configured and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` is not `"false"`, the app configures an upload completion hook to save full prompt/response contents as JSONL files directly to the GCS bucket at `gs://{LOGS_BUCKET_NAME}/completions`.
+   - In **Dev/Staging**, payload capture is set to `"true"` to record full text prompts and responses in spans and logs.
+   - In **Production**, payload capture is set to `"NO_CONTENT"` to restrict span attributes to metadata only, protecting sensitive customer or billing information.
+
+#### Verifying Tracing in Local Development
+
+For ease of use, all telemetry environment variables are already defined in the local [.env](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/.env) file:
+*   `OTEL_TO_CLOUD="true"`: Enables OpenTelemetry trace export to Google Cloud Trace.
+*   `OTEL_SERVICE_NAME="smart-gcp-finops-local"`: The logical service identifier.
+*   `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`: Captures full prompt-response text.
+
+To run and verify local tracing:
+
+1. **Authenticate Application Default Credentials (ADC)**:
+   Ensure your shell is authenticated so the local OpenTelemetry exporters can push traces to Google Cloud:
+   ```bash
+   gcloud auth application-default login
+   ```
+2. **Load the Environment**:
+   If using `direnv`, the environment is loaded automatically. Otherwise, source the setup script:
+   ```bash
+   source scripts/setup-env.sh
+   ```
+   This script loads the `.env` variables and configures your active gcloud project/quota project.
+3. **Start the Backend**:
+   ```bash
+   make run-backend
+   ```
+4. **Generate Traces**:
+   Query the agent via the frontend chat interface, the CLI, or by sending a request to the SSE endpoint. For example:
+   ```bash
+   curl -N -X POST http://localhost:8000/run_sse \
+     -H "Content-Type: application/json" \
+     -d '{"new_message": {"parts": [{"text": "What was our monthly spend for Compute Engine?"}]}}'
+   ```
+5. **View Traces in Google Cloud Console**:
+   * Open the [Google Cloud Trace Explorer](https://console.cloud.google.com/trace/trace-list) for your configured project (`finops-admin-dev`).
+   * Filter traces by Service Name: `smart-gcp-finops-local`.
+   * You will see the timeline of spans mapping the full execution path, including:
+     - `invocation`: The entry point span.
+     - `agent_run`: The ADK agent orchestration process.
+     - `call_llm`: The model call span, showing prompt tokens and latency.
+     - `execute_tool`: Individual tool executions (e.g. executing BigQuery queries or listing assets).
+   * Click on individual spans to view their attributes. In local/dev runs, you will see the full prompt and response content under `gen_ai.prompt` and `gen_ai.completion` attributes.
 
 ## Mocking Strategies
 

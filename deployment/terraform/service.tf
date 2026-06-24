@@ -45,7 +45,12 @@ resource "google_cloud_run_v2_service" "app" {
 
       env {
         name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-        value = "NO_CONTENT"
+        value = each.key == "prod" ? "NO_CONTENT" : "true"
+      }
+
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "${var.project_name}-${each.key}"
       }
 
       env {
@@ -233,6 +238,16 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
       env {
         name  = "GOOGLE_CLOUD_ORGANIZATION"
         value = var.google_cloud_organization_id
+      }
+
+      env {
+        name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+        value = each.key == "prod" ? "NO_CONTENT" : "true"
+      }
+
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "${var.project_name}-${each.key}-backend"
       }
     }
 
