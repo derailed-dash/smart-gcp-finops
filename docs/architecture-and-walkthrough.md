@@ -212,7 +212,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 #### 2. Latency-Aware Agent Routing Flow
 
-To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) injects a strict classification tree.
+To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../app/agent.py) injects a strict classification tree.
 
 The agent evaluates the incoming prompt and routes it into one of four mutually exclusive execution lanes, actively blocking/banning the tools belonging to other routes:
 

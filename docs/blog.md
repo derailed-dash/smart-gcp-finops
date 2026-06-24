@@ -55,7 +55,7 @@ This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dyna
 33. Enhanced turn-level ADK cache by normalising user query cache keys (lowercase, space-compressed, trimmed) to guarantee robust matching regardless of trailing whitespace or case differences.
 34. Resolved critical PR #7 bugs: refactored GCP credentials into a centralized, reusable helper; fixed `types.Part` instantiation to conform to the new `google-genai` SDK; re-architected FastAPI SSE streaming to use a non-blocking `asyncio.Queue`; and implemented optional chaining across React KPI rendering to prevent UI crashes under dynamic payloads.
 35. Upgraded `google-adk` to version `1.34.1` (and `google-genai` to `1.75.0`), completely eliminating the internal `session_context` concurrency warning (`Error on session runner task`) from backend logs.
-36. Restored thread-isolated queue producer streaming architecture in [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) using a background thread and `asyncio.Queue`, resolving uvicorn and gRPC event-loop conflicts that caused silent streaming crashes.
+36. Restored thread-isolated queue producer streaming architecture in [fast_api_app.py](../app/fast_api_app.py) using a background thread and `asyncio.Queue`, resolving uvicorn and gRPC event-loop conflicts that caused silent streaming crashes.
 37. Resolved a critical integration test failure (405 Method Not Allowed on `/apps/app/users/{user_id}/sessions`) by removing the trailing slash from `BASE_URL` in `test_server_e2e.py`, preventing double-slash path matching issues in Starlette/FastAPI's router.
 
 ## Deep Dives
@@ -939,7 +939,7 @@ This immediately clarifies all conversational replies, ensuring that every finan
 
 **Problem**: A stray set of three backticks (` ``` `) was rendering in the very bottom-left corner of the web page.
 
-**Resolution**: Upon inspecting [index.html](file:///home/dazbo/localdev/smart-gcp-finops/frontend/index.html) in the frontend root directory, we discovered that the file ended with a markdown code fence close tag (` ``` `) placed outside the closing `</html>` tag. This was likely an accidental leftover from a previous code generation step. The browser parsed this extra text and appended it to the bottom-left of the viewport. We cleanly removed the trailing backticks from `index.html` and triggered a fresh Vite production build to update the static distribution bundle.
+**Resolution**: Upon inspecting [index.html](../frontend/index.html) in the frontend root directory, we discovered that the file ended with a markdown code fence close tag (` ``` `) placed outside the closing `</html>` tag. This was likely an accidental leftover from a previous code generation step. The browser parsed this extra text and appended it to the bottom-left of the viewport. We cleanly removed the trailing backticks from `index.html` and triggered a fresh Vite production build to update the static distribution bundle.
 
 This completely resolves the visual noise, leaving a beautifully clean, aerospace-style cyber-dashboard! Hurrah!
 
@@ -949,7 +949,7 @@ This completely resolves the visual noise, leaving a beautifully clean, aerospac
 
 **Problem**: The "DATASET: standard_export_bq_prd" label on the right side of the navigation bar sat too close to and risked overlapping with the "Active Optimisation" tab button on narrower viewports.
 
-**Resolution**: We updated the stylesheet properties inline inside the navigation container in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx):
+**Resolution**: We updated the stylesheet properties inline inside the navigation container in [App.tsx](../frontend/src/App.tsx):
 1.  **Guaranteed Breathing Room**: Added `marginLeft: '24px'` to enforce a clean physical separation between the tab items and the dataset metadata indicator.
 2.  **Layout Resiliency**: Configured `whiteSpace: 'nowrap'` to prevent the label from awkwardly wrapping onto a new line during browser viewport resizing.
 
@@ -961,7 +961,7 @@ This provides the perfect touch of dynamic spacing and layout resiliency! Hurrah
 
 **Problem**: The "Daily Cost Trend across Environments" stacked vector area chart lacked a Y-axis and numerical labels, making the visual curves completely uninterpretable as the user couldn't gauge the actual dollar magnitudes represented by the peaks and troughs.
 
-**Resolution**: We replaced the static horizontal SVG line divisions with a mathematically clean dynamic Y-axis gridline and label generator inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx):
+**Resolution**: We replaced the static horizontal SVG line divisions with a mathematically clean dynamic Y-axis gridline and label generator inside [App.tsx](../frontend/src/App.tsx):
 1.  **Dashed Grid Intervals**: Generated 5 horizontal gridlines divided evenly at 0%, 25%, 50%, 75%, and 100% of the dynamically calculated peak environment cost (`maxY`). The gridlines are styled with a clean `strokeDasharray="3 3"` (except for the zero baseline).
 2.  **Dynamic Dollar Labels**: Computed matching vertical value labels right-aligned (`textAnchor="end"`) to the left of the chart area.
 3.  **Magnitude Compaction**: If costs scale above $1,000, labels auto-compact to compact notation (e.g. `$1.2k`) for a highly polished, clean visual interface.
@@ -975,9 +975,9 @@ This transforms the line chart into an instantly readable, highly informative te
 **Problem**: The daily cost trend chart grouped costs by general environment classification (`dev`, `staging`, `prod`). This was less informative than seeing which actual GCP services (e.g. `Cloud Run`, `Gemini API`, `Vertex AI`) were driving daily variations. Furthermore, the vertical scaling was overly compressed (with curves hovering near the bottom) because `maxY` was hardcoded to a minimum fallback of `$10.00` regardless of the actual peak cost magnitudes (which were under `$1.50`).
 
 **Resolution**: We completely refactored the query, processing, and visual plotting systems:
-1.  **Backend Services Query**: Updated the standard billing BQ query in [dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py) to select and group daily costs by `service.description`.
+1.  **Backend Services Query**: Updated the standard billing BQ query in [dashboard_data.py](../app/app_utils/dashboard_data.py) to select and group daily costs by `service.description`.
 2.  **Top n Services Aggregator**: Developed an intelligent parser that identifies the top 3 most expensive services over the 14-day timeline, summarizes all remaining smaller service spends under an "Other" category, and exposes these categories dynamically under the new `topServices` payload key.
-3.  **Dynamic Legend and Line Plotting**: Refactored the UI in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to map the legend, curves, and shading dynamically over whatever keys exist in `topServices`, completely removing static, hardcoded variables.
+3.  **Dynamic Legend and Line Plotting**: Refactored the UI in [App.tsx](../frontend/src/App.tsx) to map the legend, curves, and shading dynamically over whatever keys exist in `topServices`, completely removing static, hardcoded variables.
 4.  **Auto-Adaptive Spacing and Headroom**: Replaced the hardcoded `$10` minimum Y-scale with a responsive calculator `maxY = rawMaxY * 1.15` that computes the actual timeline peak and adds a standard 15% headroom to give the lines premium breathing space.
 5.  **Smart Pulse Indicators**: Wired the pulsing spike dot and grid labels to adapt dynamically to the exact color of whichever top service had the highest peak.
 
@@ -989,7 +989,7 @@ This delivers a state-of-the-art, beautifully scaled financial chart that adapts
 
 **Problem**: The conversational chatbot UI was rendering markdown tables (like daily spend breakdowns) as raw text paragraphs separated by pipes. The lightweight formatter lacked table element state machine routing, creating an unformatted, unreadable blob of vertical bars.
 
-**Resolution**: We extended the React `renderMarkdown` parser in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) with a high-fidelity table state machine:
+**Resolution**: We extended the React `renderMarkdown` parser in [App.tsx](../frontend/src/App.tsx) with a high-fidelity table state machine:
 1.  **Consecutive Row Batching**: Implemented sequential line evaluation that dynamically accumulates any contiguous blocks of text starting and ending with pipe boundaries (`|`).
 2.  **Separator Grid Filtering**: Built standard regex sweeps to automatically identify and drop unstyled layout separators (like `| :--- |`).
 3.  **Dynamic Numerical Right-Alignment**: Implemented automatic column type-scanning that checks if the cell content is numeric or a dollar amount, dynamically right-aligning costs (`text-align: right`) with custom mono formatting, while keeping text left-aligned.
@@ -1003,7 +1003,7 @@ This elevates the chatbot visual output, converting raw data streams into gorgeo
 
 **Problem**: The "GCP Cross-Project Billing Explorer" table was displaying `finops-admin-473520` (the central FinOps admin project) for *all* services, including the Gemini API, Cloud Run, Vertex AI, and Translate. Upon investigation, we discovered that standard service-level aggregation queries (such as asking for "top cost drivers") only selected `service.description` and `SUM(cost)` without including `project.id` in the `SELECT` or `GROUP BY` clauses. Lacking actual project-level results but required by the A2UI spec to provide a `project` key, the ADK agent defaulted the `project` key to the only project ID in its immediate context (`finops-admin-473520`). This resulted in a highly misleading UI where all costs appeared to reside in the admin project.
 
-**Resolution**: We solved this with a two-part alignment strategy in [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py):
+**Resolution**: We solved this with a two-part alignment strategy in [agent.py](../app/agent.py):
 1.  **Dual-Column Aggregation**: Refactored the core BigQuery SQL examples and instructions, commanding the agent to select and group by BOTH `project.id` and `service.description` (e.g. `SELECT project.id, service.description, SUM(cost) ... GROUP BY 1, 2`) whenever asked for top cost drivers or explorer pivots. This forces the agent to query and return the true, real-time cross-project footprint (such as `scratch-dev-428715` for Gemini API).
 2.  **Omit/Empty Project Column Logic**: Instructed the agent that if it ever runs a pure, service-only aggregation (where no project ID context exists), it must set the `"project"` field in the A2UI data list to an empty string (`""`). The frontend's dynamic project column check (`showProjectColumn = explorerData.some(...)`) then seamlessly hides the project ID column, preventing any false association with the admin project.
 
@@ -1015,7 +1015,7 @@ This aligns the conversational projections with the actual database financial re
 
 **Problem**: Navigating to the Cost Explorer tab, asking the agent for a custom cost query (which overwrites the active canvas payload with a flat array of explorer rows), and subsequently clicking back to the "Executive Dashboard" tab triggered a critical React runtime TypeError. The canvas tried to evaluate `activePayload.data.mtdSpend.toLocaleString()`, but since the active payload had been replaced by the custom array of explorer rows, `activePayload.data` was a flat array instead of the dashboard object. Because `mtdSpend` was `undefined`, calling `.toLocaleString()` crashed the app, causing it to render a completely blank/black page.
 
-**Resolution**: We refactored the frontend state routing in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to completely decouple default executive telemetry from temporary conversational projections:
+**Resolution**: We refactored the frontend state routing in [App.tsx](../frontend/src/App.tsx) to completely decouple default executive telemetry from temporary conversational projections:
 1.  **Dedicated Persisted State**: Introduced a new React state `dashboardData` that permanently caches the default executive metrics fetched from `/api/dashboard` on startup.
 2.  **Smart Render Fallback**: Developed a clean evaluation helper `dashboardRenderData` that checks if the active canvas payload is actually a valid dashboard object. If not (such as when a custom chat-driven explorer or recommendations array is loaded), it cleanly falls back to the persisted `dashboardData` state.
 3.  **Unified KPI and Chart Binding**: Refactored the KPI grid cards and custom SVG area chart calculations to bind exclusively to `dashboardRenderData` instead of `activePayload.data`, completely insulating the dashboard UI from flat arrays.
@@ -1046,7 +1046,7 @@ This completely resolves the navigation state crash, delivering a bulletproof, p
    ```
 4. **Real-time SSE Interception**: The FastAPI backend streams the agent's text response using Server-Sent Events (SSE). The frontend's stream handler scans the incoming text chunks. As soon as it detects the closed `json+a2ui` block, it programmatically intercepts and parses the payload.
 5. **Decoupled State Propagation**: The parsed payload updates the React `activePayload` state. The canvas panel registers this update, automatically switches active tabs (if needed), and passes the fresh metrics to the chart rendering subroutines.
-6. **Dynamic Vector Computation**: Inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx), custom SVG curve builders take the fresh daily records:
+6. **Dynamic Vector Computation**: Inside [App.tsx](../frontend/src/App.tsx), custom SVG curve builders take the fresh daily records:
    - **Auto-Scale Headroom**: Evaluates the maximum cost value `rawMaxY` across the new timeline, adding a 15% scaling margin to set the Y-axis headroom dynamically.
    - **Glow Vector Mapping**: Loops over the dynamic `topServices` keys and generates neon-green (`primary`) and neon-teal (`tertiary`) SVG path descriptions (`d="M20,180 L80,120..."`) using standard proportional multipliers.
    - **Spike Node Tracking**: Traces the coordinate grid to place a glowing, pulsing indicator circle precisely over the peak spike value.
@@ -1059,7 +1059,7 @@ This enables the agent to "program" the web interface on the fly, transforming a
 
 **Problem**: The initial daily cost trend line chart was described as "low resolution" because it drew simple linear slopes between sparse dates. This visual behavior masked sharp single-day financial spikes (making them appear like gradual multi-day ascents/descents). Furthermore, the chart lacked a Y-axis label or title, making it difficult to immediately recognize the currency metrics.
 
-**Resolution**: We upgraded the visual telemetry engine inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to render a gorgeous, state-of-the-art hybrid bar-line chart:
+**Resolution**: We upgraded the visual telemetry engine inside [App.tsx](../frontend/src/App.tsx) to render a gorgeous, state-of-the-art hybrid bar-line chart:
 1.  **Rotated Y-Axis Label**: Added a high-precision vertical rotated label (`"SPEND (USD)"`) on the left margin, styled in clean monospace capital typography (`fontFamily="var(--font-mono)" letterSpacing="0.05em"`).
 2.  **Shifted Chart Grid Bounds**: Shifted the horizontal gridline starting boundaries and coordinate calculations from X=`20-680` to X=`50-670`. This provides 30 additional pixels of breathing space on the left, perfectly separating the new vertical title and numeric dollar values from the data curves.
 3.  **Dynamic Stacked Cost Bars**: Built a dynamic stacked bar chart generator (`<rect>`) positioned directly behind the glowing line curves. For each calendar day:
@@ -1076,9 +1076,9 @@ This transforms the cost telemetry canvas into a premium, TradingView-grade mult
 **Problem**: The application had hardcoded UK Pound (`£`) markers across the UI dashboard metrics, KPI cards, and charts, which did not support dynamic billing currency shifts. Furthermore, when the rotated Y-axis label was introduced, it was placed too close to the cost values. Most critically, because the vertical cost bars were stacked in the background, their heights combined on heavy spending days, causing them to spill out of the SVG boundaries at the top and overlap awkwardly with the HTML legend and title, while their height didn't map to the individual trend lines.
 
 **Resolution**: We implemented a complete end-to-end dynamic currency determination model and refactored the layout structures:
-1.  **Dynamic BQ Currency Discovery**: Modified [dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py) to query the active billing account's primary currency directly from the standard BigQuery billing export table (reading the `currency` column). The dynamic currency code is now exposed in the `/api/dashboard` JSON payload under the new `"currency"` key (with a robust fallback to `"GBP"` if no billing records are found).
-2.  **Universal UI Currency Formatting**: Refactored [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to automatically resolve a reactive `currencySymbol` (mapping `GBP` $\rightarrow$ `£`, `USD` $\rightarrow$ `$`, `EUR` $\rightarrow$ `€`, etc.). All hardcoded `£` markers across KPI cards, opportunities cards, axis grids, and explorer pivot tables were replaced with `{currencySymbol}`, allowing the UI to instantly adapt to any global currency standard.
-3.  **Conversational Agent Alignment**: Updated `AGENT_INSTRUCTION` in [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to instruct the AI agent to dynamically inspect the `currency` column of the billing tables and express all costs in the correct active billing currency in its chat responses.
+1.  **Dynamic BQ Currency Discovery**: Modified [dashboard_data.py](../app/app_utils/dashboard_data.py) to query the active billing account's primary currency directly from the standard BigQuery billing export table (reading the `currency` column). The dynamic currency code is now exposed in the `/api/dashboard` JSON payload under the new `"currency"` key (with a robust fallback to `"GBP"` if no billing records are found).
+2.  **Universal UI Currency Formatting**: Refactored [App.tsx](../frontend/src/App.tsx) to automatically resolve a reactive `currencySymbol` (mapping `GBP` $\rightarrow$ `£`, `USD` $\rightarrow$ `$`, `EUR` $\rightarrow$ `€`, etc.). All hardcoded `£` markers across KPI cards, opportunities cards, axis grids, and explorer pivot tables were replaced with `{currencySymbol}`, allowing the UI to instantly adapt to any global currency standard.
+3.  **Conversational Agent Alignment**: Updated `AGENT_INSTRUCTION` in [agent.py](../app/agent.py) to instruct the AI agent to dynamically inspect the `currency` column of the billing tables and express all costs in the correct active billing currency in its chat responses.
 4.  **Transition to Dynamic Stacked Area Chart & Stacked Bars**: Converted the dynamic background cost bars back to a stacked layout, and refactored the line curves themselves to stack cumulatively (creating a dynamic **Stacked Area Chart**). For each timeline date:
     - **Cumulative Y Plotting**: Computed the Y-coordinate of each curve based on the cumulative sum of the current service and all preceding services in the stack (`S = sum_{j=0}^{idx} cost[j]`).
     - **Segment-Level Area Restricting**: Refactored `getAreaPath` to construct high-precision stacked area paths that go forward along the current service curve and then backward along the previous service curve, closing the loop. This restricts each service's filled area strictly to its own segment boundaries (e.g. Vertex AI is filled only between the green and blue curves). This mathematically eliminates area overlap and color blending/muddiness.
@@ -1098,7 +1098,7 @@ This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dyna
 
 **Problem**: The pulsing indicator circle on the peak cost day rendered in neon-green (`var(--color-primary)`), which clashed with the peak date label on the X-axis (rendered in bright red `var(--color-error)`). Additionally, the daily cost trend chart left a larger-than-desired vertical gap at the top of the card container below the HTML card header, meaning we weren't fully utilizing the vertical resolution of the chart component.
 
-**Resolution**: We applied two precision visual updates inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx):
+**Resolution**: We applied two precision visual updates inside [App.tsx](../frontend/src/App.tsx):
 1.  **Red Peak Indicator Dot**: Updated the `maxColor` binding from `'var(--color-primary)'` to `'var(--color-error)'` to perfectly align the pulsing peak indicators with the red visual style of the peak date label.
 2.  **Optimized Headroom Spacing**: Increased the vertical SVG scale multiplier from `170` to `185` across all coordinate calculations (grid lines, curves, area paths, stacked bars, and indicators). This pushes the charts and peak lines closer to the top bounds of the SVG box, eliminating the empty gap below the title and creating a remarkably clean, high-density dashboard!
 
@@ -1110,7 +1110,7 @@ This achieves the perfect blend of spacing and theme synchronization! Hurrah!
 
 **Problem**: The Month-to-Date Spend, Forecasted Spend, Active Anomalies, and Zombie Assets Waste tiles sitting above the Daily Cost Trend chart in the Executive Dashboard were static. Users naturally expect dashboard summaries to act as shortcuts to their corresponding detail views or analytical tools. Clicking them did nothing, creating an unintuitive navigation barrier.
 
-**Resolution**: We converted the KPI cards into highly interactive and sleek cyber-navigation shortcuts inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) and [index.css](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/index.css):
+**Resolution**: We converted the KPI cards into highly interactive and sleek cyber-navigation shortcuts inside [App.tsx](../frontend/src/App.tsx) and [index.css](../frontend/src/index.css):
 1.  **Interactive Cursor & Glow Effects**: Added `cursor: pointer` and customized high-fidelity `.anomaly:hover` keyframes. When hovering over the Active Anomalies card, it now reflects a premium pulsing red-coral glow instead of the default emerald theme.
 2.  **Spend and Forecast Tab Switching**: Configured the `Month-to-Date Spend` and `Forecasted Spend` cards to automatically navigate the user to the **Cost Explorer** tab, seamlessly updating the canvas view.
 3.  **Zombie Waste Tab Switching**: Configured the `Zombie Assets Waste` card to instantly route to the **Active Optimization** tab, allowing operators to immediately act on idle static IPs and unattached disks.
@@ -1124,7 +1124,7 @@ This elevates the executive dashboard from a passive reporting panel into a full
 
 **Problem**: Because querying BigQuery billing tables and performing statistical anomaly audits takes several seconds (due to network routing and dataset scans), the chat thread was completely blank during the start of a response. The user was left with no visual feedback showing that the copilot was running or progressing, creating a sluggish feel during database query executions.
 
-**Resolution**: We implemented a state-of-the-art **Progress Loader & Typing Indicator** inside [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) and [index.css](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/index.css):
+**Resolution**: We implemented a state-of-the-art **Progress Loader & Typing Indicator** inside [App.tsx](../frontend/src/App.tsx) and [index.css](../frontend/src/index.css):
 1.  **Pulsing Startup Orbit**: Designed a pulsing neon status orb showing `"Copilot is spawning agent workspace workflow..."` that immediately renders when a prompt is submitted, letting the user know the backend connection is established.
 2.  **Live Terminal Event Log**: Designed the container to display reasoning steps line-by-line in real-time as the agent discovers project configurations, connects to tables, and completes pipeline actions.
 3.  **Active Tool Bouncing Loader**: Created a bouncing three-dot typing indicator (`@keyframes bounce`) styled in matching emerald green.
@@ -1141,12 +1141,12 @@ This completely bridges the network wait time, keeping the user fully engaged wi
 
 **Problem**: The "Forecasted Spend" KPI card displayed an inflated value of **£195** while the Month-to-Date (MTD) spend was only **£60.52** on May 29, 2026. Under standard calendar-day linear projection, the forecast should have been roughly **£64.69** (`(60.52 / 29) * 31`). The inflated projection occurred because standard linear forecasting relied purely on the container's naive host system clock `datetime.now().day` to determine `elapsed_days`. If the container clock was delayed, frozen in sandboxes, or if the GCP billing export pipeline suffered from standard telemetry latency (stalling data updates at May 11, for example), dividing a smaller set of elapsed calendar days into the MTD spend resulted in a severe mathematical distortion, artificially inflating or deflating the projected budget.
 
-**Resolution**: We refactored the linear projection engine in [dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py) and the frontend telemetry dashboard to be self-correcting and highly resilient:
+**Resolution**: We refactored the linear projection engine in [dashboard_data.py](../app/app_utils/dashboard_data.py) and the frontend telemetry dashboard to be self-correcting and highly resilient:
 1.  **Telemetry-Driven Day Discovery**: Introduced a new BigQuery query that dynamically retrieves the maximum `usage_start_time` for the current month (`SELECT EXTRACT(DAY FROM MAX(usage_start_time))`). This discovers the actual number of active telemetry days present in the database (e.g. `11` if the billing export stops on May 11).
-2.  **Browser Client-Side Date Alignment**: Rather than relying purely on container clock states (which are highly prone to drift, sandbox mock freezing, or standard telemetry delays), we enhanced the `/api/dashboard` endpoint to accept optional `clientDay` and `clientMonthDays` parameters. The React SPA in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) automatically reads the true client browser calendar day and injects it into startup data requests. This prioritizes the user's real-time timeline, cleanly falling back to container and BigQuery telemetry. This completely resolves the mathematical inflation (where a 1-month forecast was tripled in telemetry-based estimation and subsequently tripled again during agent forecast requests, showing an incorrect 9-month spend).
-3.  **High-Fidelity Mock Alignment**: Updated the unit test execution framework in [test_dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/tests/unit/test_dashboard_data.py) to mock the new telemetry `MAX(usage_start_time)` query, and added a specific assertion verifying the linear cost projection.
+2.  **Browser Client-Side Date Alignment**: Rather than relying purely on container clock states (which are highly prone to drift, sandbox mock freezing, or standard telemetry delays), we enhanced the `/api/dashboard` endpoint to accept optional `clientDay` and `clientMonthDays` parameters. The React SPA in [App.tsx](../frontend/src/App.tsx) automatically reads the true client browser calendar day and injects it into startup data requests. This prioritizes the user's real-time timeline, cleanly falling back to container and BigQuery telemetry. This completely resolves the mathematical inflation (where a 1-month forecast was tripled in telemetry-based estimation and subsequently tripled again during agent forecast requests, showing an incorrect 9-month spend).
+3.  **High-Fidelity Mock Alignment**: Updated the unit test execution framework in [test_dashboard_data.py](../tests/unit/test_dashboard_data.py) to mock the new telemetry `MAX(usage_start_time)` query, and added a specific assertion verifying the linear cost projection.
 4.  **Dynamic Projection Period Descriptions**: Added support for dynamic `"forecastLabel"` keys in the A2UI dashboard schema, backend API responses, and ADK agent instructions. The React frontend now binds this dynamically (`{dashboardRenderData.forecastLabel || 'Projected end-of-month'}`). When the agent executes a custom multi-month projection (like a 3-month forecast), it updates `"forecastLabel"` to `"Projected 3-month spend"`, ensuring the KPI card description perfectly aligns with the temporal context.
-5.  **Defensive Chart Type-Safety & String Filtering**: Added defensive validation inside the dynamic SVG area chart coordinate converters in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx). The chart now automatically scans the keys of incoming conversational spikes arrays and filters out any non-numeric fields (such as a `"service": "Gemini API"` string field generated by the agent) while preserving numerical metrics. This completely insulates the coordinate math and rotated Y-axis text calculations from string parsing crashes, preventing the chart gridlines from ever rendering as `£NaN`.
+5.  **Defensive Chart Type-Safety & String Filtering**: Added defensive validation inside the dynamic SVG area chart coordinate converters in [App.tsx](../frontend/src/App.tsx). The chart now automatically scans the keys of incoming conversational spikes arrays and filters out any non-numeric fields (such as a `"service": "Gemini API"` string field generated by the agent) while preserving numerical metrics. This completely insulates the coordinate math and rotated Y-axis text calculations from string parsing crashes, preventing the chart gridlines from ever rendering as `£NaN`.
 
 This guarantees a premium, bulletproof cost projection model and a bulletproof, high-density SVG graphing experience that adapts automatically and flawlessly to any custom timeframe requested by the user! Hurrah!
 
@@ -1155,9 +1155,9 @@ This guarantees a premium, bulletproof cost projection model and a bulletproof, 
 **Problem**: The application was performing raw, expensive BigQuery table scans on every single page load of the React dashboard or conversational query by the ADK agent. Because Google Cloud billing exports are massive and only update periodically throughout the day, scanning these tables repeatedly led to high latency and redundant query costs. Additionally, the ADK agent conversations bypass the REST API endpoints and talk directly to the remote BigQuery MCP server, making a standard HTTP cache on the REST endpoints useless for conversational queries.
 
 **Resolution**: We developed a **Modular Shared Query Caching** architecture to cover both the FastAPI backend and the conversational ADK Agent:
-1. **Thread-Safe In-Memory Cache**: Created [query_cache.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/query_cache.py) defining an in-memory cache protected by a thread-safe `threading.Lock()` synchronisation mutex. It keeps results for a default TTL of 5 minutes (300 seconds), and evicts expired keys dynamically on every lookup to prevent memory leaks.
-2. **REST Telemetry Integration**: Refactored the five BigQuery SQL metrics queries in [dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py) to route through `execute_cached_query`, completely eliminating direct database scans on page refreshes.
-3. **Conversational Agent Integration**: Created a custom ADK tool `execute_cached_bigquery_sql` inside [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) that utilizes our caching engine. We instructed the LLM in `AGENT_INSTRUCTION` to strictly prefer this cached tool over any generic, uncached remote MCP query tools.
+1. **Thread-Safe In-Memory Cache**: Created [query_cache.py](../app/app_utils/query_cache.py) defining an in-memory cache protected by a thread-safe `threading.Lock()` synchronisation mutex. It keeps results for a default TTL of 5 minutes (300 seconds), and evicts expired keys dynamically on every lookup to prevent memory leaks.
+2. **REST Telemetry Integration**: Refactored the five BigQuery SQL metrics queries in [dashboard_data.py](../app/app_utils/dashboard_data.py) to route through `execute_cached_query`, completely eliminating direct database scans on page refreshes.
+3. **Conversational Agent Integration**: Created a custom ADK tool `execute_cached_bigquery_sql` inside [agent.py](../app/agent.py) that utilizes our caching engine. We instructed the LLM in `AGENT_INSTRUCTION` to strictly prefer this cached tool over any generic, uncached remote MCP query tools.
 4. **Production Observability**: Configured cache hits to log at `logger.debug()` level to eliminate production container log noise, while cache misses are logged at `logger.info()` to track real BigQuery scan events.
 
 **Why this way?**:
@@ -1173,7 +1173,7 @@ This achieves massive performance wins, turning consecutive conversational spike
 
 **Problem**: Even with BigQuery table scans cached, the ADK Agent still executed its full cognitive cycle on every request. This meant the agent went through project discovery, loaded tools, and invoked the Gemini LLM even if the user asked the exact same question a few seconds later. Bypassing the entire cognitive turn when a query was recently processed would save massive latency, tokens, and compute overhead.
 
-**Resolution**: We developed a highly structured, turn-level query caching architecture using ADK-native callbacks inside [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py):
+**Resolution**: We developed a highly structured, turn-level query caching architecture using ADK-native callbacks inside [agent.py](../app/agent.py):
 1.  **Agent-Level Cache Lookup (`before_agent_callback`)**: Intercepts the agent turn at the start of execution. It parses the session history (`ctx.session.events`) to extract the user's latest query, checks a global lock-protected cache dictionary (`_AGENT_QUERY_CACHE`) with a 5-minute TTL, and sets a cache hit flag:
     ```python
     ctx.state["cached_agent_response"] = cached_text
@@ -1193,7 +1193,7 @@ This achieves massive performance wins, turning consecutive conversational spike
 
 **Problem**: Performing Cloud Asset Inventory (CAI) zombie scans across multiple projects takes significant time due to sequential API network latency. While we wanted to cache these scans, doing so strictly inside ADK agent callbacks would mean the FastAPI executive dashboard endpoint (`/api/dashboard`) would not benefit from the cache, continuing to generate slow scans on every page load.
 
-**Resolution**: We implemented a unified caching strategy by placing the cache directly in the **Data Layer** (the tool itself) inside [zombie_tools.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/zombie_tools.py):
+**Resolution**: We implemented a unified caching strategy by placing the cache directly in the **Data Layer** (the tool itself) inside [zombie_tools.py](../app/app_utils/zombie_tools.py):
 1.  **Billing Project Cache Integration**: Routed the active projects lookup query through `execute_cached_query`, completely eliminating redundant BigQuery project discovery table scans.
 2.  **Lock-Protected Zombie Cache**: Wrapped `list_zombie_resources` in a thread-safe mutex lock (`_ZOMBIE_LOCK`) and cached results by category (`UNATTACHED_DISKS` / `IDLE_IPS`) with a 5-minute TTL.
 
@@ -1207,8 +1207,8 @@ This achieves massive performance wins, turning consecutive conversational spike
 **Problem**: The ADK streaming runner emits events cumulatively. Because our SSE endpoint blindly looped over `event.get_function_calls()` on every token chunk, it repeatedly printed identical tool invocations in the chat feed, resulting in an untidy terminal list of duplicate tool calls. Additionally, the list grew long and created severe layout jitter.
 
 **Resolution**: We refactored both the FastAPI streaming engine and the React chat viewport to provide a state-of-the-art visual experience:
-1.  **FastAPI SSE De-duplication**: Added thread-safe `seen_function_calls` and `seen_function_responses` sets in [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) to guarantee every tool invocation is streamed exactly once.
-2.  **In-Place Dynamic Status Badge**: Created a gorgeous, glassmorphic container (`reasoning-block-compact`) in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) during active streaming. Rather than showing a long, static list, it displays the *current active tool call on a single line*, constantly updating in real-time with pulsing Indigo CPU icons for execution, rotating timers, and Emerald Check Circle badges for completion.
+1.  **FastAPI SSE De-duplication**: Added thread-safe `seen_function_calls` and `seen_function_responses` sets in [fast_api_app.py](../app/fast_api_app.py) to guarantee every tool invocation is streamed exactly once.
+2.  **In-Place Dynamic Status Badge**: Created a gorgeous, glassmorphic container (`reasoning-block-compact`) in [App.tsx](../frontend/src/App.tsx) during active streaming. Rather than showing a long, static list, it displays the *current active tool call on a single line*, constantly updating in real-time with pulsing Indigo CPU icons for execution, rotating timers, and Emerald Check Circle badges for completion.
 3.  **Expandable Historical Details Dropdown**: Consolidated completed turn logs into a tidy, expandable HTML5 `<details>` element. The viewport remains perfectly clean by default, while allowing operators to expand and inspect the exact chronological trace on-demand.
 
 This delivers a incredibly premium, high-fidelity conversational interface that feels extremely responsive, alive, and professional! Hurrah!
@@ -1225,7 +1225,7 @@ This delivers a incredibly premium, high-fidelity conversational interface that 
 5. **TypeError in BigQuery sums**: BigQuery can return `None` for cost sums if no matching records exist. Attempting to parse `None` directly into `float` in `dashboard_data.py` raised a runtime `TypeError`.
 
 **Resolution**: We implemented a complete end-to-end stabilization sweep across the repository:
-1. **Centralized Reusable Credentials**: Created a reusable credentials helper in [credentials.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/credentials.py) that loads default credentials and explicitly configures the quota project via `with_quota_project` only if supported, eliminating duplicate authentication code across `zombie_tools.py` and `cai_utils.py` cleanly as requested.
+1. **Centralized Reusable Credentials**: Created a reusable credentials helper in [credentials.py](../app/app_utils/credentials.py) that loads default credentials and explicitly configures the quota project via `with_quota_project` only if supported, eliminating duplicate authentication code across `zombie_tools.py` and `cai_utils.py` cleanly as requested.
 2. **Conformed Pydantic Types**: Swapped all invalid `types.Part.from_text` calls for direct, compliant `types.Part(text=...)` instantiations across the backend.
 3. **Non-Blocking SSE Streaming Architecture**: Re-architected `fast_api_app.py` to use `asyncio.Queue` and thread-safe queue updates (`loop.call_soon_threadsafe`), allowing completely non-blocking async loops (`await asyncio.wait_for(...)`) that leave the FastAPI executor thread pool completely free.
 4. **Null-Safety Guardrails**: Implemented robust optional chaining and nullish coalescing (`?? 0` or `or 0.0`) across all React UI KPI text elements, chart variables, table rows, and BigQuery parse comprehensions, ensuring the app remains perfectly stable under any dynamic payload.
@@ -1242,7 +1242,7 @@ WARNING:google_adk.google.adk.tools.mcp_tool.session_context:Error on session ru
 ```
 While this warning was cosmetic and the agent successfully recovered on consecutive attempts, the internal `asyncio.wait_for` wrapper inside ADK's `session_context.py` created task-cancel scope mismatches during HTTP connection teardowns. 
 
-**Resolution**: We updated the `google-adk` dependency range in [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) to require `google-adk>=1.34.0,<2.0.0` and successfully ran `uv sync` to update the environment to `google-adk==1.34.1` (which internally resolves the cancellation task-group issues). All checks and test suites are now completely clean of the warning! Hurrah!
+**Resolution**: We updated the `google-adk` dependency range in [pyproject.toml](../pyproject.toml) to require `google-adk>=1.34.0,<2.0.0` and successfully ran `uv sync` to update the environment to `google-adk==1.34.1` (which internally resolves the cancellation task-group issues). All checks and test suites are now completely clean of the warning! Hurrah!
 
 ---
 
@@ -1252,7 +1252,7 @@ While this warning was cosmetic and the agent successfully recovered on consecut
 
 **Why this occurred**: The `google-adk` agent orchestration and the underlying Google GenAI SDK utilize highly opinionated async gRPC and standard Google credentials libraries. In Python, async gRPC and `asyncio` loop scopes running directly under `uvicorn`'s main HTTP handler thread frequently trigger task-cancellation and event-loop registration collisions. When these libraries try to resolve credentials and network scopes across different thread-local loops, they fail silently or raise unhandled context discrepancies.
 
-**Resolution**: We restored and stabilized the **Thread-Isolated Queue Producer** design pattern in [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py):
+**Resolution**: We restored and stabilized the **Thread-Isolated Queue Producer** design pattern in [fast_api_app.py](../app/fast_api_app.py):
 1.  **Isolated Background Thread**: We spawn a dedicated, isolated background thread using Python's standard `threading.Thread` to execute the synchronous `runner.run(...)` method. By doing so, ADK runs the agent's full ReAct and tool-calling cycle within its own isolated, synchronous context, which cleanly sets up its own `asyncio` event loop.
 2.  **Thread-Safe Async Queue**: We instantiate an `asyncio.Queue` and pass the running event loop to the background thread. Every event yielded by the synchronous `runner.run(...)` iterator is pushed thread-safely back to our async loop using `loop.call_soon_threadsafe(event_queue.put_nowait, event)`.
 3.  **Non-Blocking Consumption**: The FastAPI handler iterates the `asyncio.Queue` asynchronously (`await event_queue.get()`), yielding formatted SSE packets directly to uvicorn, perfectly preserving both the 15-second heartbeat loop and dynamic reasoning extraction.
@@ -1285,7 +1285,7 @@ While this warning was cosmetic and the agent successfully recovered on consecut
      .replace(/"/g, '&quot;')
      .replace(/'/g, '&#039;')
    ```
-3. **Robust Null-Safety Guardrails**: Implemented defensive null-coalescing defaults across [dashboard_data.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py):
+3. **Robust Null-Safety Guardrails**: Implemented defensive null-coalescing defaults across [dashboard_data.py](../app/app_utils/dashboard_data.py):
    * Defaulted `classify_project` to `"prod"` if the project ID is null or empty.
    * Leveraged short-circuit dictionary fallbacks: `(item.get("additionalAttributes") or {}).get("size", "Unknown Size")`.
 4. **Optimized Partition Pruning**: Swapped `FORMAT_TIMESTAMP` in `telemetry_day_query` for an efficient range comparison on the partitioned column `usage_start_time`:
@@ -1382,8 +1382,8 @@ Upgrading to ADK 2.x transitions our agent from hierarchical execution to a adva
 **Problem**: As the agent capability matured, `app/agent.py` grew into a massive file containing several distinct responsibilities: OAuth 2.0 credentials management, header caching, custom BigQuery execution functions, and agent definition/prompts/callbacks. This mixed-responsibility layout made it difficult to maintain, test, and adapt the agent's prompts without risk of breaking lower-level infrastructure code.
 
 **Resolution**: We executed a strict, modular refactoring under **Step 1** of our agreed plan:
-1. **Model Context Protocol (MCP) Modularity**: Created [mcp_config.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/mcp_config.py) inside our `app/app_utils/` directory. We extracted the `BQAuthProvider` and `DevKnowledgeAuthProvider` credentials handlers, along with the `bq_tool_filter`, `bq_mcp_toolset`, and `dev_knowledge_mcp_toolset` instantiations.
-2. **Custom Tools Isolation**: Created [tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/tools.py). We extracted `_serialise_value` and the custom cached database executor tool `execute_cached_bigquery_sql`.
+1. **Model Context Protocol (MCP) Modularity**: Created [mcp_config.py](../app/app_utils/mcp_config.py) inside our `app/app_utils/` directory. We extracted the `BQAuthProvider` and `DevKnowledgeAuthProvider` credentials handlers, along with the `bq_tool_filter`, `bq_mcp_toolset`, and `dev_knowledge_mcp_toolset` instantiations.
+2. **Custom Tools Isolation**: Created [tools.py](../app/app_utils/tools.py). We extracted `_serialise_value` and the custom cached database executor tool `execute_cached_bigquery_sql`.
 3. **Clean Agent Integration**: Modified `app/agent.py` to cleanly import the modularized elements back. All internal references remain fully functional.
 4. **Automated Quality Checks & Self-Fixes**: Run `uvx codespell` and `uvx ruff check --fix .` to automatically format, sort imports, and resolve any lint issues.
 5. **Rigorous Verification**:
@@ -1402,14 +1402,14 @@ This refactoring keeps the core `app/agent.py` strictly focused on agent prompts
 
 **Resolution**:
 We checked out the implementation of **Step 2** and developed a multi-layered, high-performance caching topology:
-1. **Model-Side Context Caching**: Natively integrated ADK 2.x `ContextCacheConfig` directly into the `App` initialization in [agent.py](file:///home/darren/localdev/smart-gcp-finops/app/agent.py). This caches the massive system instructions and MCP tool declarations directly on the Google model server side for up to 10 minutes (`ttl_seconds=600`, refreshed every `cache_intervals=5` turns, triggering for payloads above `min_tokens=2048`). This dramatically accelerates consecutive turn latency and slashes token utilization!
+1. **Model-Side Context Caching**: Natively integrated ADK 2.x `ContextCacheConfig` directly into the `App` initialization in [agent.py](../app/agent.py). This caches the massive system instructions and MCP tool declarations directly on the Google model server side for up to 10 minutes (`ttl_seconds=600`, refreshed every `cache_intervals=5` turns, triggering for payloads above `min_tokens=2048`). This dramatically accelerates consecutive turn latency and slashes token utilization!
 2. **GenAI Semantic Cache Resolver**: Replaced simple string normalization in the `before_agent_cache_lookup` callback hook with an advanced, lightweight model-driven check:
    * It extracts active, non-expired cache keys from memory and fires a lightning-fast, environment-configured fast model (e.g. `gemini-3.1-flash-lite`) generation using the official `google-genai` SDK `Client`.
    * The fast model assesses semantic query equivalence, resolving phrasing, word order, and minor punctuation shifts.
    * If a semantic match is resolved (e.g., *"show me cost drivers"* matched to *"what are the cost drivers?"*), the agent bypasses the main, expensive Gemini model call and BigQuery database processing entirely, returning the cached text response immediately!
    * The fast resolver is constrained via strict instructions to reject matches if temporal scopes (like Month-to-Date vs last 90 days) or specific target services differ, ensuring absolute financial precision.
 3. **Rigorous Verification**:
-   * Created a dedicated unit test suite [test_semantic_cache.py](file:///home/darren/localdev/smart-gcp-finops/tests/unit/test_semantic_cache.py) using comprehensive mock-driven assertions to validate hit, miss, and save cache workflows.
+   * Created a dedicated unit test suite [test_semantic_cache.py](../tests/unit/test_semantic_cache.py) using comprehensive mock-driven assertions to validate hit, miss, and save cache workflows.
    * Executed the complete test suite: **all 35 unit tests passed successfully** in just 5.07 seconds!
    * Verified the FastAPI BFF boots up cleanly with the new caching engine running.
 
@@ -1556,7 +1556,7 @@ However, the Python package `opentelemetry-exporter-otlp-proto-http` was missing
 **Resolution**:
 We added the necessary trace exporter package to our production dependencies:
 1. **Dependency Registry Update**:
-   Modified [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) to add `"opentelemetry-exporter-otlp-proto-http>=1.26.0,<2.0.0"` in the `dependencies` list.
+   Modified [pyproject.toml](../pyproject.toml) to add `"opentelemetry-exporter-otlp-proto-http>=1.26.0,<2.0.0"` in the `dependencies` list.
 2. **Lockfile Synchronization**:
    Executed `uv sync` to cleanly resolve and lock the new dependency. This automatically locked it to the exact safe version `1.41.1` in `uv.lock`.
 3. **Spelling and Quality Gates**:
@@ -1596,7 +1596,7 @@ These require the specific operations and platform-integration exporter librarie
 **Resolution**:
 We added the complete set of Google Cloud operations exporters and detectors to our core production dependencies:
 1. **Dependency Overhaul**:
-   Modified [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) to add:
+   Modified [pyproject.toml](../pyproject.toml) to add:
    * `"opentelemetry-exporter-gcp-logging>=0.38b0"`
    * `"opentelemetry-exporter-gcp-monitoring>=0.38b0"`
    * `"opentelemetry-resourcedetector-gcp>=1.5.0"` (for standard Cloud Run container metadata resolution)
@@ -1633,15 +1633,15 @@ Our manual deployment Makefile configurations had diverged from the staging (`st
 **Resolution**:
 We centralised and automated our environment configuration and deployment safety:
 1. **Terraform Variables**:
-   Declared `google_genai_use_vertexai`, `google_cloud_location`, `model`, and `fast_model` in [variables.tf](file:///home/dazbo/localdev/smart-gcp-finops/deployment/terraform/variables.tf) and configured them centrally in `env.tfvars` and `env.tfvars.enc`.
+   Declared `google_genai_use_vertexai`, `google_cloud_location`, `model`, and `fast_model` in [variables.tf](../deployment/terraform/variables.tf) and configured them centrally in `env.tfvars` and `env.tfvars.enc`.
 2. **API Activation Integration**:
-   Modified [locals.tf](file:///home/dazbo/localdev/smart-gcp-finops/deployment/terraform/locals.tf) to enable Artifact Registry on the CI/CD runner project, and the Developer Knowledge API on the staging/prod deployment projects, resolving potential bootstrap gaps.
+   Modified [locals.tf](../deployment/terraform/locals.tf) to enable Artifact Registry on the CI/CD runner project, and the Developer Knowledge API on the staging/prod deployment projects, resolving potential bootstrap gaps.
 3. **Cloud Run Container Definition**:
-   Modified [service.tf](file:///home/dazbo/localdev/smart-gcp-finops/deployment/terraform/service.tf) to inject all five GenAI and organization variables directly into the Cloud Run service resource definition.
+   Modified [service.tf](../deployment/terraform/service.tf) to inject all five GenAI and organization variables directly into the Cloud Run service resource definition.
 4. **GitHub Actions Variable Sync**:
-   Modified [github.tf](file:///home/dazbo/localdev/smart-gcp-finops/deployment/terraform/github.tf) to publish these environment settings and scaling configurations to GitHub Actions variables dynamically.
+   Modified [github.tf](../deployment/terraform/github.tf) to publish these environment settings and scaling configurations to GitHub Actions variables dynamically.
 5. **Workflow Safety and Parity**:
-   Updated both [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) and [.github/workflows/deploy-to-prod.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/deploy-to-prod.yaml) to run deployments matching the Makefile's parameters:
+   Updated both [.github/workflows/staging.yaml](../.github/workflows/staging.yaml) and [.github/workflows/deploy-to-prod.yaml](../.github/workflows/deploy-to-prod.yaml) to run deployments matching the Makefile's parameters:
    - Specified `--service-account` dynamically with `${{ vars.APP_SERVICE_ACCOUNT_STAGING }}` and `${{ vars.APP_SERVICE_ACCOUNT_PROD }}`.
    - Set scaling boundaries with `--max-instances` and `--min-instances` references.
    - Enforced `--cpu-boost` and `--no-allow-unauthenticated`.
@@ -1669,7 +1669,7 @@ However, our `github.tf` Terraform configuration only defined `secrets.GCP_SERVI
 **Resolution**:
 We aligned Terraform's GitHub provider resources with the expected variables of the Gemini workflows:
 1. **GitHub Terraform Updates**:
-   Modified [github.tf](file:///home/dazbo/localdev/smart-gcp-finops/deployment/terraform/github.tf) to define six additional Actions variables:
+   Modified [github.tf](../deployment/terraform/github.tf) to define six additional Actions variables:
    * `GOOGLE_CLOUD_PROJECT`: mapped to `var.cicd_runner_project_id`.
    * `SERVICE_ACCOUNT_EMAIL`: mapped to `google_service_account.cicd_runner_sa.email`.
    * `GCP_WIF_PROVIDER`: constructed dynamically using the full workload identity provider URI.
@@ -1695,12 +1695,12 @@ Furthermore, we wanted to integrate **Gemini Cloud Assist** to move from static 
 We integrated the managed Gemini Cloud Assist MCP server and established a strict, instruction-based routing gate (Approach A) to optimize turn latency:
 
 1. **Gemini Cloud Assist MCP Integration**:
-   * Modified [mcp_config.py](file:///home/dazbo/localdev/smart-gcp-finops/app/app_utils/mcp_config.py) to register `CloudAssistAuthProvider`, which caches standard Google OAuth2 headers.
+   * Modified [mcp_config.py](../app/app_utils/mcp_config.py) to register `CloudAssistAuthProvider`, which caches standard Google OAuth2 headers.
    * Defined and exported `cloud_assist_mcp_toolset` pointing to the managed endpoint: `https://geminicloudassist.googleapis.com/mcp`.
-   * Modified [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to import and register the new toolset in `root_agent`'s tools list.
+   * Modified [agent.py](../app/agent.py) to import and register the new toolset in `root_agent`'s tools list.
 
 2. **Latency-Aware Decision Tree Instructions**:
-   Overhauled the `AGENT_INSTRUCTION` system prompt in [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to declare a strict, explicit **Tool Execution Hierarchy**. The model is instructed to match the user's intent to exactly one of the following paths and bypass all other tools on that turn:
+   Overhauled the `AGENT_INSTRUCTION` system prompt in [agent.py](../app/agent.py) to declare a strict, explicit **Tool Execution Hierarchy**. The model is instructed to match the user's intent to exactly one of the following paths and bypass all other tools on that turn:
    * **Spend & Billing Trends Route**: Calls only the cached BigQuery SQL tool (`execute_cached_bigquery_sql`).
    * **Active Resource Optimization Route**: Calls only the Gemini Cloud Assist MCP tools (e.g. `ask_cloud_assist`).
    * **Structured Asset Auditing & RCA Route**: Calls only the local CAI and zombie tools (`list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`).
@@ -1711,7 +1711,7 @@ We integrated the managed Gemini Cloud Assist MCP server and established a stric
    ![Model Context Protocol (MCP) Routing Decision Tree](./images/mcp_routing_architecture.png)
 
 3. **Code Quality and Type Checking Verification**:
-   * Refactored [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to resolve python type hints (using union types `LlmRequest | None`) flagged by the strict type-checker `ty`.
+   * Refactored [agent.py](../app/agent.py) to resolve python type hints (using union types `LlmRequest | None`) flagged by the strict type-checker `ty`.
    * Executed formatting and quality controls (`make lint`) which completed successfully with zero spelling, linting, or formatting errors.
    * Verified that the backend module imports cleanly and starts without latency issues.
 
@@ -1726,10 +1726,10 @@ When querying recommendations for specific deployed services (such as "Use Cloud
 
 **Resolution**:
 1. **Explicit Routing Hardening**:
-   * Modified [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) to explicitly list permitted and banned tools by name in the `AGENT_INSTRUCTION` tool-routing decision tree.
+   * Modified [agent.py](../app/agent.py) to explicitly list permitted and banned tools by name in the `AGENT_INSTRUCTION` tool-routing decision tree.
    * Listed `list_zombie_resources` by its exact name as a banned tool under Route 2 (Active Infrastructure Optimisation & Recommendations), ensuring the agent knows it is banned when running Cloud Assist recommendations.
 2. **Upgraded Chatbot Markdown Parser**:
-   * Upgraded the React `renderMarkdown` parser in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to support parsing and formatting standard markdown elements, including:
+   * Upgraded the React `renderMarkdown` parser in [App.tsx](../frontend/src/App.tsx) to support parsing and formatting standard markdown elements, including:
      * Code blocks (wrapped in `<pre><code>` blocks with proper background styling).
      * Inline code (backticks replaced with `<code style="...">` tags).
      * Heading levels 1 to 4 (`#`, `##`, `###`, `####`).
@@ -1754,10 +1754,10 @@ When asking the FinOps agent to *"show me the cost drivers over the last 30 days
    * We discovered that querying the daily cost trend over 30 days returned data for *all* services, including hundreds of zero-cost or negligible-cost entries. This generated a payload exceeding 150KB, which triggered the ADK/system tool response truncation limit.
    * Faced with truncated/incomplete data, the Gemini agent attempted to self-heal by dynamically executing dozens of smaller queries (day-by-day and service-by-service). Since these queries were dynamic, they always missed the cache, leading to severe latency and increased BQ scan costs.
 2. **Hardened SQL Query Template with Cost Filters**:
-   * Updated the `AGENT_INSTRUCTION` prompt template in [agent.py](file:///home/darren/localdev/smart-gcp-finops/app/agent.py) to instruct the model to always append `HAVING daily_cost > 0.1` (or `HAVING daily_cost > 0`). This successfully filters out zero-cost and tiny telemetry entries at the database layer, shrinking the daily trend payload from ~150KB to under ~5KB and preventing truncation loops.
-   * Applied the same database-level cost filter (`HAVING daily_cost > 0.01` and `HAVING monthly_cost > 0.01`) in [dashboard_data.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/dashboard_data.py) to keep dashboard queries fast and lightweight.
+   * Updated the `AGENT_INSTRUCTION` prompt template in [agent.py](../app/agent.py) to instruct the model to always append `HAVING daily_cost > 0.1` (or `HAVING daily_cost > 0`). This successfully filters out zero-cost and tiny telemetry entries at the database layer, shrinking the daily trend payload from ~150KB to under ~5KB and preventing truncation loops.
+   * Applied the same database-level cost filter (`HAVING daily_cost > 0.01` and `HAVING monthly_cost > 0.01`) in [dashboard_data.py](../app/app_utils/dashboard_data.py) to keep dashboard queries fast and lightweight.
 3. **Parallelised Cloud Asset Inventory Scans**:
-   * Refactored [zombie_tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/zombie_tools.py) to replace the synchronous sequential loop over project scopes with a concurrent `ThreadPoolExecutor` (using 10 workers).
+   * Refactored [zombie_tools.py](../app/app_utils/zombie_tools.py) to replace the synchronous sequential loop over project scopes with a concurrent `ThreadPoolExecutor` (using 10 workers).
    * This reduces the blocking network latency of scanning 7+ projects for unattached disks and idle IPs from 14–28 seconds down to a single concurrent sweep of ~1–2 seconds.
    * Updated `tests/unit/test_zombie_tools.py` by wrapping the mocked `search_zombie_resources` calls in a `threading.Lock` to ensure thread-safety of the shared mock object, allowing pytest checks to pass successfully without hangs.
 
@@ -1772,12 +1772,12 @@ When asking Root Cause Analysis (RCA) queries (e.g. *"Why did our production cos
 
 **Resolution**:
 1. **Defensive Runaway Prevention**:
-   * Set `max_llm_calls=15` in `RunConfig` in the SSE chat stream endpoint in [fast_api_app.py](file:///home/darren/localdev/smart-gcp-finops/app/fast_api_app.py). This prevents runaway queries from generating endless LLM iterations and high billing charges.
-2. **Project-First History Lookup Order**:   * Re-architected `get_cai_history_for_resource` in [cai_tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/cai_tools.py) to extract the resource's project ID and run project-level CAI queries first. Since the service account possesses permissions on the projects, project-level queries succeed cleanly and bypass the need to touch organization-level scope, eliminating the scary 403 warnings entirely.
+   * Set `max_llm_calls=15` in `RunConfig` in the SSE chat stream endpoint in [fast_api_app.py](../app/fast_api_app.py). This prevents runaway queries from generating endless LLM iterations and high billing charges.
+2. **Project-First History Lookup Order**:   * Re-architected `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to extract the resource's project ID and run project-level CAI queries first. Since the service account possesses permissions on the projects, project-level queries succeed cleanly and bypass the need to touch organization-level scope, eliminating the scary 403 warnings entirely.
 3. **Self-Healing Organization Scope Disabling**:
-   * Introduced a thread-safe `_ORG_SCOPE_DISABLED` flag in [cai_utils.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/cai_utils.py). If any organization-scope CAI query returns a `403 Permission Denied` error, the flag is set, automatically bypassing organization-scope calls on all future turns to prevent redundant warnings and latency.
+   * Introduced a thread-safe `_ORG_SCOPE_DISABLED` flag in [cai_utils.py](../app/app_utils/cai_utils.py). If any organization-scope CAI query returns a `403 Permission Denied` error, the flag is set, automatically bypassing organization-scope calls on all future turns to prevent redundant warnings and latency.
 4. **Explicit Root Cause Analysis Instructions & Cost Filters**:
-   * Updated the `AGENT_INSTRUCTION` prompt routing tree in [agent.py](file:///home/darren/localdev/smart-gcp-finops/app/agent.py) to add a dedicated **Intent 5: ROOT CAUSE ANALYSIS (RCA) OF COST SPIKES**, permitting the agent to combine BigQuery SQL and CAI history lookup in a single turn for spike analysis.
+   * Updated the `AGENT_INSTRUCTION` prompt routing tree in [agent.py](../app/agent.py) to add a dedicated **Intent 5: ROOT CAUSE ANALYSIS (RCA) OF COST SPIKES**, permitting the agent to combine BigQuery SQL and CAI history lookup in a single turn for spike analysis.
    * Directed the agent to filter out negligible costs (e.g., `WHERE cost > 0.1` or `HAVING SUM(cost) > 0.1`) on resource-level queries to prevent resource list truncation, and capped history queries to only the top 1 or 2 spiked resources.
 5. **Quality Control Verification**:
    * Added unit tests to `test_cai_tools.py` verifying the project-first lookup order and organization scope skipping.
@@ -1795,25 +1795,25 @@ RCA cost-driver investigations (such as spike queries comparing specific days) w
 
 **Resolution**:
 1. **Hard Tool Call Ceiling Callback & RCA Prompt Optimization**:
-   * Implemented a turn-level tool call ceiling callback in [agent.py](file:///home/darren/localdev/smart-gcp-finops/app/agent.py) via ADK's `before_agent_callback` and `before_tool_callback` to raise a `RuntimeError` if tool calls exceed 25 in a single turn.
+   * Implemented a turn-level tool call ceiling callback in [agent.py](../app/agent.py) via ADK's `before_agent_callback` and `before_tool_callback` to raise a `RuntimeError` if tool calls exceed 25 in a single turn.
    * Refined Intent 5 system instructions in `agent.py` to prohibit low/empty threshold resource-level queries (such as `cost > 0` or missing filters) and require a strict `LIMIT 15` and a minimum cost filter (e.g. `cost > 0.5`).
    * Enforced clear fallback logic: if the comparative spike query returns empty, the agent must check daily billing totals of the surrounding month and inform the user if no spike occurred, instead of querying all resources or projects recursively.
 2. **Turn-Level LLM Ceiling Reduction**:
-   * Lowered `max_llm_calls` from 15 to 5 in the FastAPI event stream runner configuration in [fast_api_app.py](file:///home/darren/localdev/smart-gcp-finops/app/fast_api_app.py). This enforces a strict Stop ceiling to prevent redundant LLM reasoning iterations.
+   * Lowered `max_llm_calls` from 15 to 5 in the FastAPI event stream runner configuration in [fast_api_app.py](../app/fast_api_app.py). This enforces a strict Stop ceiling to prevent redundant LLM reasoning iterations.
 3. **Fractional Cent Project Filtering**:
-   * Modified `get_active_billing_projects()` in [zombie_tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/zombie_tools.py) to group BQ costs by project ID and filter out projects costing less than $0.10 in the last 30 days (`HAVING SUM(cost) > 0.1`).
+   * Modified `get_active_billing_projects()` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to group BQ costs by project ID and filter out projects costing less than $0.10 in the last 30 days (`HAVING SUM(cost) > 0.1`).
    * This completely prevents the agent from triggering expensive Asset Inventory scans or zombie resource lookups for projects with negligible activity.
 4. **Verbose SQL & CAI History Logging**:
-   * Updated `execute_cached_bigquery_sql` in [tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/tools.py) to print the full SQL statement, the total returned row count, and a snippet of the first 3 rows.
-   * Updated `get_cai_history_for_resource` in [cai_tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/cai_tools.py) to log the exact lookup parameters (`resource_name`, `start_time`, `end_time`) and returned record counts (from both cache hits and fresh calls).
+   * Updated `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to print the full SQL statement, the total returned row count, and a snippet of the first 3 rows.
+   * Updated `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to log the exact lookup parameters (`resource_name`, `start_time`, `end_time`) and returned record counts (from both cache hits and fresh calls).
 5. **Fast Local Exact Cache Match**:
-   * Updated `before_agent_cache_lookup` in [agent.py](file:///home/darren/localdev/smart-gcp-finops/app/agent.py) to execute a local case-insensitive exact string match on incoming user queries. If the query is identical (normalising whitespace and casing) to a cached entry, it instantly bypasses the fast LLM semantic cached query call, reducing API calls to zero and turn response time to microseconds.
+   * Updated `before_agent_cache_lookup` in [agent.py](../app/agent.py) to execute a local case-insensitive exact string match on incoming user queries. If the query is identical (normalising whitespace and casing) to a cached entry, it instantly bypasses the fast LLM semantic cached query call, reducing API calls to zero and turn response time to microseconds.
 6. **Project-Scoped Zombie Resource Sweeps**:
-   * Updated `list_zombie_resources` in [zombie_tools.py](file:///home/darren/localdev/smart-gcp-finops/app/app_utils/zombie_tools.py) to accept an optional `project_id` parameter.
+   * Updated `list_zombie_resources` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to accept an optional `project_id` parameter.
    * When the agent detects the user is asking about zombie resources in a specific project, it passes `project_id` to focus the search scope strictly to that project, bypassing organization-wide sweeps or sweeps of other projects.
 7. **Quality Control & Unit Tests**:
-   * Added `test_list_zombie_resources_scoped_project` to [test_zombie_tools.py](file:///home/darren/localdev/smart-gcp-finops/tests/unit/test_zombie_tools.py).
-   * Added `test_fast_local_cache_hit` to [test_semantic_cache.py](file:///home/darren/localdev/smart-gcp-finops/tests/unit/test_semantic_cache.py).
+   * Added `test_list_zombie_resources_scoped_project` to [test_zombie_tools.py](../tests/unit/test_zombie_tools.py).
+   * Added `test_fast_local_cache_hit` to [test_semantic_cache.py](../tests/unit/test_semantic_cache.py).
    * Verified all 41 unit tests (`make test`) and spell/style checks (`make lint`) pass cleanly.
 
 This ensures robust runaway protection, keeps project sweeps fast and noise-free, provides rich logging telemetry, and cuts redundant API matching calls! Hurrah!
@@ -1824,7 +1824,7 @@ This ensures robust runaway protection, keeps project sweeps fast and noise-free
 
 **Problem**: The "Analyze Cost Spikes" quick question prompt in the chat panel was hardcoded to a fixed date: *"Why did our production costs spike on May 23rd? Cross-reference billing records with CAI config changes."* This was confusing to operators when the actual billing data loaded dynamically from BigQuery had spikes on entirely different dates, as the prompt did not align with the real-time financial telemetry shown on the dashboard.
 
-**Resolution**: We refactored the quick starter questions engine in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) to dynamically discover and format the actual peak cost day from the loaded billing telemetry:
+**Resolution**: We refactored the quick starter questions engine in [App.tsx](../frontend/src/App.tsx) to dynamically discover and format the actual peak cost day from the loaded billing telemetry:
 1. **Dynamic Peak Cost Discovery**: Reused the existing peak-finding logic (which maps the maximum total cost coordinate for the glowing pulsing spike node) to determine the exact calendar date of the highest spike.
 2. **Robust Date Parser Helpers**: Developed `formatSpikeDate` and `formatFriendlyDate` helper functions at the top of the file to parse both `YYYY-MM-DD` and `MM/DD` date formats and convert them into friendly UK English ordinal expressions (e.g. `23rd May` or `29th May`).
 3. **Reactive Starter Generation**: Replaced the static `sampleQuestions` array with a `useMemo` hook bound to `recentSpikes`, `hasSpikes`, and `maxIdx`. When the dashboard telemetry is retrieved, the Analyze Cost Spikes card dynamically updates its text value to target the true maximum spike date.
@@ -1860,8 +1860,8 @@ This architecture decouples the stateless React web application from the AI reas
 **Problem**: Operators and developers running the application locally or in deployed environments had no way of seeing at a glance whether the BFF proxy was successfully routing queries to the remote Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) or falling back silently to local ReAct execution. This lack of transparency increased the risk of executing heavy queries against local emulators/credentials by mistake.
 
 **Resolution**: I added a dynamic, glassmorphic visual indicator badge to the React panel header:
-1. **BFF Status Endpoint**: Exposed a lightweight GET `/api/status` endpoint in [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) returning `mode: "remote"` (and the full resource ID) or `mode: "local"` depending on the presence of the `AGENT_RUNTIME_ID` environment variable.
-2. **React Integration**: Built a fetch hook in [App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) that retrieves this status payload on startup and updates local state.
+1. **BFF Status Endpoint**: Exposed a lightweight GET `/api/status` endpoint in [fast_api_app.py](../app/fast_api_app.py) returning `mode: "remote"` (and the full resource ID) or `mode: "local"` depending on the presence of the `AGENT_RUNTIME_ID` environment variable.
+2. **React Integration**: Built a fetch hook in [App.tsx](../frontend/src/App.tsx) that retrieves this status payload on startup and updates local state.
 3. **Cyberpunk Status Badge**: Styled a badge inside the chat header using high-contrast themed HSL colors:
    * **`IN-CONTAINER FALLBACK`** (amber `#F59E0B` background/border/glow) when running locally.
    * **`VERTEX RUNTIME`** (neon green `#00F59B` background/border/glow) when pointing to a deployed reasoning engine, complete with a detailed tooltip showing the active resource ID on hover.
@@ -1881,13 +1881,13 @@ In `app/fast_api_app.py`, the backend was unconditionally calling `runner, sessi
 **Resolution**:
 We decoupled the local runner execution context from the remote routing logic:
 1. **Conditional Local Initialisation**:
-   Modified [fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/fast_api_app.py) to wrap `get_global_runner_and_session()` inside an `if not agent_runtime_id:` check. This ensures that no local session context is initialised or propagated when routing to Vertex.
+   Modified [fast_api_app.py](../app/fast_api_app.py) to wrap `get_global_runner_and_session()` inside an `if not agent_runtime_id:` check. This ensures that no local session context is initialised or propagated when routing to Vertex.
 2. **Lazy Remote Session Caching**:
    Introduced thread-safe lazy remote session management (`_REMOTE_SESSION_ID` and `_REMOTE_SESSION_LOCK`) in the BFF. In remote mode, the BFF now calls `agent_engine.async_create_session(user_id="default_user")` dynamically to initialise and cache a valid session ID from the remote Vertex engine.
 3. **Self-Healing Session Recovery**:
    Wrapped the remote query execution loop in a try-catch block for `SessionNotFoundError`. If the remote session ID expires or is deleted on the Vertex side, the BFF logs a warning, resets the cached session ID, and retries the query without a session ID to establish a new remote session.
 4. **Mock Testing Updates**:
-   Updated the test suite in [test_fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/tests/unit/test_fast_api_app.py) to mock `async_create_session` so that our tests correctly simulate remote session creation without triggering `MagicMock` coroutine errors.
+   Updated the test suite in [test_fast_api_app.py](../tests/unit/test_fast_api_app.py) to mock `async_create_session` so that our tests correctly simulate remote session creation without triggering `MagicMock` coroutine errors.
 5. **Verification**:
    Executed spelling checks, ruff lints, and unit tests (`pytest tests/unit/`), all of which passed cleanly.
 
@@ -1903,11 +1903,11 @@ While our application had basic logging capabilities, the agent lacked structure
 **Resolution**:
 We configured and integrated standard ADK telemetry and OpenTelemetry instrumentation:
 1. **API Enablement & Resource Config (Terraform)**:
-   * Added `monitoring.googleapis.com` (Cloud Monitoring API) to the `deploy_project_services` list in [locals.tf](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/deployment/terraform/locals.tf) to support OTel metric exporting.
-   * Updated [service.tf](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/deployment/terraform/service.tf) to inject standard telemetry environment variables `OTEL_SERVICE_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` to both the Cloud Run service and the Vertex AI Reasoning Engine.
+   * Added `monitoring.googleapis.com` (Cloud Monitoring API) to the `deploy_project_services` list in [locals.tf](../deployment/terraform/locals.tf) to support OTel metric exporting.
+   * Updated [service.tf](../deployment/terraform/service.tf) to inject standard telemetry environment variables `OTEL_SERVICE_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` to both the Cloud Run service and the Vertex AI Reasoning Engine.
    * Configured `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` conditionally based on the environment tier (`"NO_CONTENT"` in production for data privacy, and `"true"` in staging/development to capture full GenAI prompts and responses).
 2. **Standard OTel Telemetry Setup**:
-   * Updated `setup_telemetry()` in [telemetry.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/app_utils/telemetry.py) to import `get_gcp_exporters`, `get_gcp_resource`, and `maybe_set_otel_providers` from `google.adk.telemetry`.
+   * Updated `setup_telemetry()` in [telemetry.py](../app/app_utils/telemetry.py) to import `get_gcp_exporters`, `get_gcp_resource`, and `maybe_set_otel_providers` from `google.adk.telemetry`.
    * Programmatically registered standard Google Cloud exporters for Cloud Trace and Cloud Logging when running in a serverless environment or when `OTEL_TO_CLOUD=true` is enabled.
    * Hooked the Google GenAI SDK into the OpenTelemetry span lifecycle by programmatically calling `GoogleGenAiSdkInstrumentor().instrument()`.
 3. **Verification & Quality Control**:

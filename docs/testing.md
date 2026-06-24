@@ -271,7 +271,7 @@ Standard ADK telemetry and OpenTelemetry tracing are integrated into the applica
 
 #### How Tracing Works Under the Hood
 
-The application telemetry is configured in [telemetry.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/app_utils/telemetry.py) and initialised during backend startup (in [fast_api_app.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/fast_api_app.py) and [agent_runtime_app.py](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/app/agent_runtime_app.py)).
+The application telemetry is configured in [telemetry.py](../app/app_utils/telemetry.py) and initialised during backend startup (in [fast_api_app.py](../app/fast_api_app.py) and [agent_runtime_app.py](../app/agent_runtime_app.py)).
 
 1. **Standard ADK Tracing & Logging**: If `OTEL_TO_CLOUD` is set to `"true"` (or when running on Cloud Run), the app uses standard `google.adk.telemetry` APIs to configure Google Cloud Trace and Cloud Logging exporters. This is safely initialised via `maybe_set_otel_providers()`, which ensures existing global OpenTelemetry providers are not overridden.
 2. **GenAI SDK Instrumentation**: The `GoogleGenAiSdkInstrumentor` from `opentelemetry.instrumentation.google_genai` is loaded to instrument all Gemini model calls. This captures detailed metrics and span events for model queries.
@@ -282,7 +282,7 @@ The application telemetry is configured in [telemetry.py](file:///home/darren_le
 
 #### Verifying Tracing in Local Development
 
-For ease of use, all telemetry environment variables are already defined in the local [.env](file:///home/darren_lester/localdev/my-IP/smart-gcp-finops/.env) file:
+For ease of use, all telemetry environment variables are already defined in the local [.env](../.env) file:
 *   `OTEL_TO_CLOUD="true"`: Enables OpenTelemetry trace export to Google Cloud Trace.
 *   `OTEL_SERVICE_NAME="smart-gcp-finops-local"`: The logical service identifier.
 *   `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`: Captures full prompt-response text.
@@ -320,6 +320,43 @@ To run and verify local tracing:
      - `call_llm`: The model call span, showing prompt tokens and latency.
      - `execute_tool`: Individual tool executions (e.g. executing BigQuery queries or listing assets).
    * Click on individual spans to view their attributes. In local/dev runs, you will see the full prompt and response content under `gen_ai.prompt` and `gen_ai.completion` attributes.
+## Interactive Testing via Jupyter Notebook
+
+We provide a Jupyter notebook at [notebooks/adk_app_testing.ipynb](../notebooks/adk_app_testing.ipynb) for interactive development, prototyping, and sandbox evaluation of the FinSavant agent.
+
+### Prerequisites
+
+1. **Jupyter Kernel Selection**: Ensure you select the project virtual environment `.venv` as your notebook kernel.
+2. **Environment Variables**: The environment variables are loaded from `.env` in the project root.
+3. **Endpoint Routing**: The model calls default to the `global` location to support `gemini-3.5-flash` accessibility.
+
+### Testing Scenarios
+
+#### 1. Local Testing (Agent Runtime)
+This allows running the agent logic locally inside your notebook session using local credentials (ADC).
+- **Import**: `from app.agent_runtime_app import agent_runtime`
+- **Initialisation**: Run `agent_runtime.set_up()`
+- **Querying**: Use the async stream query interface to test agent thinking and tool usage:
+  ```python
+  async for event in agent_runtime.async_stream_query(message="hi!", user_id="test"):
+      print(event)
+  ```
+
+#### 2. Remote Testing (Gemini Enterprise Agent Runtime)
+This tests the deployed reasoning engine remotely on Google Cloud.
+- **Client Configuration**: Set `LOCATION = "europe-west1"` to match the endpoint where your reasoning engine is deployed.
+- **Auto-Detection**: The notebook parses `deployment_metadata.json` automatically to load the active `remote_agent_runtime_id`.
+- **Querying**: It calls the remote agent endpoint:
+  ```python
+  remote_agent_engine = client.agent_engines.get(name=REASONING_ENGINE_ID)
+  async for event in remote_agent_engine.async_stream_query(message="hi!", user_id="test"):
+      print(event)
+  ```
+
+#### 3. Remote Testing (FastAPI on Cloud Run)
+This validates the full container and streaming API over SSE.
+- **Authentication**: Generates a GCP identity token using `gcloud auth print-identity-token`.
+- **Execution**: Sends queries to `{SERVICE_URL}/run_sse` and decodes the incoming EventSource stream.
 
 ## Mocking Strategies
 

@@ -122,6 +122,14 @@ Before committing any changes to git, verify both the backend and frontend are h
     make test
     ```
 
+### Interactive Notebook Prototyping
+An interactive notebook is available at [adk_app_testing.ipynb](notebooks/adk_app_testing.ipynb) for testing the agent in a sandbox environment. This allows:
+- **Local Testing**: Instantiating the agent logic locally within the project virtual environment.
+- **Remote Testing (Reasoning Engine)**: Interacting with the deployed Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine).
+- **Remote Testing (Cloud Run)**: Triggering the deployed uvicorn server/SSE streaming interface.
+
+For full usage instructions, refer to the [Testing Guide](docs/testing.md#interactive-testing-via-jupyter-notebook).
+
 ## CI/CD & Deployment Flow
 
 FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production. The architecture splits the application into two deployed targets:
@@ -132,13 +140,13 @@ FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quali
 
 * **Continuous Integration (Staging)**: 
   - **Trigger**: Automatic on pushes or merges to the `main` branch. (Pull requests against branches only run linting, unit, and integration tests to ensure code health, but do not deploy anything to GCP).
-  - **Actions**: The [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) workflow automatically packages and deploys the agent logic to the staging Agent Runtime (`finops-admin-dev`), extracts the resulting `AGENT_RUNTIME_ID`, builds the unified container image, and deploys it to the Staging Cloud Run BFF with the correct engine ID.
+  - **Actions**: The [.github/workflows/staging.yaml](.github/workflows/staging.yaml) workflow automatically packages and deploys the agent logic to the staging Agent Runtime (`finops-admin-dev`), extracts the resulting `AGENT_RUNTIME_ID`, builds the unified container image, and deploys it to the Staging Cloud Run BFF with the correct engine ID.
 * **Verification**: Verify the staging environment to ensure all agent tools, BigQuery MCP connections, and React component renders function correctly.
 * **Manual Gate (Production)**: 
   - **Trigger**: Manual trigger ("workflow dispatch") in GitHub Actions.
-  - **Actions**: The [.github/workflows/deploy-to-prod.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/deploy-to-prod.yaml) workflow deploys the agent to the production Agent Runtime (`finops-admin-prd`), extracts the production ID, and deploys the BFF container to Production Cloud Run.
+  - **Actions**: The [.github/workflows/deploy-to-prod.yaml](.github/workflows/deploy-to-prod.yaml) workflow deploys the agent to the production Agent Runtime (`finops-admin-prd`), extracts the production ID, and deploys the BFF container to Production Cloud Run.
 
-For details on network variables, service accounts, and Terraform variable propagation, refer to the [Deployment README](file:///home/dazbo/localdev/smart-gcp-finops/deployment/README.md).
+For details on network variables, service accounts, and Terraform variable propagation, refer to the [Deployment README](deployment/README.md).
 
 ## Technical Architecture
 
