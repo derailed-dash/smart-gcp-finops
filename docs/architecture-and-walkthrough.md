@@ -29,6 +29,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Semantic Caching** | Accepted | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
 | **Visual Sync Overlay** | Accepted | Added a glassmorphic vertical scanning overlay inside `App.tsx` that triggers automatically when the JSON A2UI payload is streaming. Rationale: Solves the UX "frozen visual state" by clearly indicating to the user that the canvas data is actively synchronising. |
 | **CI/CD Variable Sync** | Accepted | Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
+| **Agent Runtime Hosting** | Accepted | Adopted Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, and native Vertex AI agent management. |
 
 
 
@@ -39,8 +40,8 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 
 1. **User Request**: User interacts with the React UI (Natural Language or Dashboard) or the Gemini CLI (Local Dev).
 2. **IAP Layer**: Identity-Aware Proxy intercepts the request, verifies the Google Identity, and checks IAM permissions (`roles/iap.httpsResourceAccessor`).
-3. **FastAPI Layer**: Receives the authenticated request and initiates the ADK agent session.
-4. **ADK Agent**: Orchestrates tools based on intent:
+3. **FastAPI BFF Layer**: Receives the authenticated request and either routes it to the remote **Gemini Enterprise Agent Runtime** (in production/staging execution) or runs it locally (in-container fallback mode for dev).
+4. **Agent Runtime (or Local ADK Runner)**: Orchestrates tools based on intent:
     - **BigQuery MCP**: Directly queries billing data from the centralized billing project using semantic tools like `list_datasets` and `execute_sql`.
     - **Developer Knowledge API**: Fetching architectural best practices.
     - **Cloud Asset Inventory**: Analyzing infrastructure state across projects.
@@ -61,23 +62,42 @@ To facilitate seamless local development and robust managed execution, the syste
 ### Component Diagram
 
 ```text
-[ React UI / Local CLI ] --(HTTPS)--> [ Identity-Aware Proxy ] --(Authenticated)--> [ FastAPI BFF ]
-                                                                                         |
-      |----------------------------------------------------------------------------------|
-      v                                                                                  v
-[ Cloud Run ] <---------------- [ GCP APIs ] <-------------- [ Asset Inventory / Knowledge ]
-      ^                                                                                  ^
-      |                                                                                  |
-      | (IAM: roles/run.invoker)                                                         | (IAM: roles/bigquery.jobUser, etc.)
-      |                                                                                  |
-[ IAP Service Agent ]                                                              [ Application SA ]
-                                                                                         |
-      |----------------------------------------------------------------------------------|
-      |                                                                                  |
-      | (Cross-Project IAM)                                                              | (Remote MCP)
-      v                                                                                  v
-[ Billing Project ] <---------------------------------------------------------- [ BigQuery MCP Server ]
-(BigQuery Export)                                                               (https://bigquery.googleapis.com/mcp)
+                                +-----------------------------+
+                                |  React UI (Browser) / CLI   |
+                                +-----------------------------+
+                                               |
+                                            (HTTPS)
+                                               v
+                                +-----------------------------+
+                                |    Identity-Aware Proxy     |
+                                +-----------------------------+
+                                               |
+                                        (Authenticated)
+                                               v
+                                +-----------------------------+
+                                |  FastAPI BFF (Cloud Run)    |
+                                +-----------------------------+
+                                   |                       |
+                             (Local Mode)            (Remote Mode)
+                                   |                       |
+                                   v                       v
+                        +----------------------+ +-------------------------+
+                        |  Local ADK Runner    | | Gemini Enterprise       |
+                        |  (In-Container)      | | Agent Runtime           |
+                        +----------------------+ | (Vertex AI Reasoning)   |
+                                   |             +-------------------------+
+                                   |                          |
+                                   +------------+-------------+
+                                                |
+                                                v
+                                +-----------------------------+
+                                |   Google Cloud APIs & MCPs  |
+                                |                             |
+                                |  - BigQuery Remote MCP      |
+                                |  - Cloud Asset Inventory    |
+                                |  - Gemini Cloud Assist      |
+                                |  - Developer Knowledge API  |
+                                +-----------------------------+
 ```
 
 ### Project Relationships & Cross-Project Interactions

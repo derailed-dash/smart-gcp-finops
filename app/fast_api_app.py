@@ -90,7 +90,7 @@ def get_status() -> dict:
     agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
     return {
         "mode": "remote" if agent_runtime_id else "local",
-        "agent_runtime_id": agent_runtime_id
+        "agent_runtime_id": agent_runtime_id,
     }
 
 
@@ -140,15 +140,7 @@ async def chat_stream(request: Request):
             if agent_runtime_id
             else "Step 1: Initialising dynamic billing table discovery...\nStep 2: Connected successfully. Spawning agent workflow...\n"
         )
-        yield (
-            "data: "
-            + json.dumps(
-                {
-                    "reasoning": initial_reasoning
-                }
-            )
-            + "\n\n"
-        )
+        yield ("data: " + json.dumps({"reasoning": initial_reasoning}) + "\n\n")
         await asyncio.sleep(0.5)
 
         from google.adk.agents.run_config import RunConfig, StreamingMode
@@ -188,7 +180,9 @@ async def chat_stream(request: Request):
 
                 async with _REMOTE_SESSION_LOCK:
                     if _REMOTE_SESSION_ID is None:
-                        session_obj = await agent_engine.async_create_session(user_id="default_user")
+                        session_obj = await agent_engine.async_create_session(
+                            user_id="default_user"
+                        )
                         _REMOTE_SESSION_ID = (
                             session_obj.get("id")
                             if isinstance(session_obj, dict)
@@ -201,17 +195,19 @@ async def chat_stream(request: Request):
                     async for event_dict in agent_engine.async_stream_query(
                         message=message,
                         user_id="default_user",
-                        session_id=_REMOTE_SESSION_ID
+                        session_id=_REMOTE_SESSION_ID,
                     ):
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
                 except SessionNotFoundError:
-                    logger.log_text("Remote session not found/expired. Resetting session and retrying.", severity="WARNING")
+                    logger.log_text(
+                        "Remote session not found/expired. Resetting session and retrying.",
+                        severity="WARNING",
+                    )
                     async with _REMOTE_SESSION_LOCK:
                         _REMOTE_SESSION_ID = None
                     async for event_dict in agent_engine.async_stream_query(
-                        message=message,
-                        user_id="default_user"
+                        message=message, user_id="default_user"
                     ):
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
@@ -226,6 +222,7 @@ async def chat_stream(request: Request):
             task.add_done_callback(_background_tasks.discard)
         else:
             import threading
+
             threading.Thread(target=run_agent_in_thread, daemon=True).start()
 
         seen_function_calls = set()

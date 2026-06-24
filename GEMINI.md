@@ -112,6 +112,6 @@ The series should have several parts. I'm thinking:
 
 - 4. Deployment, Authentication, Terraform, CI/CD
 
-- 5. Migrate to Agent Runtime and Observabilty with Gemini Enterprise Agent Platform
+- 5. Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
 
 

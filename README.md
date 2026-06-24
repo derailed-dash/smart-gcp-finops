@@ -124,7 +124,7 @@ Before committing any changes to git, verify both the backend and frontend are h
 
 ## CI/CD & Deployment Flow
 
-FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production. The migration to Gemini Enterprise Agent Runtime splits the application into two deployed targets:
+FinSavant utilizes a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production. The architecture splits the application into two deployed targets:
 1. **Agent Logic (Vertex AI Reasoning Engine / Gemini Enterprise Agent Runtime)**: Managed serverless environment hosting the agent's Python code, callbacks, and tools.
 2. **BFF + UI (Cloud Run)**: A lightweight container hosting the static React assets and a FastAPI thin proxy layer.
 

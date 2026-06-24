@@ -56,6 +56,7 @@ def test_get_dashboard_endpoint_exception(mock_get_metrics):
 def test_chat_stream_local(mock_get_runner):
     """Verify that chat stream routes to local runner when AGENT_RUNTIME_ID is unset."""
     from unittest.mock import MagicMock
+
     mock_runner = MagicMock()
     mock_runner.run.return_value = []
     mock_session = MagicMock()
@@ -75,6 +76,7 @@ def test_chat_stream_local(mock_get_runner):
 def test_chat_stream_remote(mock_model_validate, mock_get_runner, mock_vertex_client):
     """Verify that chat stream routes to Agent Runtime when AGENT_RUNTIME_ID is set."""
     from unittest.mock import MagicMock
+
     mock_runner = MagicMock()
     mock_session = MagicMock()
     mock_session.id = "session-123"
@@ -104,7 +106,13 @@ def test_chat_stream_remote(mock_model_validate, mock_get_runner, mock_vertex_cl
     mock_engine.async_stream_query = mock_async_stream
     mock_engine.async_create_session = mock_async_create_session
 
-    with patch.dict("os.environ", {"AGENT_RUNTIME_ID": "projects/123/locations/europe-west1/reasoningEngines/456"}, clear=True):
+    with patch.dict(
+        "os.environ",
+        {
+            "AGENT_RUNTIME_ID": "projects/123/locations/europe-west1/reasoningEngines/456"
+        },
+        clear=True,
+    ):
         response = client.post("/api/chat/stream", json={"message": "hello"})
         assert response.status_code == 200
         content = response.text
@@ -123,11 +131,16 @@ def test_get_status_endpoint():
         assert data["agent_runtime_id"] is None
 
     # Test remote mode
-    with patch.dict("os.environ", {"AGENT_RUNTIME_ID": "projects/123/locations/us-central1/reasoningEngines/456"}, clear=True):
+    with patch.dict(
+        "os.environ",
+        {"AGENT_RUNTIME_ID": "projects/123/locations/us-central1/reasoningEngines/456"},
+        clear=True,
+    ):
         response = client.get("/api/status")
         assert response.status_code == 200
         data = response.json()
         assert data["mode"] == "remote"
-        assert data["agent_runtime_id"] == "projects/123/locations/us-central1/reasoningEngines/456"
-
-
+        assert (
+            data["agent_runtime_id"]
+            == "projects/123/locations/us-central1/reasoningEngines/456"
+        )

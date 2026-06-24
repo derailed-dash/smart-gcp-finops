@@ -13,8 +13,8 @@ We have Cloud Billing Exports into a BQ dataset.
     ```bash
     uvx agent-starter-pack create smart-gcp-finops
     ```
-  - Deployment target: Cloud Run
-  - Session type: in-memory
+  - Deployment targets: Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) for the agent, and Cloud Run for the BFF + React UI
+  - Session type: Remote Vertex session cache / In-memory fallback
   - CI/CD: GitHub Actions
     
 5. Initialised git repo.
@@ -211,7 +211,7 @@ Now, the agent isn't just a "coder" — it's a data-aware FinOps analyst. Hurrah
 
 ### Agent Logic: Integrating BigQuery Remote MCP
 
-**Problem**: Once I had the BigQuery MCP enabled in my local Gemini CLI, I needed to bring that same intelligence into the core ADK agent that runs in our unified container. I didn't want the agent to just *talk* about BigQuery; I wanted it to *be* a BigQuery expert.
+**Problem**: Once I had the BigQuery MCP enabled in my local Gemini CLI, I needed to bring that same intelligence into the core ADK agent that runs on our remote Gemini Enterprise Agent Runtime (with local execution support in our BFF container). I didn't want the agent to just *talk* about BigQuery; I wanted it to *be* a BigQuery expert.
 
 **Resolution**: I updated the `app/agent.py` logic to initialize a dedicated `McpToolset` using the remote BigQuery MCP endpoint.
 
@@ -260,7 +260,7 @@ We are now officially ready to move from "plumbing" to "presentation" — next u
 
 ### Dynamic Auth: Token Refreshing for Long-Running Agents
 
-**Problem**: My initial implementation of the BigQuery MCP toolset used a static OAuth 2.0 token fetched at startup. While this worked for a five-minute "playground" session, it was a ticking time bomb for production. Google Cloud access tokens expire after 60 minutes. If the agent stayed alive in Cloud Run (which it does!), it would eventually start throwing `401 Unauthorized` errors as soon as the initial token went stale.
+**Problem**: My initial implementation of the BigQuery MCP toolset used a static OAuth 2.0 token fetched at startup. While this worked for a five-minute "playground" session, it was a ticking time bomb for production. Google Cloud access tokens expire after 60 minutes. If the agent stayed alive in the remote Gemini Enterprise Agent Runtime (which it does!), it would eventually start throwing `401 Unauthorized` errors as soon as the initial token went stale.
 
 **Resolution**: I refactored the `McpToolset` to use the **`header_provider`** pattern, a technique I'd previously pioneered in my [Agentic Firestore blog post](https://medium.com/google-cloud/agentic-firestore-smarter-agents-with-adk-and-google-remote-firestore-mcp-99c6c0240b5a).
 
@@ -1439,7 +1439,7 @@ We completely overhauled the unified container architecture, aligning it with en
    * Built the container locally via `make docker-build`. Stage 1 vite builds compiled in **4.0 seconds**, and Stage 2 Python dependency caching successfully completed in **9.2 seconds** with all 127 site packages cleanly isolated.
    * Successfully exported the lean production container `smart-gcp-finops:latest`.
 
-This completes the Unified Container Phase, preparing our AI FinOps agent for secure, ultra-fast, and standardized serverless deployments! Hurrah!
+This completes the Unified Container Phase, preparing our BFF and UI container for secure, ultra-fast, and standardized serverless deployments! Hurrah!
 
 ---
 
@@ -1831,16 +1831,16 @@ This ensures the conversational interface is perfectly synchronized with the act
 
 ---
 
-### Managed Agent Runtime Migration
+### Gemini Enterprise Agent Runtime Integration
 
-**Problem**: The root agent was executing locally inside the FastAPI Backend for Frontend (BFF) container. While this simplified deployment initially, it made it difficult to scale the agent independently from the frontend, restricted our ability to leverage Vertex AI's managed execution, and coupled the UI web server with heavy reasoning and tool executions.
+**Problem**: We wanted our core agent logic to execute within a fully managed, scalable runtime (Vertex AI Reasoning Engine) rather than coupling AI reasoning, heavy tool executions, and stateful session logic inside our stateless FastAPI Backend for Frontend (BFF) container on Cloud Run.
 
-**Resolution**: We migrated the **FinSavant** agent to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) and decoupled it from local execution in FastAPI.
+**Resolution**: We designed and deployed the **FinSavant** agent to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) from the start, using the Cloud Run container solely to host the static React UI and BFF proxy.
 1. **Infrastructure (Terraform)**: Provisioned the `google_vertex_ai_reasoning_engine` resource shell in `deployment/terraform/service.tf` using a base64-encoded dummy source code tarball to avoid cold start provisioning issues, and configured dynamic `AGENT_RUNTIME_ID` injection into the Cloud Run environment.
 2. **IAM & Impersonation**: Configured role impersonation bindings allowing the Vertex AI service agent to assume the credentials of the application service account (`app_sa`) to safely invoke BigQuery, CAI, and Cloud Assist APIs.
-3. **Dynamic BFF Routing**: Updated `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, it gracefully falls back to local ADK runner execution.
+3. **BFF Routing**: Programmed `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, for local development, it gracefully falls back to local ADK runner execution.
 4. **Agent Runtime Wrapper**: Created `app/agent_runtime_app.py` to wrap our ADK root agent inside `AdkApp`, enabling standard operation exposure and logging.
-5. **CI/CD Pipeline Integration**: Updated the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
+5. **CI/CD Pipeline Integration**: Configured the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
 
 This architecture decouples the stateless React web application from the AI reasoning backend while preserving unified container benefits and local testing fallbacks! Hurrah!
 
@@ -1857,7 +1857,7 @@ This architecture decouples the stateless React web application from the AI reas
    * **`IN-CONTAINER FALLBACK`** (amber `#F59E0B` background/border/glow) when running locally.
    * **`VERTEX RUNTIME`** (neon green `#00F59B` background/border/glow) when pointing to a deployed reasoning engine, complete with a detailed tooltip showing the active resource ID on hover.
 
-This completes the migration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
+This completes the integration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
 
 ---
 
