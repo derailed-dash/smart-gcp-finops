@@ -1,39 +1,62 @@
-# FinSavant Part 1: Overall Series Goals & Design
+# FinSavant Part 1: Building an Agentic FinOps Platform with Google ADK and the Gemini Enterprise Agent Platform - Goals, Architecture, and Tech Stack
+
+## Welcome
 
 Hello folks, Dazbo here.
 
-If you’ve ever had to manage a Google Cloud Platform footprint of any decent size, you’ll know the feeling. You open up the billing console, look at the monthly total, and feel your eyes water. You start digging into static dashboards, trying to map raw costs to actual running infrastructure, and quickly realise you’re essentially flying blind.
+If you’ve ever had to manage a Google Cloud Platform footprint of any decent size, you’ll know the feeling. You open up the billing console, look at the monthly total, and feel your eyes water. You start digging into dashboards, trying to map raw costs to actual running infrastructure, and quickly realise you’re essentially flying blind.
 
-Standard dashboards are great at telling you *what* you spent last month. But they are completely useless at telling you *why* you spent it, *if* you actually needed to spend it, or *which* engineer left an unattached 2TB SSD running in a staging project three months ago. 
+To be fair, Google has done a lot of improvements with its own Google Cloud FinOps Hub lately. It's added a bunch of AI smarts to allow you to have natural language conversations with an agent, to help understand your spend.
 
-This is the genesis of **FinSavant**—an agentic FinOps solution for GCP. My goal was to move past passive cost reporting and build an active, infrastructure-aware virtual analyst that combines financial truth with real-time operational context.
+But I wanted to build my own agentic FinOps solution, for a few reasons. Some are about the FinOps capability itself:
 
-In this first part of our series, I'll walk you through the design principles, the target architecture, and the tech stack integrations that power FinSavant.
+- I wanted an agentic solution that can combine information like *what* you spent last month, *why* you spent it, and why spending *spikes* occurred.
+- I want the solution to be able to immediately spot *orphaned resources*, such as unused VMs, unattached disks, or unused IP addresses. For example, a persistent disk costing us $100 a month might be adding value if it's actually attached to a VM; but it's a total waste of spend if it's not. (Obviously, this is more of a problem for traditional IaaS infrastructure; this is not generally a concern for serverless services.)
+- I want the solution to understand Google Cloud *architecture* and *best practices*, so that it can advise *what you should do*, and *why this is the most appropriate course of action*.
 
----
+But mainly, I wanted an excuse to experiment with some relatively new agentic services in Google Cloud:
 
-## The Vision: Financial Truth meets Operational Context
+- I wanted to deploy to the new Gemini Enterprise Agent Runtime; the thing that has replaced Vertex AI Agent Engine.
+- I wanted to play with some of the associated Gemini Enterprise Agent Platform capabilities, such as native support for ADK agents, the Agent Registry, and built-in observabiltiy and telemetry.
+- I wanted to experiment with some specific tools and MCP servers.
 
-A standard FinOps dashboard operates in a silo. It pulls from the BigQuery billing export, aggregates the numbers, and plots them on a pretty chart. But financial data lacks **operational reality**. 
+Specifically:
 
-For example, a persistent disk that costs £100 a month looks exactly the same in a billing report whether it is attached to your core database or sitting completely idle. To find out if it's waste, an analyst has to manually check Compute Engine, check the attachment status, and track down the owner. 
+- Native BigQuery tools from ADK - in order to interrogate by billing information in BigQuery.
+- Google Cloud Assist - to be able to obtain live insights from Google Cloud metrics and logging, and provide recommendations using Google-built in recommenders.
+- The Asset Inventory API - to determine our exact current deployment configuration, to identify orphaned resources, and to see what has changed.
+- The Developer Knowledge MCP, so that my agent always has the latest knowledge about Google products, services, APIs, architectures, and best practices.
 
-FinSavant solves this by combining three elements:
-1. **Financial Truth (BigQuery Billing Exports)**: Knowing exactly what is being spent down to the resource ID.
-2. **Operational Reality (Cloud Asset Inventory)**: Understanding the real-time configuration state and 35-day audit history of every asset in your GCP estate.
-3. **GCP Best Practices (Developer Knowledge MCP)**: Grounding the agent's insights in official Google Cloud architecture guidelines.
+And so, friends, I give you **FinSavant**, an agentic FinOps solution for GCP that gives you an active, infrastructure-aware virtual analyst that combines costs with real-time operational context, and can make recommendations about what you should do next.
 
-By bringing these together under a GenAI agent built with the Google Agent Development Kit (ADK), we have created an assistant that can perform root-cause analysis (RCA) on cost spikes entirely on its own.
+## Series Structure
 
----
+Let's see where we are in this series.
 
-## The Architecture: High-Performance Canvas & Remote Brains
+1. Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions. **<<< You are here.**
+2. Dev Environment Setup with Google Antigravity, ADK, Agents CLI, MCP & Skills
+3. Building the dynamic UI with A2UI
+4. Authentication with IAP, Terraform, and CI/CD
+5. Observing, Evaluating & Tuning Our Agent with Gemini Enterprise Agent Platform
 
-When designing FinSavant, we wanted a clean separation between the frontend delivery mechanism and the reasoning backend, while keeping deployment costs and security overhead to an absolute minimum. 
+## FinSavant: How Does It Work?
 
-In production, the architecture splits into two main environments:
-*   **The Client & BFF (Cloud Run)**: We use the **Unified Container** pattern to package a React frontend and a FastAPI Backend-for-Frontend (BFF) into a single Cloud Run image. This eliminates cross-origin resource sharing (CORS) headaches, minimises our runtime footprint, and simplifies authentication.
-*   **The Reasoning Loop (Gemini Enterprise Agent Platform)**: The actual ADK agent logic is deployed to the **Gemini Enterprise Agent Platform (GEAP) Agent Runtime** (formerly Vertex AI Agent Engine or Reasoning Engine). The FastAPI BFF simply acts as a secure proxy, streaming queries to GEAP and receiving structured responses.
+FinSavant is a conversational agent that:
+
+- Uses **BigQuery Billing Exports** to know exactly what our costs are, down to the resource ID.
+- Uses **Google Cloud Assist** in order to interrogate our services, metrics and logs, and provide recommendations accordingly.
+- Uses **Google Cloud Asset Inventory** to undersatnd our realtime deployment configuration, but also to provide a 35-day audit history of every asset change in our GCP estate.
+- Uses **Developer Knowledge MCP** to ground the agent with both broad and deep Google knowledge. This means that if you ask it any questions relating to Google Cloud, Google APIs, or general Google best practices, the agent will provide factually correct answers that are up-to-date, and with very little hallucination.
+
+By bringing these together under a GenAI agent built with the Google Agent Development Kit (ADK), we have created an assistant that can perform root-cause analysis on cost spikes, as well as provide recommendations on how to fix them.
+
+## Architecture Overview
+
+When designing FinSavant, I wanted a clean separation between the frontend delivery mechanism and the reasoning backend, while keeping deployment costs and security overhead to an absolute minimum. To achieve this, we have:
+*   **The Client & Backend-for-Frontend (BFF)**: I've packaged a React frontend and a FastAPI BFF into a single container image. This eliminates cross-origin resource sharing (CORS) headaches, minimises the runtime footprint, and simplifies authentication.
+*   **The Agent**: The actual ADK agent logic is deployed to a separate backend runtime.
+
+The FastAPI BFF simply acts as a secure proxy. It streams queries to the agent and receives structured responses. But also, it allows us to decouple the backend from the UI. If I want surface this application through a different UI in the future - like Gemini Enterprise - I can.
 
 Here is how the request flow works in practice:
 
@@ -44,11 +67,30 @@ To support a fast local development cycle, the BFF supports a **hybrid execution
 *   **Local Fallback Mode**: If no remote agent runtime ID is configured, FastAPI loads the agent code directly into the container and runs the ADK engine locally in a background thread, using the developer’s Application Default Credentials (ADC).
 *   **Remote Execution Mode**: In staging and production, the BFF bypasses local execution and acts as a stateless proxy to the remote GEAP Agent Runtime.
 
----
+## The Tech Stack
+
+Let’s dive into the core components that make up FinSavant's tech stack and how they complement one another.
+
+### Cloud Run
+
+
+### 1. Google Agent Development Kit (ADK)
+The ADK is the orchestrator. It manages session context, wraps our custom tools, and handles the conversation loops with the model. Crucially, I leverage ADK's **Context Caching** features to cache system instructions and tool definitions model-side, which slashes token usage and drops latency.
+
+### 2. Cloud Asset Inventory (CAI)
+Instead of querying individual GCP APIs (which is slow and rate-limited), I use CAI's `searchAllResources` and `batchGetAssetsHistory` endpoints. 
+*   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks (`state=READY AND -users:*`) and idle external IPs.
+*   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days (e.g., detecting that an engineer upscaled a Cloud Run instance memory limit).
+
+### 3. Developer Knowledge MCP
+I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
+
+### 4. BigQuery Remote MCP
+To query my billing data, I integrated the remote BigQuery MCP server (`https://bigquery.googleapis.com/mcp`). Because it is a remote, fully managed Google endpoint, I don't need to deploy or manage any local MCP server containers. The agent connects to it via authenticated OAuth 2.0 headers.
 
 ## Showcasing the Gemini Enterprise Agent Platform (GEAP)
 
-Deploying a production-grade agent requires more than just running a Python loop. You need governance, security, and observability. This is why we chose the **Gemini Enterprise Agent Platform (GEAP)** as our runtime environment. 
+Deploying a production-grade agent requires more than just running a Python loop. You need governance, security, and observability. This is why I chose the **Gemini Enterprise Agent Platform (GEAP)** as my runtime environment. 
 
 By running on the GEAP Agent Runtime, FinSavant gains several critical advantages:
 
@@ -57,29 +99,9 @@ By running on the GEAP Agent Runtime, FinSavant gains several critical advantage
 *   **Observability and Telemetry**: We get native tracing of agent trajectories. We can inspect exactly what reasoning path the model took, which tools it invoked, and what payloads were returned, making debugging agent loops significantly easier.
 *   **Model Armor & Agent Gateway**: Security is paramount when an agent has read access to your billing data. GEAP’s **Agent Gateway** routes and monitors traffic, working alongside **Model Armor** to apply content security filters, block prompt injection attacks, and prevent unauthorised data exfiltration.
 
----
-
-## Core Tech Stack & Decisive Integrations
-
-Let’s dive into the core components that make up FinSavant's toolset and how they complement one another.
-
-### 1. Google Agent Development Kit (ADK)
-The ADK is the orchestrator. It manages session context, wraps our custom tools, and handles the conversation loops with the model. Crucially, we leverage ADK's **Context Caching** features to cache system instructions and tool definitions model-side, which slashes token usage and drops latency.
-
-### 2. Cloud Asset Inventory (CAI)
-Instead of querying individual GCP APIs (which is slow and rate-limited), we use CAI's `searchAllResources` and `batchGetAssetsHistory` endpoints. 
-*   **Zombie Detection**: We built custom CAI queries to instantly scan for unattached disks (`state=READY AND -users:*`) and idle external IPs.
-*   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days (e.g., detecting that an engineer upscaled a Cloud Run instance memory limit).
-
-### 3. Developer Knowledge MCP
-We connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
-
-### 4. BigQuery Remote MCP
-To query our billing data, we integrated the remote BigQuery MCP server (`https://bigquery.googleapis.com/mcp`). Because it is a remote, fully managed Google endpoint, we don't need to deploy or manage any local MCP server containers. The agent connects to it via authenticated OAuth 2.0 headers.
-
 #### Deep Dive: BigQuery MCP vs. Direct ADK Toolsets vs. Direct BQ Client Libraries
 
-When connecting an agent to BigQuery, we had to weigh the architectural trade-offs of different integration patterns:
+When connecting an agent to BigQuery, I had to weigh the architectural trade-offs of different integration patterns:
 
 | Feature | BigQuery MCP (Remote) | BigQueryToolset (ADK) | Direct BQ Client Library / Custom Tools |
 | :--- | :--- | :--- | :--- |
@@ -89,27 +111,27 @@ When connecting an agent to BigQuery, we had to weigh the architectural trade-of
 | **Streaming** | **No**: Tool execution is blocking. | **No**: Blocking. | **Yes**: Allows streaming of data chunks for lower latency UX. |
 | **Governance** | Lacks business glossary (relies on schema inference). | Lacks business glossary (relies on schema inference). | Customised; can wrap query validation and access controls. |
 
-**Why we chose a hybrid approach**:
-For general database discovery (listing datasets, verifying table schemas), we let the agent use the **BigQuery Remote MCP**. It provides a standardized, robust interface that the LLM is already familiar with.
+**Why I chose a hybrid approach**:
+For general database discovery (listing datasets, verifying table schemas), I let the agent use the **BigQuery Remote MCP**. It provides a standardized, robust interface that the LLM is already familiar with.
 
 However, for execution, relying solely on raw MCP query tools carries performance and security risks. To mitigate this:
-1.  **Security**: We applied a custom tool filter to exclude raw remote query execution tools, protecting the database from arbitrary SQL write actions.
-2.  **Performance & Caching**: We created a custom ADK tool called `execute_cached_bigquery_sql`. When the agent wants to run a query, it routes it through this custom tool, which applies a thread-safe, 5-minute TTL cache. This bypasses the blocking nature of the MCP for duplicate queries (like fetching daily spend trends) and significantly accelerates the React canvas updates.
+1.  **Security**: I applied a custom tool filter to exclude raw remote query execution tools, protecting the database from arbitrary SQL write actions.
+2.  **Performance & Caching**: I created a custom ADK tool called `execute_cached_bigquery_sql`. When the agent wants to run a query, it routes it through this custom tool, which applies a thread-safe, 5-minute TTL cache. This bypasses the blocking nature of the MCP for duplicate queries (like fetching daily spend trends) and significantly accelerates the React canvas updates.
 
 ---
 
 ## High-Level Design Decisions (ADR Highlights)
 
-While we will cover the deployment and infrastructure details in a later post, it’s worth highlighting how we laid the groundwork for a secure, low-cost enterprise footprint:
+While I will cover the deployment and infrastructure details in a later post, it’s worth highlighting how I laid the groundwork for a secure, low-cost enterprise footprint:
 
-*   **Native Cloud Run IAP**: We secured our Cloud Run app using Identity-Aware Proxy (IAP) directly at the service level using the `google-beta` Terraform provider. This allowed us to avoid the high cost of a Global Application Load Balancer (ALB), keeping our monthly infrastructure spend to pennies.
-*   **Decoupled Staging & Prod CI/CD**: We split our GitHub Actions pipelines so that staging deployments trigger automatically, while production deployments require a manual release trigger (the "Manual Gate" pattern).
+*   **Native Cloud Run IAP**: I secured the Cloud Run app using Identity-Aware Proxy (IAP) directly at the service level using the `google-beta` Terraform provider. This allowed us to avoid the high cost of a Global Application Load Balancer (ALB), keeping the monthly infrastructure spend to pennies.
+*   **Decoupled Staging & Prod CI/CD**: I split my GitHub Actions pipelines so that staging deployments trigger automatically, while production deployments require a manual release trigger (the "Manual Gate" pattern).
 *   **GCS Remote State**: All infrastructure is managed declaratively via Terraform, utilizing a GCS bucket with state locking to prevent deployment conflicts.
 
 ---
 
 ## What’s Next?
 
-With the goals, architecture, and technology integrations defined, we had our blueprint. In the next part of this series, we will get our hands dirty and look at **Part 2: Building the Agentic Solution**, detailing how we bootstrapped the project with the Agents CLI, handled credential refreshing for long-running agent threads, and implemented the custom ADK callbacks.
+With the goals, architecture, and technology integrations defined, I had my blueprint. In the next part of this series, I will get my hands dirty and look at **Part 2: Building the Agentic Solution**, detailing how I bootstrapped the project with the Agents CLI, handled credential refreshing for long-running agent threads, and implemented the custom ADK callbacks.
 
 Stay tuned, and hurrah for lower cloud bills!

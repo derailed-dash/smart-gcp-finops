@@ -40,7 +40,12 @@
 [x] Setup continuous deployment (CI/CD) of the frontend and backend
 [x] Cache repeating queries, e.g. duplicate queries for zombie resources.
 [x] Migrate to Gemini Enterprise Agent Runtime, with UI in separate Cloud Run
-[ ] Create blog series
+[~] Create blog series
+  - [ ] Arch diagram should show the Agent running in Agent Runtime
+[ ] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but no in the agent.
+[ ] Remove env var redundancy in architecture walkthrough md
+[ ] Convert arch diagrams to renders
 [ ] Introduce ADK based evaluation, including trajectory.
+[ ] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] Click a bar?
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

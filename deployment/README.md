@@ -69,7 +69,7 @@ For local development and container runtime, configuration is driven by variable
 | `GOOGLE_CLOUD_PROJECT` | Deployment Target | The Google Cloud project ID hosting the active app runtime (e.g., staging project during local dev). |
 | `CICD_PROJECT_ID` | CI/CD Infrastructure | The project ID hosting the CI/CD resources (Artifact Registry, WIF). |
 | `GOOGLE_CLOUD_REGION` | Infrastructure Region | The default region where Cloud Run and other regional services are deployed (e.g., `europe-west1`). |
-| `GOOGLE_CLOUD_LOCATION` | GenAI / Vertex AI | The Vertex AI API endpoint location (e.g., `global`). |
+| `GOOGLE_CLOUD_LOCATION` | GenAI / Vertex AI | The Vertex AI API endpoint location.Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
 | `GOOGLE_CLOUD_BILLING_ACCOUNT` | Billing Scope | The target GCP Billing Account ID being audited (formatted as `XXXXXX-XXXXXX-XXXXXX`). |
 | `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g., `europe-west4`). |
 | `GOOGLE_CLOUD_BILLING_PROJECT` | Billing Project | The ID of the project hosting the BigQuery billing export dataset (for query execution and data viewing). |
@@ -184,7 +184,7 @@ The agent and infrastructure are configured using variables in `deployment/terra
 | `billing_export_dataset` | The name of the dataset containing the billing data (e.g., `all_billing_data`). |
 | `google_cloud_organization_id` | (Required) The numeric ID of your Google Cloud Organization. If you do not use an organization, you must set this to an empty string (`""`) in your `env.tfvars` to satisfy Terraform variable validation. |
 | `google_genai_use_vertexai` | Whether to use Vertex AI for Gemini (default: `true`). |
-| `google_cloud_location` | The location for Vertex AI API endpoint calls (e.g., `global`). |
+| `google_cloud_location` | The location for Vertex AI API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
 | `model` | The primary model used for reasoning (default: `gemini-3.5-flash`). |
 | `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.1-flash-lite`). |
 | `staging_min_instances` / `prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
