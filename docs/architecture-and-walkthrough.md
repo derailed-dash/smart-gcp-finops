@@ -212,7 +212,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 #### 2. Latency-Aware Agent Routing Flow
 
-To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/app/agent.py) injects a strict classification tree.
+To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../app/agent.py) injects a strict classification tree.
 
 The agent evaluates the incoming prompt and routes it into one of four mutually exclusive execution lanes, actively blocking/banning the tools belonging to other routes:
 
@@ -258,7 +258,11 @@ graph TD
 
 - **Language**: Python 3.12+ (Backend), TypeScript (Frontend).
 - **Package Management**: `uv` for backend, `npm`/`pnpm` for frontend.
-- **Observability**: Cloud Trace for agent latency, BigQuery for analytics.
+- **Observability & Tracing**:
+  - **Standard ADK Telemetry**: Programmatically configured via OpenTelemetry using `google.adk.telemetry` wrappers. Spans trace the full agent execution flow (spawning LLM calls and tool execution hierarchies).
+  - **Local Agent Tracing**: Locally running agents support full tracing export. Developers can set `OTEL_TO_CLOUD=true` in their local environment variables (along with standard Google Application Default Credentials) to route local execution traces directly to Google Cloud Trace for instant inspection.
+  - **Gemini Enterprise Agent Runtime (GEAP) Integration**: Deploying the agent reasoning engine to Vertex AI enables automatic telemetry propagation. In addition to GCS/BigQuery structured logs, trace trajectories integrate seamlessly with the Gemini Enterprise Agent Platform (GEAP) observability interfaces with minimal friction.
+
 
 ## A2UI Rationale & Gemini Enterprise Portability
 

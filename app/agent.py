@@ -59,7 +59,11 @@ standard_table_id = f"{settings.google_cloud_billing_project}.{settings.billing_
 resource_table_id = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_resource_v1_{billing_suffix}"
 
 # Instantiate global, thread-safe GenAI Client at module level to reuse connection pools
-genai_client = Client()
+genai_client = Client(
+    vertexai=settings.google_genai_use_vertexai,
+    location=settings.google_cloud_location,
+    project=settings.google_cloud_project,
+)
 
 
 AGENT_INSTRUCTION = f"""You are a helpful FinOps AI assistant specialized in Google Cloud Platform (GCP) cost analysis.
@@ -431,9 +435,33 @@ async def after_agent_save_cache(
     return None
 
 
+class ConfiguredGemini(Gemini):
+    """
+    A custom Gemini model wrapper that overrides default regional endpoint routing.
+
+    Why: The Vertex AI Reasoning Engine (Gemini Enterprise Agent Runtime) is deployed
+    regionally (e.g., europe-west1) and by default routes all model calls to that
+    same local region. However, general-use models like 'gemini-3.5-flash' and
+    'gemini-3.1-flash-lite' are not supported in europe-west1 (returning a 404 NOT_FOUND).
+
+    How: This subclass overrides the internal ADK api_client property, explicitly
+    initialising the underlying google-genai Client with the location specified
+    in settings.google_cloud_location (which defaults to 'global'). This ensures
+    both local and remote runs route model requests to the correct global endpoint.
+    """
+
+    @property
+    def api_client(self) -> Client:
+        return Client(
+            vertexai=settings.google_genai_use_vertexai,
+            location=settings.google_cloud_location,
+            project=settings.google_cloud_project,
+        )
+
+
 root_agent = Agent(
     name="root_agent",
-    model=Gemini(
+    model=ConfiguredGemini(
         model=settings.model,
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
