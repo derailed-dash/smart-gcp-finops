@@ -439,24 +439,25 @@ class ConfiguredGemini(Gemini):
     """
     A custom Gemini model wrapper that overrides default regional endpoint routing.
 
-    Why: The Vertex AI Reasoning Engine (Gemini Enterprise Agent Runtime) is deployed
-    regionally (e.g., europe-west1) and by default routes all model calls to that
-    same local region. However, general-use models like 'gemini-3.5-flash' and
-    'gemini-3.1-flash-lite' are not supported in europe-west1 (returning a 404 NOT_FOUND).
+    Why subclass Gemini:
+    The ADK Agent orchestration layer requires an ADK model wrapper (i.e. a subclass of
+    `google.adk.models.Model`, such as `Gemini`) rather than accepting a raw, low-level
+    `google.genai.Client` directly. The `Gemini` wrapper handles request/response conversion,
+    retry strategies, and integration with the ADK runtime lifecycle.
 
-    How: This subclass overrides the internal ADK api_client property, explicitly
-    initialising the underlying google-genai Client with the location specified
-    in settings.google_cloud_location (which defaults to 'global'). This ensures
-    both local and remote runs route model requests to the correct global endpoint.
+    Why override api_client:
+    When deployed remotely to the Gemini Enterprise Agent Runtime in a specific region
+    (e.g., europe-west1), the container runtime forces default SDK clients to route all
+    requests to the local region. However, general-use models like 'gemini-3.5-flash' are
+    unavailable in regional endpoints and return a 404 NOT_FOUND. Overriding the internal
+    `api_client` property allows us to return our global module-level `genai_client` (configured
+    with location='global'), ensuring correct endpoint routing and reusing the single shared
+    connection pool to prevent socket exhaustion.
     """
 
     @property
     def api_client(self) -> Client:
-        return Client(
-            vertexai=settings.google_genai_use_vertexai,
-            location=settings.google_cloud_location,
-            project=settings.google_cloud_project,
-        )
+        return genai_client
 
 
 root_agent = Agent(

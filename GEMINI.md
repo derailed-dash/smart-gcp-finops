@@ -114,4 +114,4 @@ The series should have several parts. I'm thinking:
 
 - 5. Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
 
-
+Each part will be drafted in a separate md file under docs/blog. We're going to document in Dazbo style, but don't overdo the character. Subtle Dazbo.
