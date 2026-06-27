@@ -137,19 +137,27 @@ To support a fast local development cycle, the BFF supports two different run mo
 *   **Remote Execution Mode**: In staging and production, the BFF acts as a stateless proxy to the remote agent, running on the Google Agent Runtime.
 *   **Local Fallback Mode**: If no remote agent runtime ID is configured, FastAPI loads the agent code directly into the container and runs the ADK engine locally in a background thread, using the developer’s Application Default Credentials (ADC).
 
+### Project and Organisational Scope
+
+I want FinSavant to be able to provide FinOps advice for all projects that I have access to. Some of my projects may be part of an organisation, and some may be _standalone_, i.e. projects that don't belong in any organisation.
+
 ### Cloud Asset Inventory (CAI)
 
 Instead of querying individual GCP APIs (which is slow and rate-limited), I use CAI's `searchAllResources` and `batchGetAssetsHistory` endpoints. 
 *   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks (`state=READY AND -users:*`) and idle external IPs.
 *   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days (e.g., detecting that an engineer upscaled a Cloud Run instance memory limit).
 
+
 ### Developer Knowledge MCP
 
 I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
 
-### BigQuery native / MCP Integration
+### BigQuery Tool Calls From Our Agents
 
-To query my billing data, the agent integrates ADK's native `BigQueryToolset` directly, executing metadata lookups locally or on Cloud Run using Application Default Credentials (ADC). For developers, we also configured the remote Google BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) in our workspace settings, allowing us to perform quick natural language experimentation on the database from the local Gemini CLI without running the agent backend.
+I want to be able to query my billing data - stored in BigQuery - using natural language prompts. I'm acheving this in two different ways, depending on where I'm going from.
+
+- In my development workspace, I'm using the Google remote managed BigQuery MCP server (`https://bigquery.googleapis.com/mcp`).
+- In our FinSavant ADK agent itself, I'm using ADK's native `BigQueryToolset` directly. In doing so, we  simplify authentication, reduce runtime latency when making BQ calls, reduce dependency on an external service, and align with ADK best practices. 
 
 ## Showcasing the Gemini Enterprise Agent Platform (GEAP)
 

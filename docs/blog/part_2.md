@@ -8,6 +8,7 @@
 - Documentation approach
 - Scaffolding with agents cli
 - Setting up MCPs
+  - Demo of BQ MCP from workspace
 - Coding the agent and its tools
   - Including BigQueryToolset; pros over MCP
 - Creating the tests
