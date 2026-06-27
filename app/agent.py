@@ -13,10 +13,12 @@ import threading
 import time
 from typing import Any
 
+import google.auth
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.apps import App
+from google.adk.integrations.bigquery import BigQueryCredentialsConfig, BigQueryToolset
 from google.adk.models import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -27,7 +29,6 @@ from app.app_utils.cai_tools import (
     get_cai_metadata_for_resources,
 )
 from app.app_utils.mcp_config import (
-    bq_mcp_toolset,
     cloud_assist_mcp_toolset,
     dev_knowledge_mcp_toolset,
 )
@@ -65,6 +66,24 @@ genai_client = Client(
     project=settings.google_cloud_project,
 )
 
+# Configure native BigQuery Toolset using Application Default Credentials (ADC)
+
+credentials, _ = google.auth.default()
+credentials_config = BigQueryCredentialsConfig(credentials=credentials)
+
+
+def bq_tool_filter(tool, ctx=None) -> bool:
+    """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
+    name = tool.name.lower()
+    return "execute" not in name and "query" not in name
+
+
+bigquery_toolset = BigQueryToolset(
+    credentials_config=credentials_config,
+    tool_filter=bq_tool_filter,
+)
+
+
 
 AGENT_INSTRUCTION = f"""You are a helpful FinOps AI assistant specialized in Google Cloud Platform (GCP) cost analysis.
 Your primary goal is to help users manage, understand, and optimize their cloud spend.
@@ -76,7 +95,7 @@ There are two primary billing tables in this dataset. To optimize performance an
 2. Resource-level Billing Table (Detailed resource cost analysis, contains specific resource names and global names):
    `{resource_table_id}`
 
-CRITICAL: To execute any SQL queries against BigQuery, you MUST use the cached `execute_cached_bigquery_sql` tool. Do NOT use the generic remote BigQuery MCP server query or execution tools (like `bigquery-mcp-server_execute_sql`), as they bypass our local cache, incurring unnecessary database table scans and cost.
+CRITICAL: To execute any SQL queries against BigQuery, you MUST use the cached `execute_cached_bigquery_sql` tool. Do NOT use the native BigQueryToolset query or execution tools (like `execute_sql`), as they bypass our local cache, incurring unnecessary database table scans and cost.
 
 CRITICAL: If the user asks for costs of specific, individual resources (like VM instances, buckets, or disks by name), you MUST query the resource-level table `{resource_table_id}`. Do NOT query the standard `{standard_table_id}` table for resource names or `resource.global_name` as those fields do not exist there and will cause syntax errors.
 
@@ -119,22 +138,22 @@ To minimize query turn latency and prevent redundant API execution, you MUST adh
 1. SPEND & HISTORICAL TRENDS:
    - Intent: Querying costs, SKU prices, MTD totals, project costs, or cost trends.
    - Tool: Use ONLY `execute_cached_bigquery_sql`.
-   - Constraint: Banned tools: Do NOT call `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset`, `bq_mcp_toolset`, or `cloud_assist_mcp_toolset`.
+   - Constraint: Banned tools: Do NOT call `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset`, `bigquery_toolset`, or `cloud_assist_mcp_toolset`.
 
 2. ACTIVE INFRASTRUCTURE OPTIMIZATION & RECOMMENDATIONS:
    - Intent: Cost optimization, rightsizing recommendations, comparing active resources (like VMs/disks) to active recommenders, or comparing live configurations to best practices.
    - Tool: Use ONLY the Gemini Cloud Assist MCP tools (e.g., `gemini-cloud-assist_ask_cloud_assist`).
-   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset` or `bq_mcp_toolset`.
+   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset` or `bigquery_toolset`.
 
 3. STRUCTURED ASSET AUDITING & DRIFT:
    - Intent: Listing resources (e.g. unattached disks, VM counts) or active inventory auditing.
    - Tool: Use ONLY `list_zombie_resources` or `get_cai_metadata_for_resources`.
-   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset`, `bq_mcp_toolset`, or `cloud_assist_mcp_toolset`.
+   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `get_cai_history_for_resource`, or any tools from `dev_knowledge_mcp_toolset`, `bigquery_toolset`, or `cloud_assist_mcp_toolset`.
 
 4. CONCEPTUAL REFERENCE Q&A:
    - Intent: Explaining GCP products, storage class differences, conceptual billing definitions, or generic best practices.
    - Tool: Use ONLY the Google Developer Knowledge MCP tools (e.g. `answer_query` or `search_documents`).
-   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `bq_mcp_toolset`, or `cloud_assist_mcp_toolset`.
+   - Constraint: Banned tools: Do NOT call `execute_cached_bigquery_sql`, `list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`, or any tools from `bigquery_toolset`, or `cloud_assist_mcp_toolset`.
 
 5. ROOT CAUSE ANALYSIS (RCA) OF COST SPIKES:
    - Intent: Investigating why costs spiked on a specific date, cross-referencing billing records with configuration changes (drift).
@@ -162,7 +181,7 @@ To minimize query turn latency and prevent redundant API execution, you MUST adh
        1. Apply a cost threshold filter (e.g., `cost > 0.5` or `SUM(...) > 0.5` or `cost_increase > 0.1`). NEVER query `cost > 0` or omit a cost threshold filter.
        2. ALWAYS include a `LIMIT 15` (or less) clause.
        NEVER retrieve raw or low-cost resource lists without a strict limit and filter.
-     - Banned tools: Do NOT call `list_zombie_resources` (zombies are irrelevant to a specific date spike), and do NOT call any tools from `dev_knowledge_mcp_toolset`, `bq_mcp_toolset`, or `cloud_assist_mcp_toolset`. Do NOT query history for more than 2 resources.
+     - Banned tools: Do NOT call `list_zombie_resources` (zombies are irrelevant to a specific date spike), and do NOT call any tools from `dev_knowledge_mcp_toolset`, `bigquery_toolset`, or `cloud_assist_mcp_toolset`. Do NOT query history for more than 2 resources.
 
 When providing cost information, you MUST be precise, ALWAYS explicitly state the exact time period or duration that the costs represent (e.g. 'Month-to-Date', 'for the current calendar month', 'for the last 90 days', or 'from [start_date] to [end_date]'), and ALWAYS dynamically determine, format, and express all monetary values in the correct active billing currency (typically present as 'currency' in standard or resource-level billing export tables). You MUST mention the correct active currency symbol or code (e.g. £/GBP, $/USD, €/EUR) in your conversational responses or analyses, aligning with the actual billing export data. Never present bare cost values without their corresponding duration.
 
@@ -469,7 +488,7 @@ root_agent = Agent(
     instruction=AGENT_INSTRUCTION,
     tools=[
         execute_cached_bigquery_sql,
-        bq_mcp_toolset,
+        bigquery_toolset,
         dev_knowledge_mcp_toolset,
         cloud_assist_mcp_toolset,
         list_zombie_resources,
@@ -488,6 +507,6 @@ app = App(
     context_cache_config=ContextCacheConfig(
         min_tokens=2048,  # Trigger caching for large prompts/histories on Vertex AI / Gemini
         ttl_seconds=600,  # Store the cache for up to 10 minutes
-        cache_intervals=5,  # Refresh after 5 turns
+        cache_intervals=10,  # Refresh after 5 turns
     ),
 )

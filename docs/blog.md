@@ -1915,3 +1915,31 @@ We configured and integrated standard ADK telemetry and OpenTelemetry instrument
    * Executed formatting and linting controls (`uvx codespell` and `uvx ruff`) to ensure clean code standards.
 
 This enables out-of-the-box distributed tracing and monitoring for all agent runs, tool calls, and model interactions, providing a clear window into our agent's cognitive trajectories! Hurrah!
+
+---
+
+### Swapping BigQuery MCP for Native ADK BigQueryToolset
+
+**Problem**:
+In our initial implementation, the ADK agent connected to a remote BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) to retrieve billing schemas and inspect dataset structures. While this works well for natural language command-line experiments using the local Gemini CLI (Antigravity), having our compiled ADK agent rely on an external MCP server for simple schema checks introduced unnecessary latency, authentication complexity, and extra runtime overhead.
+
+**Resolution**:
+We refactored the agent to use the native ADK `BigQueryToolset` (from `google.adk.integrations.bigquery`) instead of the BigQuery MCP toolset inside the agent logic:
+1. **Dependency Management**:
+   * Added `google-cloud-dataplex` to `pyproject.toml` dependencies. The native `BigQueryToolset` implements semantic data catalog searches via Dataplex (`google.cloud.dataplex_v1`); without this package, importing `BigQueryToolset` throws an `ImportError` on startup.
+   * Executed `uv sync` to update the local virtual environment and regenerate `uv.lock`.
+2. **Agent Refactoring**:
+   * Removed BQ MCP toolset configuration (`bq_mcp_toolset`, `BQAuthProvider`, `bq_tool_filter`) from [mcp_config.py](../app/app_utils/mcp_config.py).
+   * Refactored [agent.py](../app/agent.py) to import `BigQueryToolset` and `BigQueryCredentialsConfig` from `google.adk.integrations.bigquery`.
+   * Instantiated `BigQueryToolset` using Application Default Credentials (ADC) and applied a custom `bq_tool_filter` in the constructor to exclude raw execution/query tools (`execute_sql` and `ask_data_insights`). This guarantees that all SQL execution continues to route exclusively through our optimized, cached `execute_cached_bigquery_sql` tool.
+   * Registered the native `bigquery_toolset` in `root_agent.tools` and updated prompt instructions to block native execution tools rather than MCP tools.
+3. **Test Suite Updates**:
+   * Refactored [test_agent_mcp.py](../tests/unit/test_agent_mcp.py) to assert that the agent now has exactly two `McpToolset` instances (Developer Knowledge and Cloud Assist) and exactly one native `BigQueryToolset` instance.
+   * Added a new unit test `test_agent_has_native_bq_toolset` verifying that the toolset successfully filters out query/execute tools, ensuring the agent remains locked to cached SQL execution.
+4. **Verification**:
+   * Executed all unit tests (`uv run pytest tests/unit`), passing successfully (45 passed, including the new native BQ test).
+   * Executed integration tests (`uv run pytest tests/integration/test_agent.py`), confirming streaming works flawlessly.
+   * Checked and fixed codebase formatting via `uvx codespell` and `uvx ruff check --fix .`.
+
+This completes our migration to a native BigQuery integration in the agent logic, reducing remote protocol overhead while preserving natural language schema inspections! Hurrah!
+

@@ -15,8 +15,8 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **GCS Remote State** | Store Terraform state on GCS (`finops-admin-prd-tfstate`) to ensure a shared source of truth across CI/CD environments and enable state locking. |
 | **Custom Domain Mapping**| Use Cloud Run Domain Mappings over an External ALB + Cloud DNS setup for simplicity and cost optimization. |
 | **Cross-Project Billing**| Grant the Application Service Account cross-project access to the BigQuery billing export project (`var.google_cloud_billing_project`) via project-level IAM roles, enabling centralised cost analysis. |
-| **BigQuery MCP** | For local analysis and experimentation, use the remote Google BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) to allow natural language querying of data. The remote endpoint is fully managed, so we have no MCP server to deploy or manage. |
-| **BigQuery ADK Toolset** | Provides ADK agents with the ability to interrogate our BigQuery billing datasets directly, without needing a separate MCP layer. This reduces latency and overhead. |
+| **BigQuery MCP (Local CLI)** | The BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) is configured exclusively in the local `.gemini/settings.json` file. It enables developers to use the Gemini CLI for direct, natural language database experimentation during development without deploying any code. |
+| **BigQuery ADK Toolset (Agent)** | The ADK agent uses the native `BigQueryToolset` (from `google.adk.integrations.bigquery`) with Application Default Credentials (ADC) to query dataset metadata and schemas. By avoiding a separate remote MCP layer, it simplifies authentication, reduces runtime latency, and aligns with ADK best practices. |
 | **Organisational CAI Scoping** | Prioritise Organisation-level scopes for CAI lookups but fall back to project-level lookups for any resources not found in the organisation. This ensures complete visibility across all projects linked to the billing account, even those residing in independent projects outside the primary organization. Graceful handling of `403 Forbidden` errors at the organisation level allows for silent fallback to project-level "sniper" queries if the service account lacks top-level permissions. |
 | **CAI Zombie Detection** | Specialised Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
 | **Developer Knowledge MCP** | The remote Google Developer Knowledge MCP server (`https://developerknowledge.googleapis.com/mcp`) allows our agent to cross-reference identified infrastructure issues and cost spikes against official GCP best practices, and to provide grounding for general Google-related queries. Additionally, it is fully-managed by Google, so no MCP servers to deploy and manage ourselves. |
@@ -38,7 +38,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 2. **IAP Layer**: Identity-Aware Proxy intercepts the request, verifies the Google Identity, and checks IAM permissions (`roles/iap.httpsResourceAccessor`).
 3. **FastAPI BFF Layer**: Receives the authenticated request and either routes it to the remote **Gemini Enterprise Agent Runtime** (in production/staging execution) or runs it locally (in-container fallback mode for dev).
 4. **Agent Runtime (or Local ADK Runner)**: Orchestrates tools based on intent:
-    - **BigQuery MCP**: Directly queries billing data from the centralized billing project using semantic tools like `list_datasets` and `execute_sql`.
+    - **BigQuery native toolset**: Directly inspects datasets and schemas using native `BigQueryToolset` semantic tools like `list_dataset_ids` and `get_table_info`.
     - **Developer Knowledge API**: Fetching architectural best practices.
     - **Cloud Asset Inventory**: Analyzing infrastructure state across projects.
 5. **Rich UI Response**: Agent returns `application/json+a2ui` payloads via Server-Sent Events (SSE).
@@ -87,14 +87,14 @@ To facilitate seamless local development and robust managed execution, the syste
                                    +------------+-------------+
                                                 |
                                                 v
-                                +-----------------------------+
-                                |   Google Cloud APIs & MCPs  |
-                                |                             |
-                                |  - BigQuery Remote MCP      |
-                                |  - Cloud Asset Inventory    |
-                                |  - Gemini Cloud Assist      |
-                                |  - Developer Knowledge API  |
-                                +-----------------------------+
+                                 +-----------------------------+
+                                 |   Google Cloud APIs & MCPs  |
+                                 |                             |
+                                 |  - BigQuery native toolset  |
+                                 |  - Cloud Asset Inventory    |
+                                 |  - Gemini Cloud Assist      |
+                                 |  - Developer Knowledge API  |
+                                 +-----------------------------+
 ```
 
 ### Project Relationships & Cross-Project Interactions
@@ -140,54 +140,41 @@ graph TD
 
 #### 2. Cross-Project Interactions
 - **Artifact Registry Sharing**: The Artifact Registry repository is centralized in the Prod/CICD project. Both the Staging Cloud Run service (in `finops-admin-dev`) and the Production Cloud Run service (in `finops-admin-prd`) pull their container images from this registry. To support this cross-project interaction, Terraform grants `roles/artifactregistry.reader` to the serverless robot service agents of both projects on the central registry repository.
-- **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent connects to the remote BigQuery MCP server and passes `finops-admin-473520` in the `x-goog-user-project` header, so query processing quotas and costs are billed to the central project.
+- **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent uses the native `BigQueryToolset` with Application Default Credentials (ADC) to interact with BigQuery directly, with query execution quota routed through the quota project by passing the central billing project in the client credentials, so query processing quotas and costs are billed to the central project.
 - **Billing Account Discovery**: The Service Accounts are granted `roles/billing.viewer` at the **GCP Billing Account** level to dynamically discover which projects are currently linked to the billing footprint.
 - **Cloud Asset Inventory Inspection**: The Service Accounts are granted `roles/cloudasset.viewer` at either the Organization level (for global asset inspection) or project level (to audit resource statuses and trace historical cost-spike changes).
 
 
 ## Agent Implementation Details
 
-### BigQuery MCP Integration
+### BigQuery Native Toolset Integration
 
-The agent logic in `app/agent.py` uses the `McpToolset` to interface with the remote BigQuery MCP endpoint. This setup is crucial for enabling the agent to perform complex cost analysis without manually parsing raw API responses.
+The agent logic in `app/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
 
 **Configuration Key Points**:
-- **Authentication**: Uses a `BQAuthProvider` class to provide fresh OAuth 2.0 headers, ensuring tokens are refreshed automatically.
-- **Quota Routing**: Injects the `x-goog-user-project` header. This ensures that BigQuery "bills" the query processing costs to the FinOps Admin project rather than the project where the data resides.
+- **Authentication**: Configured via `BigQueryCredentialsConfig` using standard Application Default Credentials (ADC), which allows seamless authentication locally and on Cloud Run.
+- **Tool Filtering**: Instantiated with a custom `bq_tool_filter` function that excludes raw query execution tools (`execute_sql` and `ask_data_insights`). This guarantees that the agent executes all SQL queries through the optimized, cached `execute_cached_bigquery_sql` tool.
 - **System Context**: The agent's system prompt is dynamically generated to include the target billing project and dataset IDs, ensuring it always targets the correct source of truth.
 
 ```python
 # app/agent.py snippet
-class BQAuthProvider:
-    """Provides valid OAuth2 headers for the BigQuery MCP connection, caching credentials."""
-    def __init__(self):
-        self._credentials = None
+# Configure native BigQuery Toolset using Application Default Credentials (ADC)
+import google.auth
+from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredentialsConfig
 
-    def __call__(self, ctx: ReadonlyContext) -> dict[str, str]:
-        if self._credentials is None:
-            self._credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+credentials, _ = google.auth.default()
+credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
-        if not self._credentials.valid:
-            self._credentials.refresh(Request())
 
-        return {
-            "Authorization": f"Bearer {self._credentials.token}",
-            "x-goog-user-project": settings.google_cloud_billing_project,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        }
+def bq_tool_filter(tool, ctx=None) -> bool:
+    """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
+    name = tool.name.lower()
+    return "execute" not in name and "query" not in name
 
-# Instantiate as the header provider
-get_auth_headers = BQAuthProvider()
 
-# BigQuery MCP Toolset Configuration
-bq_mcp_toolset = McpToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url="https://bigquery.googleapis.com/mcp",
-    ),
-    header_provider=get_auth_headers
+bigquery_toolset = BigQueryToolset(
+    credentials_config=credentials_config,
+    tool_filter=bq_tool_filter,
 )
 ```
 
@@ -201,7 +188,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 | Use Case Category | Target Server / Tool | Key Capabilities | Why This Option? |
 |:---|:---|:---|:---|
-| **Financial Aggregation & Cost Trends** | **BigQuery MCP**<br>`execute_cached_bigquery_sql` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Direct query access to the standard and resource-level billing export tables. Bypasses metadata overhead. |
+| **Financial Aggregation & Cost Trends** | **BigQuery native toolset**<br>`execute_cached_bigquery_sql` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Direct query access to the standard and resource-level billing export tables. Bypasses metadata overhead. |
 | **Active Resource Optimisation** | **Gemini Cloud Assist MCP**<br>`ask_cloud_assist` | • Live VM/DB rightsizing recommendations<br>• Deployed service cost & scaling recommendations | Queries live Google recommender engines and active resource telemetry in real-time. |
 | **Operational State Auditing & RCA** | **Local CAI & Zombie Tools**<br>`list_zombie_resources`<br>`get_cai_metadata_for_resources`<br>`get_cai_history_for_resource` | • Scanning for unattached disks / idle IPs<br>• Cross-referencing operational status<br>• Retrieving 35-day configuration change history | Accesses Cloud Asset Inventory (CAI) metadata directly. Essential for locating cost-spike causes (Root Cause Analysis). |
 | **Best-Practice Reference Q&A** | **Developer Knowledge MCP**<br>`answer_query`<br>`search_documents` | • Autoclass vs Standard storage lookups<br>• Conceptual billing terms<br>• GCP architecture guidelines | Connects directly to Google's official product documentation and best-practices repository. |
