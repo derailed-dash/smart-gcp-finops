@@ -104,6 +104,16 @@ I've packaged a React frontend and a FastAPI BFF into a single container image. 
 - It natively integrates with Google Identity-Aware Proxy, providing a trivial way to ensure only authenticated / authorised users can get to our application. (This native integration, without need for a load balancer, is a fairly new feature.)
 - We can map a domain name to our Cloud Run service, without need for a separate load balancer. (This is quite a new feature.)
 
+### Authentication with Identity-Aware Proxy
+
+I've secured the Cloud Run service using Google's [Identity-Aware Proxy (IAP)](https://docs.cloud.google.com/iap/docs/concepts-overview). This is a cool service that both authenticates and authorises users before they can access our Cloud Run service. Unauthorsed users will not be able to see the application.
+
+Until recently, the only way to use IAP with Cloud Run was to put a load balancer in front of the Cloud Run service and associate IAP with the LB. This adds additional complexity and cost. 
+
+But now we can secure a Cloud Run service directly with IAP, without needing the LB. I've [blogged about this before](https://medium.com/google-cloud/using-google-identity-aware-proxy-iap-with-cloud-run-without-a-load-balancer-27db89b9ed49?sharedUserId=derailed.dash) before, when the feature first went into _Preview_. But now it's [_Generally Available_](https://cloud.google.com/blog/products/serverless/iap-integration-with-cloud-run).
+
+![Cloud Run IAP](../images/cloudrun_iap.png)
+
 ### Agent Orchestration: Google Agent Development Kit (ADK)
 
 ADK is an open source framework and SDK for building agents and agentic systems. These days I reach for it automatically.
@@ -147,6 +157,8 @@ I want FinSavant to give me a holistic view across all the projects that are inc
 
 But GCP resource hierarchies are rarely neat and tidy. Some of my projects live inside a nice, clean Google Cloud organisation, and some are _standalone_ - essentially orphaned projects floating in the ether that are linked to the billing account but don't inherit anything from an organisation root.
 
+![GCP Resource Hierarchy & Billing Relationships](../images/resource_hierarchy.png)
+
 To solve this, I designed a multi-layered discovery and security boundary:
 
 1. **Billing-Led Discovery**: 
@@ -166,19 +178,20 @@ To solve this, I designed a multi-layered discovery and security boundary:
 ### Cloud Asset Inventory (CAI)
 
 Instead of querying individual GCP APIs (which is slow and rate-limited), I use CAI's `searchAllResources` and `batchGetAssetsHistory` endpoints. 
-*   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks (`state=READY AND -users:*`) and idle external IPs.
-*   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days (e.g., detecting that an engineer upscaled a Cloud Run instance memory limit).
+*   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks and idle external IPs.
+*   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days. For example, detecting that an engineer upscaled a Cloud Run instance memory limit.
 
-### Developer Knowledge MCP
-
-I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
 
 ### BigQuery Tool Calls From Our Agents
 
 I want to be able to query my billing data - stored in BigQuery - using natural language prompts. I'm achieving this in two different ways, depending on where I'm going from.
 
 - In my development workspace, I'm using the Google remote managed BigQuery MCP server (`https://bigquery.googleapis.com/mcp`).
-- In our FinSavant ADK agent itself, I'm using ADK's native `BigQueryToolset` directly. In doing so, we  simplify authentication, reduce runtime latency when making BQ calls, reduce dependency on an external service, and align with ADK best practices. 
+- In our FinSavant ADK agent itself, I'm using ADK's native `BigQueryToolset` directly. In doing so, we simplify authentication, reduce runtime latency when making BQ calls, reduce dependency on an external service, and align with ADK best practices. 
+
+### Developer Knowledge MCP
+
+I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
 
 ## Showcasing the Gemini Enterprise Agent Platform (GEAP)
 
@@ -187,42 +200,9 @@ Deploying a production-grade agent requires more than just running a Python loop
 By running on the GEAP Agent Runtime, FinSavant gains several critical advantages:
 
 *   **Native ADK Integration**: GEAP is built from the ground up to support the Google Agent Development Kit, allowing us to package complex multi-agent flows and custom tools without having to write custom container management layers.
-*   **Agent Registry**: When deployed, the agent is automatically registered in the centralised Google Cloud Console **Agent Registry** catalog under a unique URN namespace. This provides the operations team with a single pane of glass to audit, version, and manage all deployed agents across the organisation.
+*   **Agent Registry**: When deployed, the agent is automatically registered in the centralised Google Cloud Console Agent Registry catalog under a unique URN namespace. This provides the operations team with a single pane of glass to audit, version, and manage all deployed agents across the organisation.
 *   **Observability and Telemetry**: We get native tracing of agent trajectories. We can inspect exactly what reasoning path the model took, which tools it invoked, and what payloads were returned, making debugging agent loops significantly easier.
 *   **Model Armor & Agent Gateway**: Security is paramount when an agent has read access to your billing data. GEAP’s **Agent Gateway** routes and monitors traffic, working alongside **Model Armor** to apply content security filters, block prompt injection attacks, and prevent unauthorised data exfiltration.
-
-#### Deep Dive: BigQuery MCP vs. Direct ADK Toolsets vs. Direct BQ Client Libraries
-
-When connecting an agent to BigQuery, I had to weigh the architectural trade-offs of different integration patterns:
-
-| Feature | BigQuery MCP (Remote) | BigQueryToolset (ADK) | Direct BQ Client Library / Custom Tools |
-| :--- | :--- | :--- | :--- |
-| **Complexity** | **Medium**: Requires configuring connection parameters and Oauth 2.0 header providers. | **Low**: Fastest setup within the ADK ecosystem. | **Medium to High**: High development overhead; must write custom connection, querying, and parsing logic. |
-| **Portability** | **High**: Cross-compatible with any MCP-compliant client. | **Medium**: Restricted to the ADK framework. | **Universal**: Can be used in any Python script or framework. |
-| **State** | **Stateful**: Persistent session connections. | **Stateless**: Simple API-level calls. | **Stateless**: Managed entirely by your application logic. |
-| **Streaming** | **No**: Tool execution is blocking. | **No**: Blocking. | **Yes**: Allows streaming of data chunks for lower latency UX. |
-| **Governance** | Lacks business glossary (relies on schema inference). | Lacks business glossary (relies on schema inference). | Customised; can wrap query validation and access controls. |
-
-**Why I chose the native ADK BigQueryToolset**:
-Initially, I experimented with the remote BigQuery MCP server. While this is fantastic for developer-level CLI prototyping and interactive queries without deploying code, relying on a remote MCP server inside the production ADK agent adds unnecessary latency, authentication loops, and protocol overhead.
-
-Instead, we chose the native ADK `BigQueryToolset`. It integrates directly into the ADK runtime, executes query/metadata lookups cleanly using standard Application Default Credentials (ADC), and eliminates the dependency on the remote MCP endpoint.
-
-To ensure safety and cache optimization:
-1.  **Security**: We applied a custom tool filter to exclude raw native query execution tools (`execute_sql` and `ask_data_insights`), ensuring the agent is blocked from writing data or performing un-cached execution.
-2.  **Performance & Caching**: We route all custom SQL queries through `execute_cached_bigquery_sql`. This custom ADK tool applies a thread-safe, 5-minute TTL cache to skip expensive table scans and speed up UI canvas updates.
-
----
-
-## High-Level Design Decisions (ADR Highlights)
-
-While I will cover the deployment and infrastructure details in a later post, it’s worth highlighting how I laid the groundwork for a secure, low-cost enterprise footprint:
-
-*   **Native Cloud Run IAP**: I secured the Cloud Run app using Identity-Aware Proxy (IAP) directly at the service level using the `google-beta` Terraform provider. This allowed us to avoid the high cost of a Global Application Load Balancer (ALB), keeping the monthly infrastructure spend to pennies.
-*   **Decoupled Staging & Prod CI/CD**: I split my GitHub Actions pipelines so that staging deployments trigger automatically, while production deployments require a manual release trigger (the "Manual Gate" pattern).
-*   **GCS Remote State**: All infrastructure is managed declaratively via Terraform, utilizing a GCS bucket with state locking to prevent deployment conflicts.
-
----
 
 ## What’s Next?
 
