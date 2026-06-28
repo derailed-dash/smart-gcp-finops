@@ -15,7 +15,7 @@ _"The FinOps hub presents all of your active savings and optimization opportunit
 But I wanted to build my own agentic FinOps solution, for a few reasons. Some are about the FinOps capability itself:
 
 - I want to be able to have natural language conversations with the agent. I want to be able to dig into my cost spikes, and ask follow-up questions.
-- I want an agentic solution that can combine information like *what* I spent last month, *why* I spent it, and why `spending *spikes* occurred.
+- I want an agentic solution that can combine information like *what* I spent last month, *why* I spent it, and why *spending spikes* occurred.
 - I want the solution to be able to immediately spot *orphaned resources*, such as unused VMs, unattached disks, or unused IP addresses. For example, a persistent disk costing us $100 a month might be adding value if it's actually attached to a VM; but it's a total waste of spend if it's not. (Obviously, this is more of a problem for traditional IaaS infrastructure; this is not generally a concern for serverless services.)
 - I want the solution to understand Google Cloud *architecture* and *best practices*, so that it can advise *what I should do*, and *why this is the most appropriate course of action*.
 
@@ -28,9 +28,9 @@ But mainly, I wanted an excuse to experiment with some relatively new agentic se
 Specifically:
 
 - Native [BigQuery tools from ADK](https://adk.dev/integrations/bigquery/) - in order to interrogate billing information in BigQuery.
-- Google Cloud Assist - to be able to obtain live insights from Google Cloud metrics and logging, and provide recommendations using Google-built in recommenders.
-- The Asset Inventory API - to determine our exact current deployment configuration, to identify orphaned resources, and to see what has changed.
-- The Developer Knowledge MCP, so that my agent always has the latest knowledge about Google products, services, APIs, architectures, and best practices.
+- [Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview) - to be able to obtain live insights from Google Cloud metrics and logging, and provide recommendations using Google-built in recommenders.
+- The [Asset Inventory API](https://docs.cloud.google.com/asset-inventory/docs/overview) - to determine our exact current deployment configuration, to identify orphaned resources, and to see what has changed.
+- The [Developer Knowledge MCP](https://developers.google.com/knowledge/mcp) - so that my agent always has the latest knowledge about Google products, services, APIs, architectures, and best practices.
 
 And so, friends, I give you **FinSavant**, an agentic FinOps solution for GCP that gives you an active, infrastructure-aware virtual analyst that combines costs with real-time operational context, and can make recommendations about what you should do next.
 
@@ -42,7 +42,7 @@ This is what it looks like:
 
 Let's see where we are in this series.
 
-1. Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions. **<<< You are here.**
+1. Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions. **📍 You are here.**
 2. Dev Environment Setup with Google Antigravity, ADK, Agents CLI, MCP & Skills
 3. Building the dynamic UI with A2UI
 4. Authentication with IAP, Terraform, and CI/CD
@@ -52,10 +52,10 @@ Let's see where we are in this series.
 
 FinSavant is a conversational agent that:
 
-- Uses **BigQuery Billing Exports** to know exactly what our costs are, down to the resource ID.
-- Uses **Google Cloud Assist** in order to interrogate our services, metrics and logs, and provide recommendations accordingly.
-- Uses **Google Cloud Asset Inventory** to understand our realtime deployment configuration, but also to provide a 35-day audit history of every asset change in our GCP estate.
-- Uses **Developer Knowledge MCP** to ground the agent with both broad and deep Google knowledge. This means that if you ask it any questions relating to Google Cloud, Google APIs, or general Google best practices, the agent will provide factually correct answers that are up-to-date, and with very little hallucination.
+- Uses **[BigQuery Billing Exports](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery)** to know exactly what our costs are, down to the resource ID.
+- Uses **[Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview)** in order to interrogate our services, metrics and logs, and provide recommendations accordingly.
+- Uses **[Google Cloud Asset Inventory](https://docs.cloud.google.com/asset-inventory/docs/overview)** to understand our realtime deployment configuration, but also to provide a 35-day audit history of every asset change in our GCP estate.
+- Uses **[Developer Knowledge MCP](https://developers.google.com/knowledge/mcp)** to ground the agent with both broad and deep Google knowledge. This means that if you ask it any questions relating to Google Cloud, Google APIs, or general Google best practices, the agent will provide factually correct answers that are up-to-date, and with very little hallucination.
 
 By bringing these together under a GenAI agent built with the Google Agent Development Kit (ADK), we have created an assistant that can perform root-cause analysis on cost spikes, as well as provide recommendations on how to fix them.
 
@@ -65,7 +65,7 @@ When designing FinSavant, I wanted a clean separation between the frontend deliv
 
 The overall architecture looks like this:
 
-![FinSavant Solution Architecture](../images/part1_architecture.png)
+![FinSavant Solution Architecture](../images/component_architecture.png)
 
 ## Tech Stack & Design Decisions
 
@@ -73,9 +73,11 @@ Let’s dive into the core components that make up FinSavant's tech stack and ho
 
 ### User Interface: React/Vite
 
-With React I can create a great looking UI, and I have the ability to render dynamic A2UI widgets. (More on this in a future part of the series.) I can compile the UI to clean, static assets, so I don't need Node.js. This means my frontend container image will be pretty small, and therefore fast and cheap.
+With React I can create a great looking UI, and I have the ability to render dynamic A2UI widgets. (More on this in a future part of the series.) 
 
-By the way: I'm no frontend developer. I used Stitch to help me design and prototype the frontend UI, and then I used Antigravity (Gemini) to turn this into React code.
+_By the way: I'm no frontend developer. I used Stitch to help me design and prototype the frontend UI, and then I used Antigravity (Gemini) to turn this into React code._
+
+I can compile the React UI to clean, static assets, so I don't need Node.js. This means my frontend container image will be pretty small, and therefore fast and cheap.
 
 ### Rich UI with Agent-to-UI (A2UI)
 
@@ -87,7 +89,7 @@ This is a game-changer for building a UI. I don't have to hard code any UI compo
 
 ### Backend-for-Frontend (BFF)
 
-The FastAPI BFF simply acts as a secure proxy. It streams queries to the agent and receives structured responses. But also, it allows us to decouple the backend from the UI. If I want surface this application through a different UI in the future - like Gemini Enterprise - I can.
+The FastAPI BFF simply acts as a secure proxy. It streams queries to the agent and receives structured responses. But also, it allows us to decouple the backend from the UI. If I want surface this application through a different UI in the future - like [Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs) - I can.
 
 ### UI & BFF Unified Container
 
@@ -95,7 +97,7 @@ I've packaged a React frontend and a FastAPI BFF into a single container image. 
 
 ### Cloud Run for Container Hosting
 
-Google's serverless, zero-ops, autoscaling container hosting environment. This is perfect for hosting our UI/BFF container. There are a number of useful features I'm going to make use of:
+[Cloud Run](https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run) is Google's serverless, zero-ops, autoscaling container hosting environment. This is perfect for hosting our UI/BFF container. There are a number of useful features I'm going to make use of:
 
 - It scales to 0, so it doesn't cost anything when there's no traffic.
 - It autoscales based on demand, but we can limit the number of instances in order to control costs.
@@ -121,14 +123,16 @@ This is what it gives us:
 
 Having decided I wanted to deploy the agent itself independently of the frontend and FastAPI, the next question is: where should we deploy the agent itself?
 
-In days gone by I would probably have deployed it to a separate Cloud Run service. But now we have Agent Runtime, Google's evolution of their previous product, Agent Engine. It is built for hosting agents and has a number of benefits:
+In days gone by I would probably have deployed it to a separate Cloud Run service. But now we have [Agent Runtime](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime), Google's evolution of their previous product, Agent Engine. It is built for hosting agents and has a number of benefits:
 
-- It is trivial to deploy ADK agents to Agent Runtime, using the Agents CLI.
+- It is trivial to deploy ADK agents to Agent Runtime, using the [Agents CLI](https://google.github.io/agents-cli/).
 - It is serverless and autoscaling.
 - When there's no demand for the agent, there's no cost.
 - Exposing the agent's endpoint to consumers (like our BFF in Cloud Run) is trivial.
-- Agents deployed to Agent Runtime are automatically registered in the Gemini Enterprise Agent Platform's Agent Registry.
-- Agents deployed to Agent Runtime can leverage the various capabilities of GEAP, like Agent Memory <tbc>, Agent Gateway, Model Armor, telemetry, and agent evaluations.
+- Agents deployed to Agent Runtime are automatically registered in the Gemini Enterprise Agent Platform's [Agent Registry](https://docs.cloud.google.com/agent-registry/overview).
+- Agents deployed to Agent Runtime can leverage the various capabilities of [GEAP](https://docs.cloud.google.com/gemini-enterprise-agent-platform/overview), like [Memory Bank](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank), [Agent Gateway](https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/gateways/agent-gateway-overview), [Model Armor](https://docs.cloud.google.com/model-armor/overview), [telemetry](https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/observability/overview), and [agent evaluations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/evaluation/agent-evaluation).
+
+![Gemini Enterprise Agent Platform Overview](../images/geap.png)
 
 ### Hybrid Execution Mode
 

@@ -58,44 +58,7 @@ To facilitate seamless local development and robust managed execution, the syste
 
 ### Component Diagram
 
-```text
-                                +-----------------------------+
-                                |  React UI (Browser) / CLI   |
-                                +-----------------------------+
-                                               |
-                                            (HTTPS)
-                                               v
-                                +-----------------------------+
-                                |    Identity-Aware Proxy     |
-                                +-----------------------------+
-                                               |
-                                        (Authenticated)
-                                               v
-                                +-----------------------------+
-                                |  FastAPI BFF (Cloud Run)    |
-                                +-----------------------------+
-                                   |                       |
-                             (Local Mode)            (Remote Mode)
-                                   |                       |
-                                   v                       v
-                        +----------------------+ +-------------------------+
-                        |  Local ADK Runner    | | Gemini Enterprise       |
-                        |  (In-Container)      | | Agent Runtime           |
-                        +----------------------+ | (Agent Runtime Host)    |
-                                   |             +-------------------------+
-                                   |                          |
-                                   +------------+-------------+
-                                                |
-                                                v
-                                 +-----------------------------+
-                                 |   Google Cloud APIs & MCPs  |
-                                 |                             |
-                                 |  - BigQuery native toolset  |
-                                 |  - Cloud Asset Inventory    |
-                                 |  - Gemini Cloud Assist      |
-                                 |  - Developer Knowledge API  |
-                                 +-----------------------------+
-```
+![FinSavant Component Architecture](./images/component_architecture.png)
 
 ### Project Relationships & Cross-Project Interactions
 
@@ -138,12 +101,12 @@ graph TD
 - **Prod / CICD Project (`finops-admin-prd`)**: Hosts the CI/CD pipeline assets (GitHub Workload Identity Pool/Providers, central Artifact Registry repository) and the **Production** deployment of the Cloud Run app and its production-specific application Service Account.
 - **Dev / Staging Project (`finops-admin-dev`)**: Hosts the **Staging** deployment of the Cloud Run application, its staging-specific application Service Account, and any local assets or staging databases.
 
-#### 2. Cross-Project Interactions
+#### 2. Cross-Project 
+
 - **Artifact Registry Sharing**: The Artifact Registry repository is centralized in the Prod/CICD project. Both the Staging Cloud Run service (in `finops-admin-dev`) and the Production Cloud Run service (in `finops-admin-prd`) pull their container images from this registry. To support this cross-project interaction, Terraform grants `roles/artifactregistry.reader` to the serverless robot service agents of both projects on the central registry repository.
 - **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent uses the native `BigQueryToolset` with Application Default Credentials (ADC) to interact with BigQuery directly, with query execution quota routed through the quota project by passing the central billing project in the client credentials, so query processing quotas and costs are billed to the central project.
 - **Billing Account Discovery**: The Service Accounts are granted `roles/billing.viewer` at the **GCP Billing Account** level to dynamically discover which projects are currently linked to the billing footprint.
 - **Cloud Asset Inventory Inspection**: The Service Accounts are granted `roles/cloudasset.viewer` at either the Organization level (for global asset inspection) or project level (to audit resource statuses and trace historical cost-spike changes).
-
 
 ## Agent Implementation Details
 
@@ -165,12 +128,10 @@ from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredential
 credentials, _ = google.auth.default()
 credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
-
 def bq_tool_filter(tool, ctx=None) -> bool:
     """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
     name = tool.name.lower()
     return "execute" not in name and "query" not in name
-
 
 bigquery_toolset = BigQueryToolset(
     credentials_config=credentials_config,

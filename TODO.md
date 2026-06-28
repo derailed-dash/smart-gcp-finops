@@ -41,7 +41,7 @@
 [x] Cache repeating queries, e.g. duplicate queries for zombie resources.
 [x] Migrate to Gemini Enterprise Agent Runtime, with UI in separate Cloud Run
 [~] Create blog series
-  - [ ] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
+  - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
 [x] Remove env var redundancy in architecture walkthrough md
 [ ] Convert arch diagrams to renders
