@@ -1,3 +1,9 @@
+"""
+Description: Zombie resources custom tools.
+Why: Exposes cached zombie asset list queries to both the FastAPI BFF and the ADK agent.
+How: Scans projects using CAI, checks unattached resources (disks/IPs), calculates potential savings, and applies cache logic.
+"""
+
 import logging
 import threading
 import time

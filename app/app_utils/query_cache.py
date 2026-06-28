@@ -1,3 +1,9 @@
+"""
+Description: In-memory query caching manager.
+Why: Reduces database invocation costs and latency by caching query outputs locally.
+How: Implements a thread-safe dictionary with normalized SQL keys and expiration TTLs.
+"""
+
 import logging
 import threading
 import time

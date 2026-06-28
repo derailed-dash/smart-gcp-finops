@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     model: str = "gemini-3.5-flash"
     fast_model: str = "gemini-3.1-flash-lite"
+    local_developer_email: str
 
 
 settings = Settings()  # ty: ignore[missing-argument]

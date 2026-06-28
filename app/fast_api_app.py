@@ -1,3 +1,9 @@
+"""
+Description: Backend BFF FastAPI application.
+Why: Serves as the Backend-for-Frontend (BFF) proxy and static React asset host on Cloud Run.
+How: Sets up FastAPI endpoints, handles IAP user authentication headers, resolves project access scoping, and proxies chat requests to the remote Agent Runtime or runs a local ADK fallback thread.
+"""
+
 import asyncio
 import json
 import os
@@ -9,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
+from app.app_utils.context import ALLOWED_PROJECTS_VAR
+from app.app_utils.project_discovery import get_user_accessible_projects
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
@@ -53,18 +61,31 @@ app: FastAPI = get_fast_api_app(
 app.title = "smart-gcp-finops"
 app.description = "API for interacting with the Agent smart-gcp-finops"
 
-# Thread-safe lazy-initialisation helper for global ADK session and runner
+# Thread-safe lazy-initialisation helper for global ADK session and runner by user
 _GLOBAL_SESSION_SERVICE = None
-_GLOBAL_SESSION = None
+_GLOBAL_SESSIONS = {}
 _GLOBAL_RUNNER = None
 _INIT_LOCK = asyncio.Lock()
 _REMOTE_SESSION_ID = None
 _REMOTE_SESSION_LOCK = asyncio.Lock()
 
 
-async def get_global_runner_and_session():
+def _get_user_email(request: Request) -> str:
+    """Extracts the authenticated user email from IAP headers, falling back to local settings."""
+    user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
+    if user_email.startswith("accounts.google.com:"):
+        return user_email.split("accounts.google.com:")[-1]
+    elif user_email.startswith("mailto:"):
+        return user_email.split("mailto:")[-1]
+    elif user_email:
+        return user_email
+    from app.config import settings
+    return settings.local_developer_email
+
+
+async def get_global_runner_and_session(user_email: str = "default_user"):
     """Initialises and returns a persistent global Runner and Session to preserve conversation memory."""
-    global _GLOBAL_SESSION_SERVICE, _GLOBAL_SESSION, _GLOBAL_RUNNER
+    global _GLOBAL_SESSION_SERVICE, _GLOBAL_SESSIONS, _GLOBAL_RUNNER
     async with _INIT_LOCK:
         if _GLOBAL_RUNNER is None:
             from google.adk.runners import Runner
@@ -73,15 +94,19 @@ async def get_global_runner_and_session():
             from app.agent import root_agent
 
             _GLOBAL_SESSION_SERVICE = InMemorySessionService()
-            _GLOBAL_SESSION = _GLOBAL_SESSION_SERVICE.create_session_sync(
-                user_id="default_user", app_name="smart-gcp-finops"
-            )
             _GLOBAL_RUNNER = Runner(
                 agent=root_agent,
                 session_service=_GLOBAL_SESSION_SERVICE,
                 app_name="smart-gcp-finops",
             )
-        return _GLOBAL_RUNNER, _GLOBAL_SESSION
+
+        if user_email not in _GLOBAL_SESSIONS:
+            session = _GLOBAL_SESSION_SERVICE.create_session_sync(
+                user_id=user_email, session_id=user_email, app_name="smart-gcp-finops"
+            )
+            _GLOBAL_SESSIONS[user_email] = session
+
+        return _GLOBAL_RUNNER, _GLOBAL_SESSIONS[user_email]
 
 
 @app.get("/api/status")
@@ -96,14 +121,20 @@ def get_status() -> dict:
 
 @app.get("/api/dashboard")
 def get_dashboard(
-    clientDay: int | None = None, clientMonthDays: int | None = None
+    request: Request,
+    clientDay: int | None = None,
+    clientMonthDays: int | None = None,
 ) -> dict:
     """Returns actual real-time executive dashboard metrics from BQ and CAI."""
     from app.app_utils.dashboard_data import get_actual_dashboard_metrics
 
     try:
+        user_email = _get_user_email(request)
+        allowed_projects = get_user_accessible_projects(user_email)
         return get_actual_dashboard_metrics(
-            client_day=clientDay, client_month_days=clientMonthDays
+            allowed_projects=allowed_projects,
+            client_day=clientDay,
+            client_month_days=clientMonthDays,
         )
     except Exception as e:
         logger.log_text(f"Error compiling dashboard metrics: {e}", severity="ERROR")
@@ -129,11 +160,17 @@ async def chat_stream(request: Request):
     body = await request.json()
     message = body.get("message", "")
 
+    user_email = _get_user_email(request)
+    allowed_projects = get_user_accessible_projects(user_email)
+    ALLOWED_PROJECTS_VAR.set(allowed_projects)
+
     agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
     if not agent_runtime_id:
-        runner, session = await get_global_runner_and_session()
+        runner, session = await get_global_runner_and_session(user_email)
 
     async def event_generator():
+        # Set the context variable in the generator context
+        ALLOWED_PROJECTS_VAR.set(allowed_projects)
         # Yield initial status/reasoning chunk
         initial_reasoning = (
             "Routing query to Gemini Enterprise Agent Runtime...\n"
@@ -146,16 +183,28 @@ async def chat_stream(request: Request):
         from google.adk.agents.run_config import RunConfig, StreamingMode
         from google.genai import types
 
-        message_content = types.Content(role="user", parts=[types.Part(text=message)])
+        # Inject dynamic user security instruction into the prompt
+        proj_list_str = ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "None"
+        security_guard_prompt = (
+            f"\n\n[SECURITY CONSTRAINT: You are acting on behalf of the user '{user_email}'. "
+            f"This user only has access to the following projects: [{proj_list_str}]. "
+            f"You MUST NOT query, summarize, or expose any billing details or resource properties "
+            f"associated with any projects NOT in this list. When writing SQL queries, you MUST "
+            f"restrict your filters to this project list (e.g. project.id IN ({proj_list_str})).]"
+        )
+        augmented_message = message + security_guard_prompt
+        message_content = types.Content(role="user", parts=[types.Part(text=augmented_message)])
 
         event_queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
         def run_agent_in_thread():
             try:
+                # Propagate context-local allowed projects list to the worker thread
+                ALLOWED_PROJECTS_VAR.set(allowed_projects)
                 for event in runner.run(
                     new_message=message_content,
-                    user_id="default_user",
+                    user_id=user_email,
                     session_id=session.id,
                     run_config=RunConfig(streaming_mode=StreamingMode.SSE),
                 ):
@@ -181,7 +230,7 @@ async def chat_stream(request: Request):
                 async with _REMOTE_SESSION_LOCK:
                     if _REMOTE_SESSION_ID is None:
                         session_obj = await agent_engine.async_create_session(
-                            user_id="default_user"
+                            user_id=user_email
                         )
                         _REMOTE_SESSION_ID = (
                             session_obj.get("id")
@@ -193,8 +242,8 @@ async def chat_stream(request: Request):
 
                 try:
                     async for event_dict in agent_engine.async_stream_query(
-                        message=message,
-                        user_id="default_user",
+                        message=augmented_message,
+                        user_id=user_email,
                         session_id=_REMOTE_SESSION_ID,
                     ):
                         event = Event.model_validate(event_dict)

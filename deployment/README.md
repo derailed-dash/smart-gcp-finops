@@ -80,6 +80,7 @@ For local development and container runtime, configuration is driven by variable
 | `MODEL` | GenAI Reasoning | The primary model ID used by the ADK agent for cost analysis (e.g., `gemini-3.5-flash`). |
 | `FAST_MODEL` | GenAI Caching / Routing | The lite model ID used for semantic caching and request classification (e.g., `gemini-3.1-flash-lite`). |
 | `GOOGLE_CLOUD_ORGANIZATION` | Infrastructure Scope | (Optional) The numeric ID of the Google Cloud Organization to enable Org-wide Cloud Asset searches. |
+| `LOCAL_DEVELOPER_EMAIL` | Local Scoping / Testing | **Required**. The email address of the developer (e.g. `developer@example.com`) used to look up and filter project access permissions when running locally. |
 | `OTEL_TO_CLOUD` | Telemetry / Tracing | Set to `true` to export OpenTelemetry traces to Google Cloud Trace. |
 | `OTEL_SERVICE_NAME` | Telemetry / Tracing | Logical service name used to identify the trace originator (e.g. `smart-gcp-finops-local`). |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Telemetry / Privacy | Controls log content mode: set to `true` in dev/staging to capture full text prompts, and `NO_CONTENT` in production for data privacy. |
@@ -92,20 +93,11 @@ The following APIs must be enabled in the projects where the agent or Terraform 
 - **Developer Knowledge API** (`developerknowledge.googleapis.com`): Required for cross-referencing GCP best practices.
 - **Artifact Registry API** (`artifactregistry.googleapis.com`): Required for hosting container images in the CI/CD project.
 
-
 ## Folder Structure & State Management
 
 This project uses a **centralized Terraform orchestration model**. All environment infrastructure (Staging and Production) is managed from the root `terraform/` directory.
 
 - **`terraform/` (Root)**: The "Global Orchestrator". This manages infrastructure for **both** Prod and Staging environments. It ensures that the CI/CD Service Account has the necessary orchestrated permissions across projects and automatically configures GitHub OIDC.
-
-### Consolidation Note (Agent Starter Pack Context)
-
-By default, the Agent Starter Pack (ASP) provides two distinct Terraform directories:
-1.  **`terraform/` (Root)**: Intended for global management and CI/CD.
-2.  **`terraform/dev/`**: An "Isolated Sandbox" for quick, manual prototyping.
-
-**Why we consolidated**: In a professional, multi-project FinOps setup, using split directories can lead to `409: Already Exists` state conflicts and fragmented tracking. We have **manually removed** the `dev/` folder and the associated `make setup-dev-env` target. This ensures the root orchestrator remains the sole source of truth for both Staging and Production environments.
 
 ### GitHub Actions Integration
 
@@ -139,7 +131,7 @@ The infrastructure for WIF is provisioned automatically in [wif.tf](terraform/wi
 
 ## Production Approval Gate
 
-To ensure production deployments never happen without intent, we have **decoupled** the production workflow from the staging push.
+To ensure production deployments never happen without intent, we have decoupled the production workflow from the staging push.
 
 1.  **Staging Deploy**: Triggered automatically on push to `main`.
 2.  **Verify Staging**: Check the Cloud Run service in the staging project to ensure everything is working as expected.
@@ -152,12 +144,12 @@ This manual trigger ensures you have a final "human-in-the-loop" check before an
 
 ## Troubleshooting CI/CD Failures
 
-
 ### Error: "Failed to generate Google Cloud federated token"
 
 If you see an error containing `//iam.googleapis.com/projects//locations/global/workloadIdentityPools//providers/`, it means the Workload Identity Federation variables are missing or not set in GitHub.
 
 **Resolution Steps:**
+
 1.  **Run Terraform**: Ensure you have successfully run `terraform apply` in the `deployment/terraform/` directory. This process creates the WIF resources and uses the `github` provider to automatically set the following in your repo:
     *   `vars.GCP_PROJECT_NUMBER`
     *   `vars.GOOGLE_CLOUD_PROJECT` (CICD project ID)
@@ -171,7 +163,6 @@ If you see an error containing `//iam.googleapis.com/projects//locations/global/
     *   `secrets.GCP_SERVICE_ACCOUNT`
 2.  **Verify Secrets & Variables**: Check your GitHub Repository Settings > Secrets and variables > Actions to ensure these values are populated.
 3.  **Permissions**: Ensure the GitHub token used by Terraform has `write` access to repository secrets and variables.
-
 
 ## Core Configuration & Variables
 
@@ -195,7 +186,6 @@ These variables are defined in `deployment/terraform/vars/env.tfvars` and are au
 1.  **IAM**: Granting `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the billing project, `roles/billing.viewer` on the Billing Account, and `roles/cloudasset.viewer` on the discovered projects (or the entire Org).
 2.  **Environment Variables**: Injected into the Cloud Run container as `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_REGION`, `GOOGLE_CLOUD_BILLING_PROJECT`, `BILLING_EXPORT_DATASET`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_LOCATION`, `MODEL`, `FAST_MODEL`, and optionally `GOOGLE_CLOUD_ORGANIZATION`.
 3.  **GitHub Actions**: Set as repository variables (`vars.GOOGLE_CLOUD_BILLING_ACCOUNT`, `vars.GOOGLE_CLOUD_BILLING_LOCATION`, etc.) via the GitHub Terraform provider in `github.tf`. These are injected into the CI/CD test environments and passed to `gcloud run deploy --update-env-vars`.
-
 
 ### FinOps Permissions & Roles
 
@@ -233,19 +223,6 @@ This project uses **git-crypt** to manage sensitive information. To prevent acci
 ### Terraform Variable Files
 
 - **Local Only (Ignored)**: `env.tfvars` files are used for local execution but are listed in `.gitignore`. They are **never** committed to the repository in plain text.
-- **Tracked & Encrypted**: `env.tfvars.enc` files are the "source of truth" for the repository. They are automatically encrypted by `git-crypt` upon staging, as defined in `.gitattributes`.
-
-### Encryption Workflow
-
-1.  **Unlock**: Ensure your repository is unlocked (`git-crypt unlock`).
-2.  **Edit**: Modify the local, unencrypted `env.tfvars` file.
-3.  **Sync**: Copy the changes to the tracked shadow file:
-    ```bash
-    cp deployment/terraform/vars/env.tfvars deployment/terraform/vars/env.tfvars.enc
-    ```
-4.  **Commit**: Stage and commit the `.enc` files. `git-crypt` will encrypt them transparently.
-
-**CRITICAL**: Always verify that your plain-text `env.tfvars` remains in `.gitignore` and is not accidentally staged.
 
 ## Remote State Management
 
@@ -254,12 +231,6 @@ The Terraform state for this project is stored remotely in a **Google Cloud Stor
 - **Bucket**: `finops-admin-prd-tfstate`
 - **Location**: `eu` (Multi-region)
 - **Features**: Versioning enabled, uniform bucket-level access.
-
-### Why Remote State?
-
-1.  **Shared Reality**: Ensures that both local developers and the GitHub Action runner see the same infrastructure.
-2.  **State Locking**: Prevents concurrent modifications that could corrupt the state.
-3.  **Durability**: Versioning allows us to recover from accidental state corruption.
 
 ## Custom Domain Mapping
 
@@ -271,8 +242,6 @@ Terraform prepares the Cloud Run domain mappings (`google_cloud_run_domain_mappi
 
 **Manual Verification Requirement**: 
 When `terraform apply` finishes, it outputs a `cloud_run_domain_mappings` block containing the required DNS validation records. You must manually copy these records (usually CNAME, A, or AAAA) into your IONOS (or other DNS provider's) interface for the domain to point correctly to Cloud Run.
-
----
 
 ## Identity-Aware Proxy (IAP) Security
 
@@ -310,12 +279,10 @@ sequenceDiagram
 3. **User Access Authorization**: Once authenticated, IAP evaluates if the user's identity has been granted the **IAP-secured Web App User** (`roles/iap.httpsResourceAccessor`) role. If not, access is blocked at the edge with `HTTP 403 Forbidden`.
 4. **Service Invocation**: If the user is authorized, the IAP proxy generates an OIDC token for its own system identity (the **IAP Service Agent**) and calls the underlying, private Cloud Run container. Cloud Run verifies that the IAP Service Agent is authorized to invoke the container via the **Cloud Run Invoker** (`roles/run.invoker`) IAM binding.
 
-
----
-
 ### Infrastructure Configuration (Terraform)
 
 The architecture is managed cleanly in two Terraform files:
+
 1. **Service Enablement ([service.tf](terraform/service.tf))**:
    The native integration is enabled directly on the Cloud Run resource with the `iap_enabled = true` parameter (which requires the `google-beta` provider).
 2. **Identity Creation ([iam.tf](terraform/iam.tf))**:
@@ -332,17 +299,7 @@ The architecture is managed cleanly in two Terraform files:
 4. **User Access Binding ([iam.tf](terraform/iam.tf))**:
    The `google_iap_web_cloud_run_service_iam_binding` resource maps your environment-specific `var.iap_access_emails` directly to the `roles/iap.httpsResourceAccessor` role.
 
----
-
 ### CLI Deployment & Parity Coordination
-
-Standard CLI deployments (`gcloud run deploy`) are **imperative** and will naturally overwrite the service configuration, disabling IAP if run without explicit arguments. 
-
-To maintain perfect parity with your Terraform infrastructure state, you **must specify the `--iap` and `--no-allow-unauthenticated` flags** on every deployment.
-
-This coordination is fully automated in:
-* **The [Makefile](../Makefile)**: The `deploy-cloud-run` target has been updated to permanently pass the `--iap` flag.
-* **GitHub Actions Workflows**: Both staging and production pipelines use `--iap` in their `gcloud run deploy` steps.
 
 To prevent Terraform from trying to strip or revert the deployment-metadata and IAP signatures generated by `gcloud` builds, a `lifecycle` block is configured in [service.tf](terraform/service.tf) to ignore changes to the `annotations`, `client`, and `client_version` fields.
 
@@ -354,17 +311,6 @@ Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating
 
 Terraform sets up all required service accounts, IAM permission bindings (like BigQuery and Cloud Asset viewer roles), logging storage buckets, and Google API enablement.
 
-**Option A: Using Makefile Shortcuts (Recommended)**:
-From the repository root:
-```bash
-# Preview the plan
-make tf-plan
-
-# Apply and provision infrastructure
-make tf-apply
-```
-
-**Option B: Running natively in the terraform directory**:
 ```bash
 cd deployment/terraform
 terraform init
@@ -392,13 +338,88 @@ make deploy-cloud-run
 ```
 *   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote reasoning engine instead of running the agent locally inside the container.
 
----
-
 ## CI/CD Pipeline Flow
 
 All of the deployment orchestration steps above are fully automated in our GitHub Actions workflows:
 - **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Vertex AI Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
 - **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run.
 
+## IAM Permissions & Validation
+
+For the agent and the executive dashboard to discover GCP resources and projects, the querying developer's account (and the deployed application service account) must have the appropriate Cloud Asset Inventory permissions.
+
+### 1. Verification Command
+
+To verify that your local user has the required access to search IAM policies, run the following command (ensure you have sourced your environment first):
+
+```bash
+gcloud asset search-all-iam-policies \
+    --scope="organizations/$GOOGLE_CLOUD_ORGANIZATION" \
+    --query="policy:$LOCAL_DEVELOPER_EMAIL"
+```
+
+> [!NOTE]
+> Make sure your active project is set to a project where the `cloudasset.googleapis.com` API is enabled (e.g. `$GOOGLE_CLOUD_PROJECT`). Otherwise, `gcloud` will fail with an API-not-enabled error. You can set the quota project via:
+> `gcloud config set billing/quota_project "$GOOGLE_CLOUD_PROJECT"`
+
+### 2. Granting Missing Roles
+
+If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level:
+
+*   **Organization level** (required for organization-wide searches):
+    ```bash
+    gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
+        --member="user:$LOCAL_DEVELOPER_EMAIL" \
+        --role="roles/cloudasset.viewer"
+    ```
+*   **Folder level** (if scope is restricted to a folder):
+    ```bash
+    gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
+        --member="user:$LOCAL_DEVELOPER_EMAIL" \
+        --role="roles/cloudasset.viewer"
+    ```
+*   **Project level** (if scope is restricted to a project):
+    ```bash
+    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+        --member="user:$LOCAL_DEVELOPER_EMAIL" \
+        --role="roles/cloudasset.viewer" \
+        --condition=None
+    ```
+
+*(Note: Replace `user:$LOCAL_DEVELOPER_EMAIL` with `serviceAccount:$SERVICE_SA_EMAIL` to grant permissions to the application service account).*
+
+### 3. Bulk Binding Standalone (Orphaned) Projects
+
+If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you can retrieve and bind permissions to them in bulk:
+
+*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
+    ```bash
+    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+      echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
+      gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+          --member="user:$LOCAL_DEVELOPER_EMAIL" \
+          --role="roles/cloudasset.viewer" \
+          --condition=None
+    done
+    ```
+
+*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
+    ```bash
+    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+      PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
+      PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
+      
+      if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
+        echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
+        gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+            --member="user:$LOCAL_DEVELOPER_EMAIL" \
+            --role="roles/cloudasset.viewer" \
+            --condition=None
+      fi
+    done
+    ```
+
+
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
+
 

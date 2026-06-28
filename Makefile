@@ -1,6 +1,13 @@
+# Load environment variables from .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 # ==============================================================================
 # Installation & Setup
 # ==============================================================================
+
 
 # Assign env variables if they are not already set
 MIN_INSTANCES ?= 0
@@ -120,6 +127,7 @@ docker-run:
 		-e LOGS_BUCKET_NAME="$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs" \
 		-e LOG_LEVEL="DEBUG" \
 		-e AGENT_RUNTIME_ID="$(AGENT_RUNTIME_ID)" \
+		-e LOCAL_DEVELOPER_EMAIL="$(LOCAL_DEVELOPER_EMAIL)" \
 		-e COMMIT_SHA="$(shell git rev-parse HEAD 2>/dev/null || echo '')" \
 		-e GOOGLE_APPLICATION_CREDENTIALS="/code/application_default_credentials.json" \
 		--mount type=bind,source=$${HOME}/.config/gcloud/application_default_credentials.json,target=/code/application_default_credentials.json,readonly \

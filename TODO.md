@@ -43,9 +43,8 @@
 [~] Create blog series
   - [ ] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
-[ ] Remove env var redundancy in architecture walkthrough md
+[x] Remove env var redundancy in architecture walkthrough md
 [ ] Convert arch diagrams to renders
-[ ] 
 [ ] Introduce ADK based evaluation, including trajectory.
 [ ] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] Click a bar?

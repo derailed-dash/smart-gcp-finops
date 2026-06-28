@@ -139,7 +139,25 @@ To support a fast local development cycle, the BFF supports two different run mo
 
 ### Project and Organisational Scope
 
-I want FinSavant to be able to provide FinOps advice for all projects that I have access to. Some of my projects may be part of an organisation, and some may be _standalone_, i.e. projects that don't belong in any organisation.
+I want FinSavant to give me a holistic view across all the projects that are incurring cost against my billing account. But at the same time, I only want FinSavant to provide insights for projects that I have actually have authority to see.
+
+But GCP resource hierarchies are rarely neat and tidy. Some of my projects live inside a nice, clean Google Cloud organisation, and some are _standalone_ - essentially orphaned projects floating in the ether that are linked to the billing account but don't inherit anything from an organisation root.
+
+To solve this, I designed a multi-layered discovery and security boundary:
+
+1. **Billing-Led Discovery**: 
+   Rather than scanning the Resource Manager from the top down (which misses standalone projects entirely), the backend starts by querying the Cloud Billing API to retrieve every project linked to our central billing account. This gives us a comprehensive list of all projects incurring costs.
+
+2. **Hierarchical Permission Resolution (With Caching)**:
+   Once we have the master list of billing projects, we need to know what the user is actually allowed to see. The discovery service attempts a top-down interrogation:
+   - **Org-Level Scan (Fast)**: If a target organisation ID is configured, the backend queries Cloud Asset Inventory's IAM policies (`searchAllIamPolicies`) with `query="policy:{user_email}"`. This is extremely fast because it lets us resolve all of the user's project bindings across the entire hierarchy in a single API call.
+   - **Project-Level Fallback (Granular)**: If organisation-wide access isn't available or fails (as is often the case with standalone projects outside the org boundary), the service seamlessly falls back to a project-by-project scan, calling `getIamPolicy` on each individual project in the billing list to compile the user's allowed set.
+   - **Performance Protection**: To prevent rate limits and quota exhaustion from repeating project-by-project IAM scans, this resolved set is cached in-memory with a thread-safe, 10-minute time-to-live (TTL).
+
+3. **IAP-Enforced Row-Level Security**:
+   We serve the React dashboard and agent chat through an Identity-Aware Proxy (IAP). When a user requests data, the BFF extracts their email from the `x-goog-authenticated-user-email` header. It resolves their allowed projects list and sets it in a local context variable.
+   
+   To prevent prompt injections or the agent from hallucinating data about projects the user shouldn't see, we intercept all BigQuery billing queries and wrap them in a subquery that filters based on only the allowed projects. This means that even if the agent is querying the whole dataset, the database engine itself enforces strict row-level filtering based on the logged-in user's identity. If the user only has access to one project, that's all the agent can query.
 
 ### Cloud Asset Inventory (CAI)
 
@@ -147,14 +165,13 @@ Instead of querying individual GCP APIs (which is slow and rate-limited), I use 
 *   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks (`state=READY AND -users:*`) and idle external IPs.
 *   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days (e.g., detecting that an engineer upscaled a Cloud Run instance memory limit).
 
-
 ### Developer Knowledge MCP
 
 I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
 
 ### BigQuery Tool Calls From Our Agents
 
-I want to be able to query my billing data - stored in BigQuery - using natural language prompts. I'm acheving this in two different ways, depending on where I'm going from.
+I want to be able to query my billing data - stored in BigQuery - using natural language prompts. I'm achieving this in two different ways, depending on where I'm going from.
 
 - In my development workspace, I'm using the Google remote managed BigQuery MCP server (`https://bigquery.googleapis.com/mcp`).
 - In our FinSavant ADK agent itself, I'm using ADK's native `BigQueryToolset` directly. In doing so, we  simplify authentication, reduce runtime latency when making BQ calls, reduce dependency on an external service, and align with ADK best practices. 

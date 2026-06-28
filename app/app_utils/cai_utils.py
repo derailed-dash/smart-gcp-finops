@@ -1,3 +1,9 @@
+"""
+Description: Cloud Asset Inventory (CAI) utility functions.
+Why: Provides low-level connection managers and client setup helpers for CAI API requests.
+How: Sets up thread-local API discovery clients to ensure thread-safe resource queries and handles fallback scope detections.
+"""
+
 import logging
 import threading
 from typing import Any

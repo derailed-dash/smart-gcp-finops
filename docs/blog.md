@@ -1943,3 +1943,109 @@ We refactored the agent to use the native ADK `BigQueryToolset` (from `google.ad
 
 This completes our migration to a native BigQuery integration in the agent logic, reducing remote protocol overhead while preserving natural language schema inspections! Hurrah!
 
+---
+
+### Implementing User-Level Project Scoping and Access Controls (Option A)
+
+**Problem**:
+The initial implementation of the FinSavant executive dashboard and ADK agent queried and analyzed cost data and zombie assets across all projects that the application service account had access to. However, to support multi-tenant or team-isolated environments, the system must restrict all displayed data, queries, and conversational context to only the projects the active, authenticated user has permissions to see.
+
+**Resolution**:
+We implemented a complete application-level user project scoping and access control layer (Option A) across the FastAPI BFF, database utilities, and ADK agent:
+1. **User Identity Extraction**:
+   * Extracted the user's email from the standard `X-Goog-Authenticated-User-Email` header (injected by Google Identity-Aware Proxy).
+   * Declared `local_developer_email` in [config.py](../app/config.py) and added `LOCAL_DEVELOPER_EMAIL` to the local [.env](../.env) file to serve as a fallback for local developer testing.
+2. **Access Discovery & Caching**:
+   * Implemented `get_user_accessible_projects(user_email)` in [project_discovery.py](../app/app_utils/project_discovery.py).
+   * If a Google Cloud Organization is configured, it queries Cloud Asset Inventory's `searchAllIamPolicies` with `query="policy:{user_email}"`.
+     - If the user has organization-level or folder-level bindings (inheriting access to all projects), it automatically resolves all projects in the organization.
+     - Otherwise, it collects project IDs from specific project-level bindings.
+   * If no organization is configured, it falls back to querying the direct IAM policies of all projects linked to the billing account, scanning for member bindings of the user's email.
+   * Wrapped the lookup in a thread-safe, local in-memory cache with a 10-minute TTL to optimize latency and prevent GCP API quota exhaustion.
+3. **Database Scoping Firewall (SQL Table Wrapping)**:
+   * Created a request-local context variable `ALLOWED_PROJECTS_VAR` in [context.py](../app/app_utils/context.py) using the standard library `contextvars` module to propagate the user's allowed projects.
+   * Refactored `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to fetch `ALLOWED_PROJECTS_VAR`. If set, it dynamically intercepts and wraps all billing table references in the SQL query with pre-filtered subqueries:
+     ```sql
+     (SELECT * FROM `project.dataset.table` WHERE project.id IN ('proj-1', 'proj-2'))
+     ```
+     This enforces strict row-level security at the query engine level, preventing any possibility of prompt injection bypasses.
+4. **Dashboard & Zombie Filtering**:
+   * Updated `get_actual_dashboard_metrics` in [dashboard_data.py](../app/app_utils/dashboard_data.py) to accept `allowed_projects` and inject `AND project.id IN ('proj-1', ...)` filters into all dashboard queries (MTD spend, daily trends, cost explorer).
+   * Filtered list of Cloud Asset Inventory unattached disks and idle static IPs in Python, retaining only assets whose project matches the allowed projects list.
+5. **Session Isolation & Prompt Scoping**:
+   * Refactored [fast_api_app.py](../app/fast_api_app.py) to route `get_global_runner_and_session` by user email, isolating session state and chat history.
+   * Propagated `ALLOWED_PROJECTS_VAR` inside the request thread and agent execution thread.
+   * Appended a hidden `[SECURITY CONSTRAINT]` instruction prompt containing the allowed project list to user queries so the LLM agent behaves securely and targets the correct project ids.
+6. **Verification & Quality Control**:
+   * Added robust unit tests to [test_project_discovery.py](../tests/unit/test_project_discovery.py) and [test_dashboard_data.py](../tests/unit/test_dashboard_data.py) covering mock IAM policy responses and dashboard scoping.
+   * Executed the entire unit test suite (`uv run pytest tests/unit`), passing successfully (48 passed).
+   * Ensured Python standards compliance by running `codespell` and `ruff`.
+
+This ensures the entire FinSavant workspace behaves as a secure, team-isolated SaaS workspace where no user can see or query financial telemetry of projects they do not own! Hurrah!
+
+---
+
+### Swapping BigQuery MCP with Native ADK BigQueryToolset
+
+**Problem**:
+While the remote BigQuery MCP server is great for prototyping and executing queries from the developer's CLI environment, running it inside the ADK agent introduces unnecessary authentication complexity, runtime execution latency, and dependencies on external services. We wanted to migrate the agent to use ADK's native `BigQueryToolset` instead.
+
+**Resolution**:
+We refactored the agent to use ADK's native BigQuery integration:
+1. **Tool Filter and Setup**:
+   * Initialised `BigQueryToolset` inside [agent.py](../app/agent.py) using credentials from `google.auth.default()`.
+   * Applied a custom tool filter to exclude raw query execution tools (`execute_sql` and `ask_data_insights`), locking the agent to our thread-safe, cached custom tool `execute_cached_bigquery_sql`.
+2. **MCP Clean-up**:
+   * Removed `BQAuthProvider`, `bq_mcp_toolset`, and `bq_tool_filter` configurations from [mcp_config.py](../app/app_utils/mcp_config.py).
+3. **Validation and Docs**:
+   * Refactored tests in [test_agent_mcp.py](../tests/unit/test_agent_mcp.py) to assert exactly two remaining MCP toolsets (Developer Knowledge and Cloud Assist) and verify the presence of the native toolset and its tool filters.
+   * Updated `README.md`, `walkthrough.md`, and the architectural walkthrough guides.
+
+This simplifies authentication, reduces runtime latency, and aligns our database queries with ADK native best practices! Hurrah!
+
+---
+
+### Non-Interactive Project IAM Policy Bindings and --condition=None
+
+**Problem**:
+When developers ran our bulk-binding helper scripts to assign `roles/cloudasset.viewer` to standalone (orphaned) projects linked to the billing account, the `gcloud projects add-iam-policy-binding` command blocked and prompted interactively for input if the project had any conditional bindings (such as Cloud Build time-bounded connection setups):
+```text
+The policy contains bindings with conditions, so specifying a condition is required... Please specify a condition:
+```
+This broke non-interactive script execution and automation.
+
+**Resolution**:
+We appended the `--condition=None` flag to all project-level `gcloud projects add-iam-policy-binding` command snippets in [deployment/README.md](../deployment/README.md), ensuring the binding is added unconditionally and bypassing the interactive CLI prompt entirely.
+
+---
+
+### Docker Run Setting Validation and Makefile Environment Exporter
+
+**Problem**:
+Running `make docker-run` failed immediately with Pydantic settings validation errors. Pydantic reported that `local_developer_email` (which is a required setting) was missing, and `google_genai_use_vertexai` failed boolean parsing because it was mapped to an empty string `""`. This happened because the container runs without `.env` (ignored by `.dockerignore`), the variable wasn't mapped in `docker run`, and Makefile variables resolved to empty strings when `make docker-run` was called from an unsourced shell session.
+
+**Resolution**:
+We updated our local build and execution scripts:
+1. **Makefile Env Loader**: Added a block at the top of [Makefile](../Makefile) to detect, include, and export all environment variables from our local `.env` file into the `make` shell environment.
+2. **Mapped LOCAL_DEVELOPER_EMAIL**: Passed the `-e LOCAL_DEVELOPER_EMAIL="$(LOCAL_DEVELOPER_EMAIL)"` environment variable into the `docker run` command in [Makefile](../Makefile), resolving all settings validation errors.
+
+This ensures the container boots up successfully, matching parity with local and Cloud Run configurations! Hurrah!
+
+---
+
+### Custom Database Tool Scoping & Segregation Tests
+
+**Problem**:
+While we had implemented SQL query wrapping and project-level data segregation inside our custom `execute_cached_bigquery_sql` tool, we lacked unit tests to validate that the SQL rewrite logic functioned correctly under different project scopes and to check the agent vs. user visibility gap.
+
+**Resolution**:
+Created [test_tools.py](../tests/unit/test_tools.py) which contains 4 comprehensive unit tests:
+1. **`test_execute_cached_bigquery_sql_no_restriction`**: Asserts that when the user has no project restrictions (context variable is `None`), the SQL query is executed unmodified.
+2. **`test_execute_cached_bigquery_sql_with_restriction`**: Asserts that when the user is restricted to specific projects, table references are successfully intercepted and wrapped in a subquery filtering on `project.id`.
+3. **`test_execute_cached_bigquery_sql_empty_allowed_projects`**: Asserts that if the user's allowed project list is empty, table queries are rewritten with `LIMIT 0` to block data leakages.
+4. **`test_execute_cached_bigquery_sql_agent_vs_user_visibility`**: Asserts that if the agent attempts to group by or list all projects in the dataset (including those the user does not have permission to view), the query is rewritten to restrict execution only to the user's allowed list, successfully closing the visibility gap.
+
+All 52 unit tests are passing cleanly, proving the security boundaries of our FinOps analyst! Hurrah!
+
+
+

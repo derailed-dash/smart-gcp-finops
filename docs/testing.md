@@ -343,8 +343,8 @@ This allows running the agent logic locally inside your notebook session using l
   ```
 
 #### 2. Remote Testing (Gemini Enterprise Agent Runtime)
-This tests the deployed reasoning engine remotely on Google Cloud.
-- **Client Configuration**: Set `LOCATION = "europe-west1"` to match the endpoint where your reasoning engine is deployed.
+This tests the deployed Agent Runtime remotely on Google Cloud.
+- **Client Configuration**: Set `LOCATION = "europe-west1"` to match the endpoint where your Agent Runtime is deployed.
 - **Auto-Detection**: The notebook parses `deployment_metadata.json` automatically to load the active `remote_agent_runtime_id`.
 - **Querying**: It calls the remote agent endpoint:
   ```python

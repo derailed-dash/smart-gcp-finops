@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from fastapi.testclient import TestClient
 
@@ -28,7 +28,7 @@ def test_get_dashboard_endpoint(mock_get_metrics):
     response = client.get("/api/dashboard")
     assert response.status_code == 200
     assert response.json() == mock_metrics
-    mock_get_metrics.assert_called_once_with(client_day=None, client_month_days=None)
+    mock_get_metrics.assert_called_once_with(allowed_projects=ANY, client_day=None, client_month_days=None)
 
     mock_get_metrics.reset_mock()
 
@@ -36,7 +36,7 @@ def test_get_dashboard_endpoint(mock_get_metrics):
     response_custom = client.get("/api/dashboard?clientDay=29&clientMonthDays=31")
     assert response_custom.status_code == 200
     assert response_custom.json() == mock_metrics
-    mock_get_metrics.assert_called_once_with(client_day=29, client_month_days=31)
+    mock_get_metrics.assert_called_once_with(allowed_projects=ANY, client_day=29, client_month_days=31)
 
 
 @patch("app.app_utils.dashboard_data.get_actual_dashboard_metrics")
