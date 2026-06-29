@@ -52,16 +52,16 @@ Let's see where we are in this series.
 
 FinSavant is a conversational agent that:
 
-- Uses **[BigQuery Billing Exports](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery)** to know exactly what our costs are, down to the resource ID.
-- Uses **[Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview)** in order to interrogate our services, metrics and logs, and provide recommendations accordingly.
+- Uses **[BigQuery Billing Exports](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery)** to know exactly what our costs are, down to the resource ID. Of, this means you need to be exporting you billing data to BigQuery in the first place. Setting up [billing exports to BigQuery](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery) is a standard process.
 - Uses **[Google Cloud Asset Inventory](https://docs.cloud.google.com/asset-inventory/docs/overview)** to understand our realtime deployment configuration, but also to provide a 35-day audit history of every asset change in our GCP estate.
+- Uses **[Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview)** in order to interrogate our services, metrics and logs, and provide recommendations accordingly.
 - Uses **[Developer Knowledge MCP](https://developers.google.com/knowledge/mcp)** to ground the agent with both broad and deep Google knowledge. This means that if you ask it any questions relating to Google Cloud, Google APIs, or general Google best practices, the agent will provide factually correct answers that are up-to-date, and with very little hallucination.
 
 By bringing these together under a GenAI agent built with the Google Agent Development Kit (ADK), we have created an assistant that can perform root-cause analysis on cost spikes, as well as provide recommendations on how to fix them.
 
 ## Architecture Overview
 
-When designing FinSavant, I wanted a clean separation between the frontend delivery mechanism and the reasoning backend, while keeping deployment costs and security overhead to an absolute minimum. 
+When designing FinSavant, I wanted a clean separation between the frontend delivery mechanism and the agentic backend, while keeping deployment costs and security overhead to an absolute minimum. 
 
 The overall architecture looks like this:
 
@@ -69,7 +69,7 @@ The overall architecture looks like this:
 
 ## Tech Stack & Design Decisions
 
-Let’s dive into the core components that make up FinSavant's tech stack and how they complement one another.
+Let’s dive into the core components that make up FinSavant's tech stack and see how they complement one another.
 
 ### User Interface: React/Vite
 
@@ -77,7 +77,7 @@ With React I can create a great looking UI, and I have the ability to render dyn
 
 _By the way: I'm no frontend developer. I used Stitch to help me design and prototype the frontend UI, and then I used Antigravity (Gemini) to turn this into React code._
 
-I can compile the React UI to clean, static assets, so I don't need Node.js. This means my frontend container image will be pretty small, and therefore fast and cheap.
+I can compile the React UI to clean, static assets, so I don't need Node.js. This means my frontend container image will be pretty small, and therefore fast and cheap to run.
 
 ### Rich UI with Agent-to-UI (A2UI)
 
@@ -93,7 +93,7 @@ The FastAPI BFF simply acts as a secure proxy. It streams queries to the agent a
 
 ### UI & BFF Unified Container
 
-I've packaged a React frontend and a FastAPI BFF into a single container image. This eliminates cross-origin resource sharing (CORS) headaches, minimises the runtime footprint, and simplifies authentication.
+I've packaged the React frontend and FastAPI BFF into a single container image. This eliminates cross-origin resource sharing (CORS) headaches, minimises the runtime footprint, and simplifies the deployment.
 
 ### Cloud Run for Container Hosting
 
@@ -166,7 +166,7 @@ To solve this, I designed a multi-layered discovery and security boundary:
 
 2. **Hierarchical Permission Resolution (With Caching)**:
    Once we have the master list of billing projects, we need to know what the user is actually allowed to see. The discovery service attempts a top-down interrogation:
-   - **Org-Level Scan (Fast)**: If a target organisation ID is configured, the backend queries Cloud Asset Inventory's IAM policies (`searchAllIamPolicies`) with `query="policy:{user_email}"`. This is extremely fast because it lets us resolve all of the user's project bindings across the entire hierarchy in a single API call.
+   - **Org-Level Scan (Fast)**: If a target organisation ID is configured, the backend queries Cloud Asset Inventory's IAM policies. This is extremely fast because it lets us resolve all of the user's project bindings across the entire hierarchy in a single API call.
    - **Project-Level Fallback (Granular)**: If organisation-wide access isn't available or fails (as is often the case with standalone projects outside the org boundary), the service seamlessly falls back to a project-by-project scan, calling `getIamPolicy` on each individual project in the billing list to compile the user's allowed set.
    - **Performance Protection**: To prevent rate limits and quota exhaustion from repeating project-by-project IAM scans, this resolved set is cached in-memory with a thread-safe, 10-minute time-to-live (TTL).
 
@@ -177,10 +177,9 @@ To solve this, I designed a multi-layered discovery and security boundary:
 
 ### Cloud Asset Inventory (CAI)
 
-Instead of querying individual GCP APIs (which is slow and rate-limited), I use CAI's `searchAllResources` and `batchGetAssetsHistory` endpoints. 
+I'm using CAI for:
 *   **Zombie Detection**: I built custom CAI queries to instantly scan for unattached disks and idle external IPs.
-*   **Detective Mode**: When BigQuery highlights a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days. For example, detecting that an engineer upscaled a Cloud Run instance memory limit.
-
+*   **Detective Mode**: When we detect a cost spike, the agent uses CAI history to audit the exact configuration changes that occurred on that resource over the last 35 days. For example, detecting that an engineer upscaled a Cloud Run instance memory limit.
 
 ### BigQuery Tool Calls From Our Agents
 
@@ -191,21 +190,18 @@ I want to be able to query my billing data - stored in BigQuery - using natural 
 
 ### Developer Knowledge MCP
 
-I connected the agent to the remote Developer Knowledge MCP server. When the agent detects an inefficiency, it doesn't just say "delete this"; it queries the MCP to find official Google Cloud guidance on cost-optimisation strategies to back up its recommendation.
+To make FinSavant's advice more than just generic feedback, we need to ground its recommendations in official Google Cloud engineering standards. That's where the **Developer Knowledge MCP** comes in.
 
-## Showcasing the Gemini Enterprise Agent Platform (GEAP)
+This MCP server provides a direct gateway to Google's official developer documentation, product guides, API reference material, and the Cloud Architecture Framework. Instead of relying on the LLM's static training data, the agent can query this knowledge base in real time to retrieve authoritative, up-to-date information.
 
-Deploying a production-grade agent requires more than just running a Python loop. You need governance, security, and observability. This is why I chose the **Gemini Enterprise Agent Platform (GEAP)** as my runtime environment. 
-
-By running on the GEAP Agent Runtime, FinSavant gains several critical advantages:
-
-*   **Native ADK Integration**: GEAP is built from the ground up to support the Google Agent Development Kit, allowing us to package complex multi-agent flows and custom tools without having to write custom container management layers.
-*   **Agent Registry**: When deployed, the agent is automatically registered in the centralised Google Cloud Console Agent Registry catalog under a unique URN namespace. This provides the operations team with a single pane of glass to audit, version, and manage all deployed agents across the organisation.
-*   **Observability and Telemetry**: We get native tracing of agent trajectories. We can inspect exactly what reasoning path the model took, which tools it invoked, and what payloads were returned, making debugging agent loops significantly easier.
-*   **Model Armor & Agent Gateway**: Security is paramount when an agent has read access to your billing data. GEAP’s **Agent Gateway** routes and monitors traffic, working alongside **Model Armor** to apply content security filters, block prompt injection attacks, and prevent unauthorised data exfiltration.
+In FinSavant, we use the Developer Knowledge MCP to:
+*   **Determine the Best Course of Action**: When the agent discovers a cost anomaly, it doesn't just throw alerts. It queries the MCP to formulate an appropriate, structured response grounded in official documentation.
+*   **Verify Architectural Best Practices**: It checks current Google Cloud design patterns, ensuring the agent doesn't recommend legacy or non-optimal resource structures.
+*   **Provide Actionable Remediation**: If an idle persistent disk is flagged, the agent uses the MCP to outline the exact recommended steps to snapshot and clean up the asset safely, linking the user directly to the relevant documentation.
+*   **Eliminate Hallucinations**: By grounding the agent in real-time documentation, we ensure any CLI commands or configuration snippets it presents are correct and match the latest GCP standards.
 
 ## What’s Next?
 
-With the goals, architecture, and technology integrations defined, I had my blueprint. In the next part of this series, I will get my hands dirty and look at **Part 2: Building the Agentic Solution**, detailing how I bootstrapped the project with the Agents CLI, handled credential refreshing for long-running agent threads, and implemented the custom ADK callbacks.
+In the next part of this series, we'll get our hands dirty and look at **Part 2: Building the Agentic Solution**.
 
-Stay tuned, and hurrah for lower cloud bills!
+Stay tuned!
