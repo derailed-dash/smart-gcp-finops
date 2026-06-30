@@ -305,7 +305,7 @@ To prevent Terraform from trying to strip or revert the deployment-metadata and 
 
 ## Deployment Commands
 
-Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Reasoning Engine), and deploying the container BFF proxy (Cloud Run).
+Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Agent Runtime), and deploying the container BFF proxy (Cloud Run).
 
 ### 1. Provision Base Infrastructure (Terraform)
 
@@ -320,12 +320,12 @@ terraform apply tfplan
 
 ### 2. Deploy Agent Logic to Vertex AI Agent Runtime
 
-Next, compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Reasoning Engine using the CLI:
+Next, compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Agent Runtime using the CLI:
 
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles dependencies using `uv` to `app/app_utils/.requirements.txt`, packages the `app` source files, and deploys it to the regional Reasoning Engine shell.
+*   **What this does**: It compiles dependencies using `uv` to `app/app_utils/.requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime.
 *   **Result**: Upon successful completion, the CLI writes a `deployment_metadata.json` file to the root of your project containing the newly deployed `remote_agent_runtime_id` (e.g. `projects/PROJECT_NUMBER/locations/europe-west1/reasoningEngines/ENGINE_ID`).
 
 ### 3. Deploy the Cloud Run BFF and Frontend
@@ -336,7 +336,7 @@ Finally, deploy the lightweight frontend container. The deployment script reads 
 # Build the unified container (React assets + FastAPI) and deploy to Cloud Run
 make deploy-cloud-run
 ```
-*   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote reasoning engine instead of running the agent locally inside the container.
+*   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote Agent Runtime instead of running the agent locally inside the container.
 
 ## CI/CD Pipeline Flow
 

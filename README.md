@@ -85,13 +85,13 @@ smart-gcp-finops/
 ├── .gemini/           # Gemini CLI configuration (MCP settings)
 ├── GEMINI.md          # Context for the Antigravity/Gemini AI development assistant
 ├── Makefile           # Development commands
-└── pyproject.toml     # Project dependencies (Python 3.12, uv)
+└── pyproject.toml     # Project dependencies (Python 3.13, uv)
 ```
 
 ## Requirements
 
 Before you begin, ensure you have:
-- **uv**: Python package manager (Python 3.12+)
+- **uv**: Python package manager (Python 3.13+)
 - **Google Cloud SDK**: Authenticated with your GCP project
 - **Terraform**: For infrastructure deployment
 - **make**: Build automation tool

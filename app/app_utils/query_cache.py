@@ -9,6 +9,8 @@ import threading
 import time
 from typing import Any
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 def _normalise_sql(sql: str) -> str:
@@ -48,7 +50,7 @@ class QueryCacheManager:
                     return cached_rows
 
         # Cache miss - execute the actual BigQuery query
-        logger.info("Cache miss for query: %s...", normalised_sql[:60])
+        logger.debug("Cache miss for query: %s...", normalised_sql[:60])
         job = client.query(sql)
         rows = list(job.result())
 
@@ -62,7 +64,7 @@ class QueryCacheManager:
         """Clears all cached query results."""
         with self._cache_lock:
             self._query_cache.clear()
-            logger.info("Query cache cleared successfully.")
+            logger.debug("Query cache cleared successfully.")
 
 
 # Module-level singleton instance for query caching management

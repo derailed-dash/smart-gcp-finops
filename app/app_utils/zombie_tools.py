@@ -17,6 +17,8 @@ from app.app_utils.query_cache import execute_cached_query
 from app.app_utils.zombie_resources import search_zombie_resources
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Global thread-safe cache for zombie resources category search
@@ -80,12 +82,12 @@ def list_zombie_resources(
         if cache_key in _ZOMBIE_CACHE:
             expiry, cached_data = _ZOMBIE_CACHE[cache_key]
             if now <= expiry:
-                logger.info(
+                logger.debug(
                     f"Cache hit for zombie resource search: {category} (project: {project_id})"
                 )
                 return cached_data
 
-    logger.info(
+    logger.debug(
         f"Cache miss for zombie resource search: {category} (project: {project_id}). Scanning assets..."
     )
 

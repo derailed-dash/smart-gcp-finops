@@ -11,6 +11,8 @@ import time
 from app.app_utils.cai_utils import get_service
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 600  # 10 minutes
@@ -42,7 +44,7 @@ class ProjectDiscoveryManager:
                     logger.debug("Cache hit for user accessible projects: %s", user_email)
                     return cached_projects
 
-        logger.info("Cache miss for user accessible projects: %s. Performing lookup...", user_email)
+        logger.debug("Cache miss for user accessible projects: %s. Performing lookup...", user_email)
         projects = set()
         has_top_level_access = False
 
@@ -53,9 +55,19 @@ class ProjectDiscoveryManager:
                 scope = f"organizations/{settings.google_cloud_organization}"
                 query = f"policy:{user_email}"
 
+                logger.debug("Querying searchAllIamPolicies: scope=%s, query=%s", scope, query)
                 request = service.v1().searchAllIamPolicies(scope=scope, query=query)
                 while request is not None:
                     response = request.execute()
+                    logger.debug(
+                        "searchAllIamPolicies returned %d policy bindings.",
+                        len(response.get("results", [])),
+                    )
+                    if response.get("results"):
+                        logger.debug(
+                            "Snippet of first IAM policy binding match: %s",
+                            response.get("results")[0],
+                        )
                     for result in response.get("results", []):
                         resource = result.get("resource", "")
                         # If user has access at org or folder level, they inherit access
@@ -80,12 +92,23 @@ class ProjectDiscoveryManager:
                 # 1. Discover all projects linked to the billing account
                 billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
                 all_billing_projects = list_billing_projects(billing_account)
+                logger.debug("Falling back to project-level checks. Auditing %d billing projects.", len(all_billing_projects))
 
                 # 2. Query each project's IAM policy
                 crm_service = get_service("cloudresourcemanager", "v1")
                 for project_id in all_billing_projects:
                     try:
                         policy = crm_service.projects().getIamPolicy(resource=project_id).execute()
+                        logger.debug(
+                            "Fetched IAM policy for project %s. bindings count: %d",
+                            project_id,
+                            len(policy.get("bindings", [])),
+                        )
+                        if policy.get("bindings"):
+                            logger.debug(
+                                "Snippet of first policy binding: %s",
+                                policy.get("bindings")[0],
+                            )
 
                         is_member = False
                         user_domain = user_email.split("@")[-1] if "@" in user_email else ""
@@ -119,6 +142,7 @@ class ProjectDiscoveryManager:
         with self.cache_lock:
             self.user_projects_cache[user_email] = (now + CACHE_TTL_SECONDS, projects)
 
+        logger.debug("Project discovery completed. Access allowed to: %s", list(projects))
         return projects
 
 
@@ -143,6 +167,7 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
     try:
         service = get_service("cloudbilling", "v1")
 
+        logger.debug("Querying billingAccounts.projects.list for name=%s", billing_account_name)
         request = service.billingAccounts().projects().list(name=billing_account_name)
         projects = []
 
@@ -150,6 +175,9 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
             response = request.execute()
 
             project_billing_info = response.get("projectBillingInfo", [])
+            logger.debug("Billing account projects list returned %d items.", len(project_billing_info))
+            if project_billing_info:
+                logger.debug("Snippet of first project billing info: %s", project_billing_info[0])
             for info in project_billing_info:
                 projects.append(info["projectId"])
 
@@ -183,10 +211,14 @@ def get_projects_in_org(org_id: str) -> set[str]:
         asset_types = ["cloudresourcemanager.googleapis.com/Project"]
 
         projects = set()
+        logger.debug("Querying searchAllResources for org projects: scope=%s, assetTypes=%s", scope, asset_types)
         request = service.v1().searchAllResources(scope=scope, assetTypes=asset_types)
 
         while request is not None:
             response = request.execute()
+            logger.debug("searchAllResources returned %d resource items.", len(response.get("results", [])))
+            if response.get("results"):
+                logger.debug("Snippet of first search resource: %s", response.get("results")[0])
             for asset in response.get("results", []):
                 # The resource name format is //cloudresourcemanager.googleapis.com/projects/PROJECT_ID
                 name = asset.get("name", "")

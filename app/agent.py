@@ -36,6 +36,8 @@ from app.app_utils.tools import execute_cached_bigquery_sql
 from app.app_utils.zombie_tools import list_zombie_resources
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Ensure critical environment variables are set for the underlying SDKs
@@ -82,7 +84,6 @@ bigquery_toolset = BigQueryToolset(
     credentials_config=credentials_config,
     tool_filter=bq_tool_filter,
 )
-
 
 
 AGENT_INSTRUCTION = f"""You are a helpful FinOps AI assistant specialized in Google Cloud Platform (GCP) cost analysis.
@@ -252,7 +253,7 @@ def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) ->
     """Defensive callback to count and limit tool calls in a single turn to prevent runaways."""
     count = tool_context.state.get("_turn_tool_call_count", 0) + 1
     tool_context.state["_turn_tool_call_count"] = count
-    logger.info(
+    logger.debug(
         "Tool call #%d in this turn: executing %s with arguments: %s",
         count,
         tool.name,
@@ -339,7 +340,7 @@ async def before_agent_cache_lookup(
         with agent_query_cache_manager.cache_lock:
             if local_match in agent_query_cache_manager.query_cache:
                 _, cached_text = agent_query_cache_manager.query_cache[local_match]
-                logger.info(
+                logger.debug(
                     "🎯 Fast Local Cache HIT! Matched exact query '%s' to cached key '%s'",
                     user_query,
                     local_match,
@@ -375,7 +376,7 @@ Cached Queries List:
 
         if matched_key in agent_query_cache_manager.query_cache:
             _, cached_text = agent_query_cache_manager.query_cache[matched_key]
-            logger.info(
+            logger.debug(
                 "🎯 Semantic Cache HIT! Matched '%s' to cached key '%s'",
                 user_query,
                 matched_key,
@@ -384,7 +385,7 @@ Cached Queries List:
             # Store the hit in the callback state context to signal bypass
             ctx.state["cached_agent_response"] = cached_text
         else:
-            logger.info(
+            logger.debug(
                 "⚡ Cache Miss. No semantic equivalence found for: '%s' (LLM replied: '%s')",
                 user_query,
                 matched_key,
@@ -403,7 +404,7 @@ async def before_model_bypass(
     """If a cached response is present in session state, return it to skip the LLM model call entirely."""
     ctx = callback_context
     if "cached_agent_response" in ctx.state:
-        logger.info("Bypassing ADK LLM call using cached agent response.")
+        logger.debug("Bypassing ADK LLM call using cached agent response.")
 
         # Build standard google-genai Content and LlmResponse
         part = types.Part(text=ctx.state["cached_agent_response"])
@@ -460,7 +461,7 @@ async def after_agent_save_cache(
         now = time.time()
         with agent_query_cache_manager.cache_lock:
             agent_query_cache_manager.query_cache[user_query.strip()] = (now + AGENT_CACHE_TTL, final_text)
-        logger.info("Saved agent response to ADK cache for query: %s", user_query)
+        logger.debug("Saved agent response to ADK cache for query: %s", user_query)
 
     return None
 

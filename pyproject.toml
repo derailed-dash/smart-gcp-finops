@@ -1,10 +1,8 @@
 [project]
 name = "smart-gcp-finops"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
-authors = [
-    {name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com"},
-]
+authors = [{ name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com" }]
 dependencies = [
     "google-adk>=2.1.0,<3.0.0",
     "mcp>=1.26.0",
@@ -22,7 +20,7 @@ dependencies = [
     "uvicorn>=0.34.0,<1.0.0",
     "asyncpg>=0.30.0,<1.0.0",
 ]
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.13,<3.14"
 
 
 [dependency-groups]
@@ -35,21 +33,13 @@ dev = [
 ]
 
 [project.optional-dependencies]
-jupyter = [
-    "jupyter>=1.0.0,<2.0.0",
-]
-eval = [
-    "google-adk[eval]>=2.1.0,<3.0.0",
-]
-lint = [
-    "ruff>=0.4.6,<1.0.0",
-    "ty>=0.0.1a0",
-    "codespell>=2.2.0,<3.0.0",
-]
+jupyter = ["jupyter>=1.0.0,<2.0.0"]
+eval = ["google-adk[eval]>=2.1.0,<3.0.0"]
+lint = ["ruff>=0.4.6,<1.0.0", "ty>=0.0.1a0", "codespell>=2.2.0,<3.0.0"]
 
 [tool.ruff]
-line-length = 88
-target-version = "py312"
+line-length = 100
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
@@ -57,9 +47,9 @@ select = [
     "F",   # pyflakes
     "W",   # pycodestyle warnings
     "I",   # isort
-    "C",  # flake8-comprehensions
+    "C",   # flake8-comprehensions
     "B",   # flake8-bugbear
-    "UP", # pyupgrade
+    "UP",  # pyupgrade
     "RUF", # ruff specific rules
 ]
 ignore = ["E501", "C901", "B006"] # ignore line too long, too complex
@@ -72,7 +62,7 @@ known-first-party = ["app", "frontend"]
 # See: https://docs.astral.sh/ty/
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.13"
 
 [tool.ty.src]
 exclude = [".venv/**", "notebooks/**", "tests/**"]
@@ -103,24 +93,4 @@ pythonpath = "."
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.hatch.build.targets.wheel]
-packages = ["app","frontend"]
-
-[tool.agent-starter-pack]
-# Generation metadata - enables CLI commands to understand project context
-# These fields allow any generated project to work as a remote template
-name = "smart-gcp-finops"
-description = "Simple ReAct agent"
-base_template = "adk"
-agent_directory = "app"
-
-# Generation context
-generated_at = "2026-04-05T17:48:56.447735+00:00"
-asp_version = "0.40.1"
-
-[tool.agent-starter-pack.create_params]
-# Parameters used during project creation
-deployment_target = "cloud_run"
-session_type = "in_memory"
-cicd_runner = "github_actions"
-include_data_ingestion = false
-datastore = "none"
+packages = ["app", "frontend"]

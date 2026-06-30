@@ -23,6 +23,8 @@ from app.app_utils.cai_utils import (
 from app.app_utils.project_discovery import list_billing_projects
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Thread-safe in-memory cache for CAI metadata
@@ -188,7 +190,7 @@ def get_cai_history_for_resource(
         except Exception:
             pass
 
-    logger.info(
+    logger.debug(
         "Requesting CAI history: resource_name=%s, start_time=%s, end_time=%s",
         resource_name,
         start_time,
@@ -201,7 +203,7 @@ def get_cai_history_for_resource(
         if cache_key in _HISTORY_CACHE:
             expiry, cached_data = _HISTORY_CACHE[cache_key]
             if now <= expiry:
-                logger.info(
+                logger.debug(
                     "CAI history cache hit for resource: %s (returned %d records)",
                     resource_name,
                     len(cached_data),
@@ -245,7 +247,7 @@ def get_cai_history_for_resource(
             if history_results:
                 break
 
-    logger.info(
+    logger.debug(
         "CAI history lookup returned %d records for resource: %s",
         len(history_results),
         resource_name,

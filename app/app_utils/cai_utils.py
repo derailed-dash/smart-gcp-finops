@@ -14,6 +14,8 @@ from googleapiclient.errors import HttpError
 
 from app.app_utils.credentials import get_credentials
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 
@@ -85,6 +87,7 @@ class CAIClientManager:
         if not all_resource_names:
             return cost_records
 
+        logger.debug("Enriching %d cost records with CAI metadata in scope: %s", len(cost_records), scope)
         cai_metadata_map = {}
         service = self.get_service("cloudasset", "v1")
         CHUNK_SIZE = 20
@@ -95,9 +98,14 @@ class CAIClientManager:
             query = " OR ".join(query_parts)
 
             try:
+                logger.debug("Querying searchAllResources: scope=%s, chunk_size=%d, query=%s", scope, len(chunk), query[:120])
                 request = service.v1().searchAllResources(scope=scope, query=query)
                 while request is not None:
                     response = request.execute()
+                    results_count = len(response.get("results", []))
+                    logger.debug("searchAllResources returned %d asset results.", results_count)
+                    if results_count > 0:
+                        logger.debug("Snippet of first search result: %s", response.get("results")[0])
                     for asset in response.get("results", []):
                         cai_metadata_map[asset["name"]] = asset
 
@@ -150,6 +158,13 @@ class CAIClientManager:
         try:
             service = self.get_service("cloudasset", "v1")
 
+            logger.debug(
+                "Querying batchGetAssetsHistory: scope=%s, resource_name=%s, start_time=%s, end_time=%s",
+                scope,
+                resource_name,
+                start_time,
+                end_time,
+            )
             request = service.v1().batchGetAssetsHistory(
                 parent=scope,
                 assetNames=[resource_name],
@@ -159,7 +174,11 @@ class CAIClientManager:
             )
 
             response = request.execute()
-            return response.get("assets", [])
+            assets = response.get("assets", [])
+            logger.debug("batchGetAssetsHistory returned %d history records.", len(assets))
+            if assets:
+                logger.debug("Snippet of first asset history record: %s", assets[0])
+            return assets
 
         except HttpError as e:
             if e.resp.status == 403:

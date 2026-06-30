@@ -18,7 +18,7 @@ RUN npm run build
 # ==========================================
 # Stage 2: Final Backend Service Container
 # ==========================================
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 # Install uv for fast, reliable Python package management.
 RUN pip install --no-cache-dir uv==0.11.16

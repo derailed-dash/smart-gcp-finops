@@ -18,6 +18,8 @@ from app.app_utils.context import ALLOWED_PROJECTS_VAR
 from app.app_utils.query_cache import execute_cached_query
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +59,6 @@ def _get_bq_client() -> bigquery.Client:
     return bq_client_manager.get_client()
 
 
-
 def _serialise_value(val):
     """Recursively serialises non-JSON-compliant data types (dates, decimals) for GenAI compatibility."""
     if isinstance(val, (datetime, date)):
@@ -77,7 +78,7 @@ def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
     This tool is highly optimised and uses in-memory caching to avoid redundant,
     expensive database table scans and minimise query costs.
     """
-    logger.info("Executing full BigQuery SQL query:\n%s", sql)
+    logger.debug("Executing full BigQuery SQL query:\n%s", sql)
     try:
         user_email = tool_context.user_id
         if user_email:
@@ -108,15 +109,15 @@ def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
             pattern_res = re.compile(rf"`{escaped_res}`|{escaped_res}")
             sql = pattern_res.sub(subquery_resource, sql)
 
-            logger.info("Scoped BigQuery SQL query:\n%s", sql)
+            logger.debug("Scoped BigQuery SQL query:\n%s", sql)
 
         client = _get_bq_client()
         rows = execute_cached_query(client, sql)
         # Convert Row objects to standard, GenAI-serialisable dicts safely
         result = [{k: _serialise_value(v) for k, v in row.items()} for row in rows]
-        logger.info("BigQuery returned %d rows.", len(result))
+        logger.debug("BigQuery returned %d rows.", len(result))
         if result:
-            logger.info("Snippet of first 3 BQ results: %s", result[:3])
+            logger.debug("Snippet of first 3 BQ results: %s", result[:3])
         return result
     except Exception as e:
         logger.error(f"Error in execute_cached_bigquery_sql tool: {e}", exc_info=True)

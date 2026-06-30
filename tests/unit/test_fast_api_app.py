@@ -90,7 +90,7 @@ def test_chat_stream_remote(mock_model_validate, mock_get_runner, mock_vertex_cl
     mock_event.is_final_response.return_value = False
     mock_model_validate.return_value = mock_event
 
-    # Mock Vertex AI client and reasoning engine
+    # Mock Vertex AI client and Agent Runtime
     mock_client_instance = MagicMock()
     mock_vertex_client.return_value = mock_client_instance
     mock_engine = MagicMock()

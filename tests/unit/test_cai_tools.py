@@ -337,13 +337,13 @@ def test_get_cai_history_for_resource_caching_and_logging(mock_history, mock_log
     assert mock_history.call_count == 1  # Verify cache worked
 
     # Verify logger calls
-    mock_logger.info.assert_any_call(
+    mock_logger.debug.assert_any_call(
         "Requesting CAI history: resource_name=%s, start_time=%s, end_time=%s",
         "//compute.googleapis.com/projects/p1/zones/z1/disks/d1",
         dynamic_time,
         None,
     )
-    mock_logger.info.assert_any_call(
+    mock_logger.debug.assert_any_call(
         "CAI history cache hit for resource: %s (returned %d records)",
         "//compute.googleapis.com/projects/p1/zones/z1/disks/d1",
         1,

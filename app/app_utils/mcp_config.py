@@ -15,8 +15,9 @@ from google.auth.transport.requests import Request
 
 from app.config import settings
 
+# Inherits effective log level from the root logger
+# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
-
 
 
 class DevKnowledgeAuthProvider:

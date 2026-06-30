@@ -1,14 +1,12 @@
 """
-Description: Telemetry configuration for the application.
-Why: Ensures consistent monitoring and logging of agent performance and GenAI interactions.
-How: Configures OpenTelemetry to export data to Cloud Trace and logs_bucket (GCS).
-
-This utility sets up the environment variables and hooks required for ADK
-and the GenAI SDK to emit telemetry data.
+Description: Logging and telemetry configuration for the application.
+Why: Ensures consistent log configurations, warning filters, monitoring, and tracing.
+How: Suppresses noisy third-party debug outputs and hooks OpenTelemetry to export to Cloud Trace / GCS.
 """
 
 import logging
 import os
+import warnings
 
 
 def setup_telemetry() -> str | None:
@@ -89,3 +87,23 @@ def setup_telemetry() -> str | None:
         logging.warning("Failed to instrument Google GenAI SDK: %s", e)
 
     return bucket
+
+
+def setup_logging_suppressions() -> None:
+    """Configures Python logging levels and warning filters to suppress noisy third-party outputs."""
+    # Suppress experimental feature warnings from ADK
+    warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")
+
+    # Suppress noisy third-party debug logs
+    logging.getLogger("urllib3").setLevel(logging.INFO)
+    logging.getLogger("googleapiclient").setLevel(logging.INFO)
+    logging.getLogger("google_auth_httplib2").setLevel(logging.INFO)
+    logging.getLogger("google.auth").setLevel(logging.INFO)
+    logging.getLogger("google_adk").setLevel(logging.ERROR)
+    logging.getLogger("httpcore").setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    logging.getLogger("opentelemetry").setLevel(logging.INFO)
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.INFO)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

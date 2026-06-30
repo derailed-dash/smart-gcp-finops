@@ -6,24 +6,49 @@ How: Sets up FastAPI endpoints, handles IAP user authentication headers, resolve
 
 import asyncio
 import json
+import logging
 import os
+from typing import Any, ClassVar
 
 import google.auth
+import google.cloud.logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
-from google.cloud import logging as google_cloud_logging
 
 from app.app_utils.context import ALLOWED_PROJECTS_VAR
+from app.app_utils.logging_and_telemetry import (
+    setup_logging_suppressions,
+    setup_telemetry,
+)
 from app.app_utils.project_discovery import get_user_accessible_projects
-from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
+from app.config import settings
 
 setup_telemetry()
 _, project_id = google.auth.default()
-logging_client = google_cloud_logging.Client()
-logger = logging_client.logger(__name__)
+
+# Configure logging using standard Python library and cloud-logging backend
+otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
+    os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
+)
+
+if otel_to_cloud:
+    try:
+        logging_client = google.cloud.logging.Client()
+        logging_client.setup_logging()
+    except Exception:
+        # Fallback to local basic configuration if Cloud Logging client fails
+        logging.basicConfig(level=settings.log_level.upper())
+else:
+    logging.basicConfig(level=settings.log_level.upper())
+
+# Ensure root log level is explicitly configured based on settings
+logging.getLogger().setLevel(settings.log_level.upper())
+setup_logging_suppressions()
+
+logger = logging.getLogger(__name__)
 _background_tasks = set()
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",")
@@ -61,13 +86,28 @@ app: FastAPI = get_fast_api_app(
 app.title = "smart-gcp-finops"
 app.description = "API for interacting with the Agent smart-gcp-finops"
 
-# Thread-safe lazy-initialisation helper for global ADK session and runner by user
-_GLOBAL_SESSION_SERVICE = None
-_GLOBAL_SESSIONS = {}
-_GLOBAL_RUNNER = None
-_INIT_LOCK = asyncio.Lock()
-_REMOTE_SESSION_ID = None
-_REMOTE_SESSION_LOCK = asyncio.Lock()
+class AppState:
+    """Encapsulates persistent, lazy-initialised application state."""
+    global_session_service = None
+    global_runner = None
+    global_sessions: ClassVar[dict[str, Any]] = {}
+    remote_session_id = None
+    _init_lock: ClassVar[asyncio.Lock | None] = None
+    _remote_session_lock: ClassVar[asyncio.Lock | None] = None
+
+    @classmethod
+    def get_init_lock(cls) -> asyncio.Lock:
+        """Returns the lazy-initialised event-loop-safe Lock for global initialization."""
+        if cls._init_lock is None:
+            cls._init_lock = asyncio.Lock()
+        return cls._init_lock
+
+    @classmethod
+    def get_remote_session_lock(cls) -> asyncio.Lock:
+        """Returns the lazy-initialised event-loop-safe Lock for remote session creation."""
+        if cls._remote_session_lock is None:
+            cls._remote_session_lock = asyncio.Lock()
+        return cls._remote_session_lock
 
 
 def _get_user_email(request: Request) -> str:
@@ -85,28 +125,27 @@ def _get_user_email(request: Request) -> str:
 
 async def get_global_runner_and_session(user_email: str = "default_user"):
     """Initialises and returns a persistent global Runner and Session to preserve conversation memory."""
-    global _GLOBAL_SESSION_SERVICE, _GLOBAL_SESSIONS, _GLOBAL_RUNNER
-    async with _INIT_LOCK:
-        if _GLOBAL_RUNNER is None:
+    async with AppState.get_init_lock():
+        if AppState.global_runner is None:
             from google.adk.runners import Runner
             from google.adk.sessions import InMemorySessionService
 
             from app.agent import root_agent
 
-            _GLOBAL_SESSION_SERVICE = InMemorySessionService()
-            _GLOBAL_RUNNER = Runner(
+            AppState.global_session_service = InMemorySessionService()
+            AppState.global_runner = Runner(
                 agent=root_agent,
-                session_service=_GLOBAL_SESSION_SERVICE,
+                session_service=AppState.global_session_service,
                 app_name="smart-gcp-finops",
             )
 
-        if user_email not in _GLOBAL_SESSIONS:
-            session = _GLOBAL_SESSION_SERVICE.create_session_sync(
+        if user_email not in AppState.global_sessions:
+            session = AppState.global_session_service.create_session_sync(
                 user_id=user_email, session_id=user_email, app_name="smart-gcp-finops"
             )
-            _GLOBAL_SESSIONS[user_email] = session
+            AppState.global_sessions[user_email] = session
 
-        return _GLOBAL_RUNNER, _GLOBAL_SESSIONS[user_email]
+        return AppState.global_runner, AppState.global_sessions[user_email]
 
 
 @app.get("/api/status")
@@ -137,7 +176,7 @@ def get_dashboard(
             client_month_days=clientMonthDays,
         )
     except Exception as e:
-        logger.log_text(f"Error compiling dashboard metrics: {e}", severity="ERROR")
+        logger.error(f"Error compiling dashboard metrics: {e}")
         return {
             "mtdSpend": 0.0,
             "mtdChange": 0.0,
@@ -215,7 +254,6 @@ async def chat_stream(request: Request):
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
         async def run_remote_agent():
-            global _REMOTE_SESSION_ID
             try:
                 import vertexai
                 from google.adk.errors.session_not_found_error import (
@@ -227,34 +265,33 @@ async def chat_stream(request: Request):
                 client = vertexai.Client(location=location)
                 agent_engine = client.agent_engines.get(name=agent_runtime_id)
 
-                async with _REMOTE_SESSION_LOCK:
-                    if _REMOTE_SESSION_ID is None:
+                async with AppState.get_remote_session_lock():
+                    if AppState.remote_session_id is None:
                         session_obj = await agent_engine.async_create_session(
                             user_id=user_email
                         )
-                        _REMOTE_SESSION_ID = (
+                        AppState.remote_session_id = (
                             session_obj.get("id")
                             if isinstance(session_obj, dict)
                             else getattr(session_obj, "id", None)
                         )
-                        if not _REMOTE_SESSION_ID:
-                            _REMOTE_SESSION_ID = str(session_obj)
+                        if not AppState.remote_session_id:
+                            AppState.remote_session_id = str(session_obj)
 
                 try:
                     async for event_dict in agent_engine.async_stream_query(
                         message=augmented_message,
                         user_id=user_email,
-                        session_id=_REMOTE_SESSION_ID,
+                        session_id=AppState.remote_session_id,
                     ):
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
                 except SessionNotFoundError:
-                    logger.log_text(
-                        "Remote session not found/expired. Resetting session and retrying.",
-                        severity="WARNING",
+                    logger.warning(
+                        "Remote session not found/expired. Resetting session and retrying."
                     )
-                    async with _REMOTE_SESSION_LOCK:
-                        _REMOTE_SESSION_ID = None
+                    async with AppState.get_remote_session_lock():
+                        AppState.remote_session_id = None
                     async for event_dict in agent_engine.async_stream_query(
                         message=message, user_id="default_user"
                     ):
@@ -280,9 +317,7 @@ async def chat_stream(request: Request):
         while True:
             # Proactively check if client has disconnected (closes tab or refreshes)
             if await request.is_disconnected():
-                logger.log_text(
-                    "Client disconnected from chat stream.", severity="INFO"
-                )
+                logger.info("Client disconnected from chat stream.")
                 break
 
             try:
@@ -299,9 +334,7 @@ async def chat_stream(request: Request):
                 break
 
             if isinstance(event, Exception):
-                logger.log_text(
-                    f"Error in background runner: {event}", severity="ERROR"
-                )
+                logger.error(f"Error in background runner: {event}")
                 import traceback
 
                 yield (
@@ -405,7 +438,11 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
     Returns:
         Success message
     """
-    logger.log_struct(feedback.model_dump(), severity="INFO")
+    logger.info(
+        "Feedback received: %s",
+        feedback.model_dump(),
+        extra={"json_fields": feedback.model_dump()},
+    )
     return {"status": "success"}
 
 
