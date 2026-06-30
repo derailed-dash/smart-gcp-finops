@@ -2047,5 +2047,28 @@ Created [test_tools.py](../tests/unit/test_tools.py) which contains 4 comprehens
 
 All 52 unit tests are passing cleanly, proving the security boundaries of our FinOps analyst! Hurrah!
 
+---
+
+### Resolving PR Review Findings: Remote Security Context, Typo Fixes, and Test Suites
+
+**Problem**:
+During code review for Pull Request #3, several issues were flagged:
+1. **Remote Execution Scoping Bypass**: In remote execution mode, the agent runs on the managed Gemini Enterprise Agent Platform Runtime. Because the thread/coroutine-local `contextvars.ContextVar` (`ALLOWED_PROJECTS_VAR`) is set on the FastAPI BFF process, it is not propagated across network boundaries to the remote execution environment. This resulted in `ALLOWED_PROJECTS_VAR.get()` returning `None` in staging/production, bypassing the BigQuery query-rewriting security scoping firewall.
+2. **Terraform Syntax Typo**: A typo `dresource` instead of `resource` was present on line 1 of `deployment/terraform/apis.tf`.
+3. **Empty Scoping SQL Syntax Error**: If `allowed_projects` was empty, the BFF injected `"None"` into the LLM system prompt instructions, which led the model to write invalid SQL syntax like `project.id IN (None)`.
+4. **Outdated Cache Turn Comment**: The cache intervals comment in `app/agent.py` was outdated (`# Refresh after 5 turns` instead of `10`).
+5. **Notebook Upgrade Typo**: A commented pip command in `notebooks/adk_app_testing.ipynb` had `--upgradee` instead of `--upgrade`.
+
+**Resolution**:
+We applied the following targeted fixes:
+1. **Context-Aware Dynamic Project Scoping**: We imported `Context` from `google.adk` and refactored the signature of `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to accept `tool_context: Context`. Inside the tool, we check if `tool_context.user_id` (the authenticated user's email) is set. If present, we dynamically resolve allowed projects by calling `get_user_accessible_projects(user_email)`. Otherwise, we fallback to `ALLOWED_PROJECTS_VAR.get()`. This ensures that in remote execution mode, security scoping boundaries are correctly enforced.
+2. **Fixed Terraform syntax**: Corrected `dresource` to `resource` in [apis.tf](../deployment/terraform/apis.tf).
+3. **Sanitized SQL Filter Fallback**: Updated [fast_api_app.py](../app/fast_api_app.py) to render `'__NONE__'` when `allowed_projects` is empty, avoiding BigQuery syntax errors.
+4. **Updated Comments & Typos**: Fixed comments in [agent.py](../app/agent.py) and corrected the `--upgrade` flag in [adk_app_testing.ipynb](../notebooks/adk_app_testing.ipynb).
+5. **Enhanced Unit Testing**: Updated [test_tools.py](../tests/unit/test_tools.py) to mock the ADK `Context` parameter and added `test_execute_cached_bigquery_sql_dynamic_resolution` to verify dynamic resolution behavior when `user_id` is set on the context.
+
+All 53 unit tests and 5 integration tests pass successfully, and spelling/linter runs are clean! Hurrah!
+
+
 
 

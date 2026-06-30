@@ -184,7 +184,7 @@ async def chat_stream(request: Request):
         from google.genai import types
 
         # Inject dynamic user security instruction into the prompt
-        proj_list_str = ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "None"
+        proj_list_str = ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "'__NONE__'"
         security_guard_prompt = (
             f"\n\n[SECURITY CONSTRAINT: You are acting on behalf of the user '{user_email}'. "
             f"This user only has access to the following projects: [{proj_list_str}]. "

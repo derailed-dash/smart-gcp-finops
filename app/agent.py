@@ -507,6 +507,6 @@ app = App(
     context_cache_config=ContextCacheConfig(
         min_tokens=2048,  # Trigger caching for large prompts/histories on Vertex AI / Gemini
         ttl_seconds=600,  # Store the cache for up to 10 minutes
-        cache_intervals=10,  # Refresh after 5 turns
+        cache_intervals=10,  # Refresh after 10 turns
     ),
 )

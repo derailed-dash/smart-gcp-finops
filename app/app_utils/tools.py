@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import google.auth
+from google.adk import Context
 from google.cloud import bigquery
 
 from app.app_utils.context import ALLOWED_PROJECTS_VAR
@@ -52,7 +53,7 @@ def _serialise_value(val):
     return val
 
 
-def execute_cached_bigquery_sql(sql: str) -> list[dict]:
+def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
     """Executes a BigQuery SQL query against the billing export tables.
 
     This tool is highly optimised and uses in-memory caching to avoid redundant,
@@ -60,7 +61,13 @@ def execute_cached_bigquery_sql(sql: str) -> list[dict]:
     """
     logger.info("Executing full BigQuery SQL query:\n%s", sql)
     try:
-        allowed_projects = ALLOWED_PROJECTS_VAR.get()
+        user_email = tool_context.user_id
+        if user_email:
+            from app.app_utils.project_discovery import get_user_accessible_projects
+
+            allowed_projects = get_user_accessible_projects(user_email)
+        else:
+            allowed_projects = ALLOWED_PROJECTS_VAR.get()
         if allowed_projects is not None:
             billing_suffix = settings.google_cloud_billing_account.replace("-", "_")
             standard_table = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_v1_{billing_suffix}"

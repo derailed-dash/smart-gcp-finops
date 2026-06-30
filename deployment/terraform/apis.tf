@@ -1,4 +1,4 @@
-dresource "google_project_service" "cicd_services" {
+resource "google_project_service" "cicd_services" {
   count              = length(local.cicd_services)
   project            = var.cicd_runner_project_id
   service            = local.cicd_services[count.index]
