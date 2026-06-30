@@ -45,6 +45,8 @@
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
 [x] Remove env var redundancy in architecture walkthrough md
 [ ] Convert arch diagrams to renders
+[ ] Optimise Docker image
+[ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
 [ ] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] Click a bar?
