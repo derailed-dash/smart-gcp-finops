@@ -2069,6 +2069,17 @@ We applied the following targeted fixes:
 
 All 53 unit tests and 5 integration tests pass successfully, and spelling/linter runs are clean! Hurrah!
 
+---
+
+### Resolving CI/CD Pipeline ValidationError on Settings
+
+**Problem**:
+When unit tests were run in the GitHub Actions CI/CD runner, they failed immediately during collection with a Pydantic `ValidationError`. This happened because the Pydantic Settings class defines `local_developer_email` as a required field without a default value. In the local environment, this is loaded from the `.env` file; however, settings are configured to skip loading `.env` files in CI/CD (`env_file=".env" if not os.getenv("CI") else None`). Since `LOCAL_DEVELOPER_EMAIL` was not injected in the GitHub Actions environment variables list, Settings validation failed.
+
+**Resolution**:
+Provided a default value of `"local-dev@example.com"` for `local_developer_email` in [config.py](../app/config.py). This fallback satisfies Pydantic's requirement when running in the CI/CD environment where `.env` files are ignored, letting all unit tests compile and run successfully.
+
+
 
 
 
