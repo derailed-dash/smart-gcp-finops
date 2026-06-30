@@ -265,10 +265,21 @@ def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) ->
         )
 
 
-# Thread-safe in-memory cache for final agent text responses
-# Format: {raw_user_query: (expiry_timestamp, text_response)}
-_AGENT_QUERY_CACHE: dict[str, tuple[float, str]] = {}
-_AGENT_CACHE_LOCK = threading.Lock()
+class AgentQueryCacheManager:
+    """Manages thread-safe in-memory caching of final agent text responses."""
+
+    def __init__(self) -> None:
+        self.query_cache: dict[str, tuple[float, str]] = {}
+        self.cache_lock = threading.Lock()
+
+
+# Module-level singleton instance for agent query caching
+agent_query_cache_manager = AgentQueryCacheManager()
+
+# Maintain direct module references pointing to manager attributes for unit test compatibility
+_AGENT_QUERY_CACHE = agent_query_cache_manager.query_cache
+_AGENT_CACHE_LOCK = agent_query_cache_manager.cache_lock
+
 AGENT_CACHE_TTL = 300  # 5 minutes
 
 
@@ -302,15 +313,15 @@ async def before_agent_cache_lookup(
     # 2. Extract active, non-expired cache keys
     now = time.time()
     active_keys = []
-    with _AGENT_CACHE_LOCK:
+    with agent_query_cache_manager.cache_lock:
         # Prune expired keys from memory
         expired_keys = [
-            k for k, (expiry, _) in _AGENT_QUERY_CACHE.items() if now > expiry
+            k for k, (expiry, _) in agent_query_cache_manager.query_cache.items() if now > expiry
         ]
         for ek in expired_keys:
-            del _AGENT_QUERY_CACHE[ek]
+            del agent_query_cache_manager.query_cache[ek]
 
-        active_keys = list(_AGENT_QUERY_CACHE.keys())
+        active_keys = list(agent_query_cache_manager.query_cache.keys())
 
     if not active_keys:
         return
@@ -318,16 +329,16 @@ async def before_agent_cache_lookup(
     # 3. First attempt a fast local match check (case-insensitive and whitespace normalised)
     normalised_user = " ".join(user_query.strip().lower().split())
     local_match = None
-    with _AGENT_CACHE_LOCK:
+    with agent_query_cache_manager.cache_lock:
         for k in active_keys:
             if " ".join(k.strip().lower().split()) == normalised_user:
                 local_match = k
                 break
 
     if local_match:
-        with _AGENT_CACHE_LOCK:
-            if local_match in _AGENT_QUERY_CACHE:
-                _, cached_text = _AGENT_QUERY_CACHE[local_match]
+        with agent_query_cache_manager.cache_lock:
+            if local_match in agent_query_cache_manager.query_cache:
+                _, cached_text = agent_query_cache_manager.query_cache[local_match]
                 logger.info(
                     "🎯 Fast Local Cache HIT! Matched exact query '%s' to cached key '%s'",
                     user_query,
@@ -362,8 +373,8 @@ Cached Queries List:
         matched_key = response.text.strip() if response.text else "NONE"
         matched_key = matched_key.strip("`'\" \n\r")
 
-        if matched_key in _AGENT_QUERY_CACHE:
-            _, cached_text = _AGENT_QUERY_CACHE[matched_key]
+        if matched_key in agent_query_cache_manager.query_cache:
+            _, cached_text = agent_query_cache_manager.query_cache[matched_key]
             logger.info(
                 "🎯 Semantic Cache HIT! Matched '%s' to cached key '%s'",
                 user_query,
@@ -447,8 +458,8 @@ async def after_agent_save_cache(
 
     if user_query and final_text:
         now = time.time()
-        with _AGENT_CACHE_LOCK:
-            _AGENT_QUERY_CACHE[user_query.strip()] = (now + AGENT_CACHE_TTL, final_text)
+        with agent_query_cache_manager.cache_lock:
+            agent_query_cache_manager.query_cache[user_query.strip()] = (now + AGENT_CACHE_TTL, final_text)
         logger.info("Saved agent response to ADK cache for query: %s", user_query)
 
     return None

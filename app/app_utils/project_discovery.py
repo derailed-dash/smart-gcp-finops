@@ -13,17 +13,125 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-
-# Thread-safe in-memory cache for user projects mapping.
-# Format: {user_email: (expiry_timestamp, set_of_project_ids)}
-_USER_PROJECTS_CACHE: dict[str, tuple[float, set[str]]] = {}
-_CACHE_LOCK = threading.Lock()
 CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
+class ProjectDiscoveryManager:
+    """Manages thread-safe caching and lookup of user-accessible Google Cloud projects."""
+
+    def __init__(self) -> None:
+        self.user_projects_cache: dict[str, tuple[float, set[str]]] = {}
+        self.cache_lock = threading.Lock()
+
+    def get_user_accessible_projects(self, user_email: str) -> set[str]:
+        """Discovers all project IDs that the given user has access to.
+
+        Uses Cloud Asset Inventory's searchAllIamPolicies if an organization is configured,
+        falling back to project-level IAM policy checks for standalone projects.
+        """
+        if not user_email:
+            return set()
+
+        now = time.time()
+
+        # Read from cache if valid
+        with self.cache_lock:
+            if user_email in self.user_projects_cache:
+                expiry, cached_projects = self.user_projects_cache[user_email]
+                if now <= expiry:
+                    logger.debug("Cache hit for user accessible projects: %s", user_email)
+                    return cached_projects
+
+        logger.info("Cache miss for user accessible projects: %s. Performing lookup...", user_email)
+        projects = set()
+        has_top_level_access = False
+
+        # Scenario A: Organization-level discovery using Cloud Asset Inventory
+        if settings.google_cloud_organization:
+            try:
+                service = get_service("cloudasset", "v1")
+                scope = f"organizations/{settings.google_cloud_organization}"
+                query = f"policy:{user_email}"
+
+                request = service.v1().searchAllIamPolicies(scope=scope, query=query)
+                while request is not None:
+                    response = request.execute()
+                    for result in response.get("results", []):
+                        resource = result.get("resource", "")
+                        # If user has access at org or folder level, they inherit access
+                        if "/organizations/" in resource or "/folders/" in resource:
+                            has_top_level_access = True
+                        elif "/projects/" in resource:
+                            proj_id = resource.split("/projects/")[-1]
+                            projects.add(proj_id)
+
+                    request = service.v1().searchAllIamPolicies_next(
+                        previous_request=request, previous_response=response
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to query Cloud Asset IAM policies for organization {settings.google_cloud_organization}: {e}. "
+                    "Falling back to project-level check."
+                )
+
+        # Scenario B: Fallback to project-level check for standalone or billing projects
+        if not settings.google_cloud_organization or (not projects and not has_top_level_access):
+            try:
+                # 1. Discover all projects linked to the billing account
+                billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
+                all_billing_projects = list_billing_projects(billing_account)
+
+                # 2. Query each project's IAM policy
+                crm_service = get_service("cloudresourcemanager", "v1")
+                for project_id in all_billing_projects:
+                    try:
+                        policy = crm_service.projects().getIamPolicy(resource=project_id).execute()
+
+                        is_member = False
+                        user_domain = user_email.split("@")[-1] if "@" in user_email else ""
+
+                        for binding in policy.get("bindings", []):
+                            for member in binding.get("members", []):
+                                member_lower = member.lower()
+                                if (
+                                    member_lower == f"user:{user_email.lower()}"
+                                    or member_lower == f"group:{user_email.lower()}"
+                                    or (user_domain and member_lower == f"domain:{user_domain.lower()}")
+                                ):
+                                    is_member = True
+                                    break
+                            if is_member:
+                                break
+
+                        if is_member:
+                            projects.add(project_id)
+                    except Exception as ex:
+                        logger.warning(f"Failed to verify IAM policy for project {project_id}: {ex}")
+            except Exception as e:
+                logger.error(f"Error executing project-level permission discovery: {e}")
+
+        # If the user has top-level organization/folder access, they have access to all org projects
+        if has_top_level_access and settings.google_cloud_organization:
+            org_projects = get_projects_in_org(settings.google_cloud_organization)
+            projects.update(org_projects)
+
+        # Update cache
+        with self.cache_lock:
+            self.user_projects_cache[user_email] = (now + CACHE_TTL_SECONDS, projects)
+
+        return projects
+
+
+# Module-level singleton instance for project discovery caching and lookup
+project_discovery_manager = ProjectDiscoveryManager()
+
+# Maintain direct module references pointing to manager attributes for unit test compatibility
+_USER_PROJECTS_CACHE = project_discovery_manager.user_projects_cache
+_CACHE_LOCK = project_discovery_manager.cache_lock
+
+
 def list_billing_projects(billing_account_name: str) -> list[str]:
-    """
-    Lists all projects associated with a given billing account.
+    """Lists all projects associated with a given billing account.
 
     Args:
         billing_account_name: The resource name of the billing account,
@@ -61,8 +169,7 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
 
 
 def get_projects_in_org(org_id: str) -> set[str]:
-    """
-    Retrieves all project IDs within a given organization using Cloud Asset Inventory.
+    """Retrieves all project IDs within a given organization using Cloud Asset Inventory.
 
     Args:
         org_id: The Google Cloud Organization ID.
@@ -98,106 +205,6 @@ def get_projects_in_org(org_id: str) -> set[str]:
 
 
 def get_user_accessible_projects(user_email: str) -> set[str]:
-    """
-    Discovers all project IDs that the given user has access to.
+    """Discovers all project IDs that the given user has access to."""
+    return project_discovery_manager.get_user_accessible_projects(user_email)
 
-    Uses Cloud Asset Inventory's searchAllIamPolicies if an organization is configured,
-    falling back to project-level IAM policy checks for standalone projects.
-
-    Args:
-        user_email: The authenticated user's email address.
-
-    Returns:
-        A set of project IDs.
-    """
-    if not user_email:
-        return set()
-
-    now = time.time()
-
-    # Read from cache if valid
-    with _CACHE_LOCK:
-        if user_email in _USER_PROJECTS_CACHE:
-            expiry, cached_projects = _USER_PROJECTS_CACHE[user_email]
-            if now <= expiry:
-                logger.debug("Cache hit for user accessible projects: %s", user_email)
-                return cached_projects
-
-    logger.info("Cache miss for user accessible projects: %s. Performing lookup...", user_email)
-    projects = set()
-    has_top_level_access = False
-
-    # Scenario A: Organization-level discovery using Cloud Asset Inventory
-    if settings.google_cloud_organization:
-        try:
-            service = get_service("cloudasset", "v1")
-            scope = f"organizations/{settings.google_cloud_organization}"
-            query = f"policy:{user_email}"
-
-            request = service.v1().searchAllIamPolicies(scope=scope, query=query)
-            while request is not None:
-                response = request.execute()
-                for result in response.get("results", []):
-                    resource = result.get("resource", "")
-                    # If user has access at org or folder level, they inherit access
-                    if "/organizations/" in resource or "/folders/" in resource:
-                        has_top_level_access = True
-                    elif "/projects/" in resource:
-                        proj_id = resource.split("/projects/")[-1]
-                        projects.add(proj_id)
-
-                request = service.v1().searchAllIamPolicies_next(
-                    previous_request=request, previous_response=response
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to query Cloud Asset IAM policies for organization {settings.google_cloud_organization}: {e}. "
-                "Falling back to project-level check."
-            )
-
-    # Scenario B: Fallback to project-level check for standalone or billing projects
-    if not settings.google_cloud_organization or (not projects and not has_top_level_access):
-        try:
-            # 1. Discover all projects linked to the billing account
-            billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
-            all_billing_projects = list_billing_projects(billing_account)
-
-            # 2. Query each project's IAM policy
-            crm_service = get_service("cloudresourcemanager", "v1")
-            for project_id in all_billing_projects:
-                try:
-                    policy = crm_service.projects().getIamPolicy(resource=project_id).execute()
-
-                    is_member = False
-                    user_domain = user_email.split("@")[-1] if "@" in user_email else ""
-
-                    for binding in policy.get("bindings", []):
-                        for member in binding.get("members", []):
-                            member_lower = member.lower()
-                            if (
-                                member_lower == f"user:{user_email.lower()}"
-                                or member_lower == f"group:{user_email.lower()}"
-                                or (user_domain and member_lower == f"domain:{user_domain.lower()}")
-                            ):
-                                is_member = True
-                                break
-                        if is_member:
-                            break
-
-                    if is_member:
-                        projects.add(project_id)
-                except Exception as ex:
-                    logger.warning(f"Failed to verify IAM policy for project {project_id}: {ex}")
-        except Exception as e:
-            logger.error(f"Error executing project-level permission discovery: {e}")
-
-    # If the user has top-level organization/folder access, they have access to all org projects
-    if has_top_level_access and settings.google_cloud_organization:
-        org_projects = get_projects_in_org(settings.google_cloud_organization)
-        projects.update(org_projects)
-
-    # Update cache
-    with _CACHE_LOCK:
-        _USER_PROJECTS_CACHE[user_email] = (now + CACHE_TTL_SECONDS, projects)
-
-    return projects

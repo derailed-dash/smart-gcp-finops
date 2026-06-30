@@ -20,24 +20,42 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe lazy-initialization of shared BigQuery Client
-_bq_client = None
-_bq_lock = threading.Lock()
+
+class BigQueryClientManager:
+    """Manages thread-safe lazy-initialisation of the shared BigQuery client."""
+
+    def __init__(self) -> None:
+        self._bq_client = None
+        self._bq_lock = threading.Lock()
+
+    def get_client(self) -> bigquery.Client:
+        """Returns the shared BigQuery client instance, building it if necessary."""
+        if self._bq_client is None:
+            with self._bq_lock:
+                if self._bq_client is None:
+                    credentials, _ = google.auth.default(
+                        scopes=["https://www.googleapis.com/auth/bigquery"]
+                    )
+                    self._bq_client = bigquery.Client(
+                        credentials=credentials,
+                        project=settings.google_cloud_billing_project,
+                    )
+        return self._bq_client
+
+    def reset(self) -> None:
+        """Resets the cached BigQuery client."""
+        with self._bq_lock:
+            self._bq_client = None
 
 
-def _get_bq_client():
-    global _bq_client
-    if _bq_client is None:
-        with _bq_lock:
-            if _bq_client is None:
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/bigquery"]
-                )
-                _bq_client = bigquery.Client(
-                    credentials=credentials,
-                    project=settings.google_cloud_billing_project,
-                )
-    return _bq_client
+# Module-level singleton instance for BigQuery client management
+bq_client_manager = BigQueryClientManager()
+
+
+def _get_bq_client() -> bigquery.Client:
+    """Returns the shared BigQuery client instance, building it if necessary."""
+    return bq_client_manager.get_client()
+
 
 
 def _serialise_value(val):

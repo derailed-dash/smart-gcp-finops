@@ -2079,7 +2079,25 @@ When unit tests were run in the GitHub Actions CI/CD runner, they failed immedia
 **Resolution**:
 Provided a default value of `"local-dev@example.com"` for `local_developer_email` in [config.py](../app/config.py). This fallback satisfies Pydantic's requirement when running in the CI/CD environment where `.env` files are ignored, letting all unit tests compile and run successfully.
 
+---
 
+### Refactoring Global State to Object-Oriented Client Managers
 
+**Problem**:
+The application had multiple loose, mutable global module-level variables (e.g. `_THREAD_LOCAL`, `_ORG_SCOPE_DISABLED`, `_ORG_SCOPE_LOCK` inside `cai_utils.py`, `_bq_client` inside `tools.py`, `_USER_PROJECTS_CACHE` inside `project_discovery.py`, and `_AGENT_QUERY_CACHE` inside `agent.py`) that stored service connections and caching state. Dispensing these across free-floating functions made state tracking difficult, cluttered class namespaces, created testing isolation challenges, and required complex thread locks across functions.
 
+**Resolution**:
+We refactored these variables into cohesive, object-oriented client and manager classes:
+1. **`CAIClientManager`** in [cai_utils.py](../app/app_utils/cai_utils.py): Encapsulates thread-local discovery service clients, organisation scope configuration status, and thread locks.
+2. **`QueryCacheManager`** in [query_cache.py](../app/app_utils/query_cache.py): Encapsulates in-memory query results cache and locking mechanisms.
+3. **`BigQueryClientManager`** in [tools.py](../app/app_utils/tools.py): Encapsulates lazy-initialisation of the BigQuery client and associated lock variables.
+4. **`ProjectDiscoveryManager`** in [project_discovery.py](../app/app_utils/project_discovery.py): Encapsulates in-memory project permission lookup caches.
+5. **`AgentQueryCacheManager`** in [agent.py](../app/agent.py): Encapsulates agent-level semantic response caches.
 
+**Backward Compatibility Pattern**:
+To prevent breaking existing REST endpoint routes, unit tests, and ADK agent tool mappings, we:
+* Instantiated module-level singletons (e.g. `cai_client_manager = CAIClientManager()`, `bq_client_manager = BigQueryClientManager()`).
+* Kept the original module-level function signatures (e.g. `is_org_scope_disabled()`, `_get_bq_client()`) as thin wrappers delegating to the singletons.
+* Mapped module-level global variables directly to the manager's attributes (e.g. `_USER_PROJECTS_CACHE = project_discovery_manager.user_projects_cache`), allowing unit tests to clear or inspect cache states in-place.
+
+All 53 unit tests pass successfully, and spelling/linter checks verify code quality compliance! Hurrah!

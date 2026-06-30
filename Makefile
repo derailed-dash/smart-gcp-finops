@@ -8,7 +8,6 @@ endif
 # Installation & Setup
 # ==============================================================================
 
-
 # Assign env variables if they are not already set
 MIN_INSTANCES ?= 0
 MEMORY ?= "2Gi"
@@ -21,10 +20,10 @@ install:
 	cd frontend && npm install
 
 # ==============================================================================
-# Playground Targets
+# Local Development Commands
 # ==============================================================================
 
-# Launch local dev playground
+# Launch local ADK Web dev playground
 playground:
 	@echo "==============================================================================="
 	@echo "| 🚀 Starting your agent playground...                                        |"
@@ -34,10 +33,6 @@ playground:
 	@echo "| 🔍 IMPORTANT: Select the 'app' folder to interact with your agent.          |"
 	@echo "==============================================================================="
 	uv run adk web . --port 8501 --reload_agents
-
-# ==============================================================================
-# Local Development Commands
-# ==============================================================================
 
 # Launch local development server with hot-reload
 # Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
@@ -53,54 +48,10 @@ run-frontend:
 	cd frontend && npm run dev
 
 # ==============================================================================
-# Backend Deployment Targets
-# ==============================================================================
-
-# Define the fully-qualified Artifact Registry image name
-IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
-
-# Deploy the agent remotely
-# Usage: make deploy [IAP=true] [PORT=8080] - Set IAP=true to enable Identity-Aware Proxy, PORT to specify container port
-deploy-cloud-run:
-	@echo "🚀 Building and pushing container to Artifact Registry..."
-	gcloud builds submit --tag "$(IMAGE_TAG)" --project "$(CICD_PROJECT_ID)" .
-	@echo "📦 Deploying image from Artifact Registry to Cloud Run..."
-	gcloud run deploy "$(SERVICE_NAME)" \
-		--image "$(IMAGE_TAG)" \
-		--memory "$(MEMORY)" \
-		--project "$(GOOGLE_CLOUD_PROJECT)" \
-		--region "$(GOOGLE_CLOUD_REGION)" \
-		--service-account "$(SERVICE_SA_EMAIL)" \
-		--max-instances=1 \
-		--min-instances=$(MIN_INSTANCES) \
-		--cpu-boost \
-		--no-allow-unauthenticated \
-		--iap \
-		--set-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=INFO"
-
-# Deploy the agent backend to Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine)
-deploy-agent-runtime: export-requirements
-	uvx google-agents-cli deploy \
-		--deployment-target agent_runtime \
-		--no-confirm-project \
-		--project "$(GOOGLE_CLOUD_PROJECT)" \
-		--region "$(GOOGLE_CLOUD_REGION)" \
-		--service-account "$(SERVICE_SA_EMAIL)" \
-		--service-name "$(SERVICE_NAME)-backend" \
-		--update-env-vars="GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,OTEL_TO_CLOUD=$(OTEL_TO_CLOUD)"
-
-# Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
-get-agent-runtime-id:
-	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
-
-export-requirements:
-	uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
-
-# ==============================================================================
 # Unified Container Targets
 # ==============================================================================
 
-# Build the unified production container locally
+# Build the unified dev/production container locally
 build: docker-build
 
 docker-build:
@@ -132,6 +83,50 @@ docker-run:
 		-e GOOGLE_APPLICATION_CREDENTIALS="/code/application_default_credentials.json" \
 		--mount type=bind,source=$${HOME}/.config/gcloud/application_default_credentials.json,target=/code/application_default_credentials.json,readonly \
 		smart-gcp-finops:latest
+		
+# ==============================================================================
+# Backend Deployment Targets
+# ==============================================================================
+
+# Define the fully-qualified Artifact Registry image name
+IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
+
+# Deploy the agent to Cloud Run
+# Usage: make deploy [IAP=true] [PORT=8080] - Set IAP=true to enable Identity-Aware Proxy, PORT to specify container port
+deploy-cloud-run:
+	@echo "🚀 Building and pushing container to Artifact Registry..."
+	gcloud builds submit --tag "$(IMAGE_TAG)" --project "$(CICD_PROJECT_ID)" .
+	@echo "📦 Deploying image from Artifact Registry to Cloud Run..."
+	gcloud run deploy "$(SERVICE_NAME)" \
+		--image "$(IMAGE_TAG)" \
+		--memory "$(MEMORY)" \
+		--project "$(GOOGLE_CLOUD_PROJECT)" \
+		--region "$(GOOGLE_CLOUD_REGION)" \
+		--service-account "$(SERVICE_SA_EMAIL)" \
+		--max-instances=1 \
+		--min-instances=$(MIN_INSTANCES) \
+		--cpu-boost \
+		--no-allow-unauthenticated \
+		--iap \
+		--set-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=INFO"
+
+# Deploy the agent backend to Gemini Enterprise Agent Runtime
+deploy-agent-runtime: export-requirements
+	uvx google-agents-cli deploy \
+		--deployment-target agent_runtime \
+		--no-confirm-project \
+		--project "$(GOOGLE_CLOUD_PROJECT)" \
+		--region "$(GOOGLE_CLOUD_REGION)" \
+		--service-account "$(SERVICE_SA_EMAIL)" \
+		--service-name "$(SERVICE_NAME)-backend" \
+		--update-env-vars="GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,OTEL_TO_CLOUD=$(OTEL_TO_CLOUD)"
+
+# Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
+get-agent-runtime-id:
+	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
+
+export-requirements:
+	uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
 
 # ==============================================================================
 # Testing & Code Quality
