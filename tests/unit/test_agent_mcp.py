@@ -1,12 +1,29 @@
+import pytest
+from google.adk.integrations.bigquery import BigQueryToolset
 from google.adk.tools.mcp_tool import McpToolset
 
 from app.agent import root_agent
 
 
 def test_agent_has_mcp_toolsets():
-    """Verify that the agent is initialized with all three required McpToolsets."""
+    """Verify that the agent is initialized with the remaining two McpToolsets."""
     mcp_toolsets = [t for t in root_agent.tools if isinstance(t, McpToolset)]
-    assert len(mcp_toolsets) == 3, "Agent should have exactly three McpToolsets"
+    assert len(mcp_toolsets) == 2, "Agent should have exactly two McpToolsets (Dev Knowledge & Cloud Assist)"
+
+
+@pytest.mark.asyncio
+async def test_agent_has_native_bq_toolset():
+    """Verify that the agent is initialized with the native BigQueryToolset and query/execute tools are filtered out."""
+    bq_toolsets = [t for t in root_agent.tools if isinstance(t, BigQueryToolset)]
+    assert len(bq_toolsets) == 1, "Agent should have exactly one native BigQueryToolset"
+
+    bq_toolset = bq_toolsets[0]
+    # Check that tools returned by the toolset have query/execute filtered out
+    tools = await bq_toolset.get_tools()
+    for tool in tools:
+        name = tool.name.lower()
+        assert "execute" not in name, f"Tool {tool.name} should have been filtered out"
+        assert "query" not in name, f"Tool {tool.name} should have been filtered out"
 
 
 def test_agent_instruction_contains_billing_context():

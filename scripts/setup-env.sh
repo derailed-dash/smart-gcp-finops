@@ -1,6 +1,8 @@
 #!/bin/bash
 # This script is meant to be sourced to set up your development environment.
 # It configures gcloud, installs dependencies, and activates the virtualenv.
+# Make sure the script is executable:
+#   chmod +x scripts/setup-env.sh
 #
 # Usage:
 #   source ./setup-env.sh [--noauth]
@@ -50,12 +52,14 @@ set +a # disable allexport mode
 if [ "$AUTH_ENABLED" = true ]; then
     echo -e "\n🔐 Authenticating with gcloud and setting project to ${BOLD}$GOOGLE_CLOUD_PROJECT...${RESET}"
     gcloud auth login --update-adc 2>&1 | grep -v -e '^$' -e 'WSL' -e 'xdg-open' # Suppress any annoying WSL messages
-    gcloud config set project "$GOOGLE_CLOUD_PROJECT"
-    gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
+
 else
     echo -e "\n${YELLOW}Skipping gcloud authentication as requested.${RESET}"
-    gcloud config set project "$GOOGLE_CLOUD_PROJECT"
 fi
+
+gcloud config set project "$GOOGLE_CLOUD_PROJECT"
+gcloud config set billing/quota_project "$GOOGLE_CLOUD_PROJECT"
+gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
 
 echo -e "\n${BLUE}--- Current gcloud project configuration ---${RESET}"
 gcloud config list project

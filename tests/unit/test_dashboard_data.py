@@ -141,3 +141,43 @@ def test_get_actual_dashboard_metrics(
     # Verify that explicit client_day and client_month_days are prioritized correctly
     metrics_custom = get_actual_dashboard_metrics(client_day=15, client_month_days=30)
     assert metrics_custom["forecast"] == 2000.0
+
+
+@patch("app.app_utils.dashboard_data.list_zombie_resources")
+@patch("app.app_utils.dashboard_data.bigquery.Client")
+@patch("app.app_utils.dashboard_data.default")
+def test_get_actual_dashboard_metrics_with_allowed_projects(
+    mock_default, mock_bq_client_class, mock_list_zombies
+):
+    """Test get_actual_dashboard_metrics scopes costs and zombies to allowed projects."""
+    mock_default.return_value = (MagicMock(), "fake-project")
+    mock_client = MagicMock()
+    mock_bq_client_class.return_value = mock_client
+
+    mock_job = MagicMock()
+    mock_job.result.return_value = []
+    mock_client.query.return_value = mock_job
+
+    mock_list_zombies.return_value = [
+        {
+            "name": "projects/p1/disks/disk-1",
+            "displayName": "disk-1",
+            "project": "projects/p1",
+            "additionalAttributes": {"size": "200 GB"},
+        },
+        {
+            "name": "projects/p2/disks/disk-2",
+            "displayName": "disk-2",
+            "project": "projects/p2",
+            "additionalAttributes": {"size": "200 GB"},
+        }
+    ]
+
+    allowed_projects = {"p1"}
+    metrics = get_actual_dashboard_metrics(allowed_projects=allowed_projects)
+
+    called_sql = mock_client.query.call_args[0][0]
+    assert "project.id IN ('p1')" in called_sql
+
+    assert len(metrics["zombies"]) == 2
+    assert all(z["project"] == "p1" for z in metrics["zombies"])

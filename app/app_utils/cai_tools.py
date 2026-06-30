@@ -1,3 +1,9 @@
+"""
+Description: Cloud Asset Inventory (CAI) custom tools.
+Why: Exposes project, resource, and history scanning capabilities to the agent.
+How: Integrates with CAI REST APIs using the Google API Python client, providing cached discovery and temporal configuration drift checks.
+"""
+
 import logging
 import re
 import threading

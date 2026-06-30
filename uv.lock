@@ -961,6 +961,23 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-dataplex"
+version = "2.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/96/41/695b333dad5c3bda1df09c0744b574d14ed1cc5f8d933863723d95476ea5/google_cloud_dataplex-2.20.0.tar.gz", hash = "sha256:cbdc55ec184a58c6d444f6d37fcc9070664a345a8e110f34dd7233ed37f92047", size = 894255, upload-time = "2026-06-03T15:28:01.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/9f/ca0ca400de2a1a1dbf264a5c7b1c67deb17ddf0e941598a90da759c97751/google_cloud_dataplex-2.20.0-py3-none-any.whl", hash = "sha256:920bbc466eea3ce0168f9fefc4a16fd33e6ddb70537588666ce8e6609f1e1553", size = 691436, upload-time = "2026-06-03T15:27:10.355Z" },
+]
+
+[[package]]
 name = "google-cloud-logging"
 version = "3.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3207,6 +3224,7 @@ dependencies = [
     { name = "google-adk" },
     { name = "google-api-python-client" },
     { name = "google-cloud-aiplatform", extra = ["evaluation"] },
+    { name = "google-cloud-dataplex" },
     { name = "google-cloud-logging" },
     { name = "mcp" },
     { name = "opentelemetry-exporter-gcp-logging" },
@@ -3249,6 +3267,7 @@ requires-dist = [
     { name = "google-adk", extras = ["eval"], marker = "extra == 'eval'", specifier = ">=2.1.0,<3.0.0" },
     { name = "google-api-python-client", specifier = ">=2.193.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation"], specifier = ">=1.130.0" },
+    { name = "google-cloud-dataplex", specifier = ">=2.0.0,<3.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.12.0,<4.0.0" },
     { name = "jupyter", marker = "extra == 'jupyter'", specifier = ">=1.0.0,<2.0.0" },
     { name = "mcp", specifier = ">=1.26.0" },

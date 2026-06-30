@@ -1,3 +1,9 @@
+"""
+Description: Dashboard metrics and telemetry compiler.
+Why: Calculates aggregated cost data, forecasting curves, anomaly lists, and zombie assets for the React UI.
+How: Executes optimized BigQuery SQL queries, applies user project security scoping filters, and merges Cloud Asset Inventory data.
+"""
+
 import calendar
 import logging
 import re
@@ -45,7 +51,9 @@ def estimate_zombie_cost(zombie: dict, category: str) -> float:
 
 
 def get_actual_dashboard_metrics(
-    client_day: int | None = None, client_month_days: int | None = None
+    allowed_projects: set[str] | None = None,
+    client_day: int | None = None,
+    client_month_days: int | None = None,
 ) -> dict:
     """
     Queries BigQuery billing tables and Cloud Asset Inventory to assemble the actual
@@ -77,6 +85,16 @@ def get_actual_dashboard_metrics(
     billing_suffix = settings.google_cloud_billing_account.replace("-", "_")
     standard_table_id = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_v1_{billing_suffix}"
 
+    # 0. Setup access control project filter
+    project_filter = ""
+    if allowed_projects is not None:
+        sanitized_projects = [p for p in allowed_projects if re.match(r"^[a-z0-9\-]+$", p)]
+        if not sanitized_projects:
+            project_filter = "AND 1=0"
+        else:
+            proj_list = ", ".join(f"'{p}'" for p in sanitized_projects)
+            project_filter = f"AND project.id IN ({proj_list})"
+
     # Get actual billing currency dynamically from standard table
     currency = "GBP"
     try:
@@ -84,6 +102,7 @@ def get_actual_dashboard_metrics(
         SELECT DISTINCT currency
         FROM `{standard_table_id}`
         WHERE usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+        {project_filter}
         LIMIT 1
         """
         cur_results = execute_cached_query(client, currency_query)
@@ -103,6 +122,7 @@ def get_actual_dashboard_metrics(
       SUM(cost) as monthly_cost
     FROM `{standard_table_id}`
     WHERE usage_start_time >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 2 MONTH))
+    {project_filter}
     GROUP BY 1
     ORDER BY billing_month DESC
     """
@@ -149,6 +169,7 @@ def get_actual_dashboard_metrics(
                 SELECT EXTRACT(DAY FROM MAX(usage_start_time)) as max_day
                 FROM `{standard_table_id}`
                 WHERE usage_start_time >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), MONTH))
+                {project_filter}
                 """
                 day_results = execute_cached_query(client, telemetry_day_query)
                 if day_results and day_results[0].max_day is not None:
@@ -172,6 +193,7 @@ def get_actual_dashboard_metrics(
       SUM(cost) as daily_cost
     FROM `{standard_table_id}`
     WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)
+    {project_filter}
     GROUP BY 1, 2
     HAVING daily_cost > 0.01
     ORDER BY usage_date ASC
@@ -279,16 +301,20 @@ def get_actual_dashboard_metrics(
         # Scan for unattached persistent disks
         unattached_disks = list_zombie_resources("UNATTACHED_DISKS")
         for item in unattached_disks:
-            cost = estimate_zombie_cost(item, "UNATTACHED_DISKS")
-            zombie_waste += cost
-
-            # Format to structure expected by React
-            name = item.get("displayName") or item.get("name", "").split("/")[-1]
             proj = (
                 item.get("project", "").split("/")[-1]
                 if item.get("project")
                 else "unknown"
             )
+            # Scoping Filter
+            if allowed_projects is not None and proj not in allowed_projects:
+                continue
+
+            cost = estimate_zombie_cost(item, "UNATTACHED_DISKS")
+            zombie_waste += cost
+
+            # Format to structure expected by React
+            name = item.get("displayName") or item.get("name", "").split("/")[-1]
 
             zombies.append(
                 {
@@ -307,15 +333,19 @@ def get_actual_dashboard_metrics(
         # Scan for idle IP addresses
         idle_ips = list_zombie_resources("IDLE_IPS")
         for item in idle_ips:
-            cost = estimate_zombie_cost(item, "IDLE_IPS")
-            zombie_waste += cost
-
-            name = item.get("displayName") or item.get("name", "").split("/")[-1]
             proj = (
                 item.get("project", "").split("/")[-1]
                 if item.get("project")
                 else "unknown"
             )
+            # Scoping Filter
+            if allowed_projects is not None and proj not in allowed_projects:
+                continue
+
+            cost = estimate_zombie_cost(item, "IDLE_IPS")
+            zombie_waste += cost
+
+            name = item.get("displayName") or item.get("name", "").split("/")[-1]
 
             zombies.append(
                 {
@@ -343,6 +373,7 @@ def get_actual_dashboard_metrics(
       SUM(cost) as monthly_cost
     FROM `{standard_table_id}`
     WHERE usage_start_time >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 1 MONTH))
+    {project_filter}
     GROUP BY 1, 2, 3
     HAVING monthly_cost > 0.01
     ORDER BY monthly_cost DESC

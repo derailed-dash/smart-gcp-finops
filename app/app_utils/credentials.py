@@ -1,3 +1,9 @@
+"""
+Description: Google credentials resolver helper.
+Why: Ensures that local and remote credentials configure and apply billing quota project context correctly.
+How: Fetches default Application Credentials (ADC) and applies with_quota_project setting safely.
+"""
+
 import logging
 
 from google.auth import default

@@ -13,7 +13,9 @@ Usage:
 """
 
 import os
+from typing import Any
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +26,25 @@ class Settings(BaseSettings):
     Fields defined here are automatically populated from environment variables
     (case-insensitive) or the .env file.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def strip_outer_quotes(cls, data: Any) -> Any:
+        """
+        Strip outer quotes from string values to handle environment variables
+        exported by Makefiles or other wrappers that preserve quotes.
+        """
+        if isinstance(data, dict):
+            cleaned = {}
+            for k, v in data.items():
+                if isinstance(v, str):
+                    if (v.startswith('"') and v.endswith('"')) or (
+                        v.startswith("'") and v.endswith("'")
+                    ):
+                        v = v[1:-1]
+                cleaned[k] = v
+            return cleaned
+        return data
 
     model_config = SettingsConfigDict(
         env_file=".env" if not os.getenv("CI") else None,
@@ -55,6 +76,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     model: str = "gemini-3.5-flash"
     fast_model: str = "gemini-3.1-flash-lite"
+    local_developer_email: str = "local-dev@example.com"
 
 
 settings = Settings()  # ty: ignore[missing-argument]

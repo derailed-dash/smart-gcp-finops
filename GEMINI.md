@@ -37,17 +37,6 @@ Be sure to use all adk skills you have available for developing ADK agents and b
 - **State Synchronization**: Use **AG-UI** patterns for bi-directional state sharing between the UI and the agent when building complex interactive features.
 - **UI Acceleration**: Use **Stitch with MCP** to rapidly build and iterate on information-dense dashboards.
 
-## Google Cloud Asset Inventory for FinOps
-
-Cloud Asset Inventory (CAI) provides the **Operational Context** that complements BigQuery's **Financial Truth**. Integrating CAI with billing data enables a sophisticated FinOps agent to:
-
-- **Detect Zombie Resources**: Identify unattached persistent disks, idle load balancers, and orphaned snapshots that incur costs but are invisible as "orphaned" in billing data.
-- **Enrich Metadata**: Join CAI's deep technical metadata (machine type, status, network tags) with billing data using `resource.global_name` (Billing) and `name` (CAI) as the primary join key.
-- **Correlate Cost Spikes**: Leverage CAI's 35-day configuration history to audit which specific resource changes (e.g., machine type upgrades) caused sudden spend increases.
-- **Hierarchical Visibility**: Map assets and costs across the entire Organization/Folder/Project hierarchy, identifying "Shadow IT" or unmanaged resources.
-
-This integration is essential for the **Optimize** and **Operate** phases of the FinOps lifecycle, moving beyond simple cost reporting to active infrastructure management.
-
 ## Key Internal Documentation
 
 - TODO.md - High level plan for the project
@@ -64,12 +53,19 @@ You should read and leverage these resources for guidance and best practices, in
 | https://cloud.google.com/blog/topics/developers-practitioners/build-a-multi-agent-system-for-expert-content-with-google-adk-mcp-and-cloud-run-part-1?e=48754805 | Build a multi-agent system for expert content with Google ADK, MCP, and Cloud Run (Part 1). This gives instructions for how to build a multi-agent system using ADK and Cloud Run, and which leverages Google Developer Knowledge API MCP. |
 | https://medium.com/google-cloud/tutorial-getting-started-with-google-mcp-services-60b23b22a0e7 | Tutorial: Getting started with Google MCP services. This gives instructions for how to use Google MCP services. |
 | https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp | Use the BigQuery MCP server | 
+| https://adk.dev/integrations/bigquery/ | BigQuery tool for ADK |
 | https://developers.google.com/knowledge/mcp | Google Developer Knowledge API MCP. This MCP server provides access to Google Cloud documentation and best practices. This document describes how to use it. |
+| https://docs.cloud.google.com/gemini-enterprise-agent-platform | Gemini Enterprise Agent Platform Overview |
+| https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/observability/overview | Gemini Enterprise Agent Platform - Observability Overview |
+| https://developers.googleblog.com/agents-cli-in-agent-platform-create-to-production-in-one-cli/ | Agents CLI - for bootstrapping your ADK agent | 
 | https://dev.to/gde/beyond-dashboards-architecting-a-genai-finops-analyst-using-bigquery-native-mcp-48jc | Beyond Dashboards: Architecting a GenAI FinOps Analyst using BigQuery Native MCP. This gives instructions for how to build a FinOps analyst using ADK and Cloud Run, and which leverages Google Developer Knowledge API MCP. |
-| https://medium.com/google-cloud/build-a-gcp-cost-agent-with-adk-and-mcp-toolbox-for-databases-to-analyze-your-cloud-spending-26ebd6663f95 | Build a GCP cost agent with ADK and MCP Toolbox for Databases to analyze your cloud spending. This uses the Agent Development Kit (ADK) and the MCP Toolbox for Databases, to build an agent that gives conversational access to GCP cost data. (We will use remote BigQuery MCP instead of the Toolbox for Databases). |
 | https://docs.cloud.google.com/asset-inventory/docs/asset-inventory-overview | Google Cloud Asset Inventory overview. This provides an overview of Google Cloud Asset Inventory, and how to use it. |
 | https://docs.cloud.google.com/asset-inventory/docs/list-assets | List assets. This gives instructions for how to list assets using Google Cloud Asset Inventory. |
-| https://github.com/derailed-dash/rickbot-adk | Rickbot ADK - it contains a unified container implementation with ReactUI, FastAPI and ADK backend. The doc `https://github.com/derailed-dash/rickbot-adk/blob/main/docs/design.md` describes some of the challenges with this implementation and how to resolve. |
+
+## Other Notes
+
+- "Vertex AI" is no more; the replacement is Gemini Enterprise Agent Platform.
+- "Vertex AI Agent Engine" is no more; the replacement is "Agent Runtime", which is a part of the Gemini Enterprise Agent Platform.
 
 ## Blog
 
@@ -114,4 +110,4 @@ The series should have several parts. I'm thinking:
 
 - 5. Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
 
-
+Each part will be drafted in a separate md file under docs/blog. We're going to document in Dazbo style, but don't overdo the character. Subtle Dazbo.

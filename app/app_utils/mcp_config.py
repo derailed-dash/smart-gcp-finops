@@ -18,52 +18,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-class BQAuthProvider:
-    """Provides valid OAuth2 headers for the BigQuery MCP connection, caching credentials."""
-
-    def __init__(self):
-        self._credentials = None
-        self._lock = threading.Lock()
-
-    def __call__(self, ctx: ReadonlyContext) -> dict[str, str]:
-        with self._lock:
-            if self._credentials is None:
-                self._credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/bigquery"]
-                )
-
-            if not self._credentials.valid:
-                self._credentials.refresh(Request())
-
-            token = self._credentials.token
-
-        return {
-            "Authorization": f"Bearer {token}",
-            "x-goog-user-project": settings.google_cloud_billing_project,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        }
-
-
-# Instantiate as the header provider
-get_auth_headers = BQAuthProvider()
-
-
-def bq_tool_filter(tool, ctx=None) -> bool:
-    """Excludes SQL execution and query tools from the exposed MCP tool list to prevent bypass of execute_cached_bigquery_sql."""
-    name = tool.name.lower()
-    return "execute" not in name and "query" not in name
-
-
-# BigQuery MCP Toolset Configuration
-bq_mcp_toolset = McpToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url="https://bigquery.googleapis.com/mcp",
-    ),
-    header_provider=get_auth_headers,
-    tool_filter=bq_tool_filter,
-)
-
 
 class DevKnowledgeAuthProvider:
     """Provides valid OAuth2 headers for the Developer Knowledge MCP connection."""

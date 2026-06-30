@@ -6,32 +6,28 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 
 | ADR | Status | Rationale |
 |-----|--------|-----------|
-| **Unified Container** | Accepted | Packaged React, FastAPI, and ADK into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. |
-| **BFF Architecture** | Accepted | Use FastAPI as a Backend for Frontend (BFF) to decouple agent logic from the React UI while serving static assets. |
-| **ADK Orchestration** | Accepted | Leverages Google ADK for robust multi-agent coordination, session management, and standardized tool calling. |
-| **A2UI Protocol** | Accepted | Adopted for agent-driven rich UI generation (tables, charts, cards) to maintain a professional, information-dense UX. |
-| **Native IAP** | Accepted | Implemented Identity-Aware Proxy directly on Cloud Run using the `google-beta` provider, avoiding the cost and complexity of a Global Load Balancer while maintaining enterprise security. |
-| **GCS Remote State** | Accepted | Migrated Terraform state to GCS (`finops-admin-prd-tfstate`) to ensure a shared source of truth across CI/CD environments and enable state locking. |
-| **Custom Domain Mapping**| Accepted | Adopted Cloud Run Domain Mappings over an External ALB + Cloud DNS setup for simplicity and cost optimization, requiring manual DNS validation at the domain registrar. |
-| **Cross-Project Billing**| Accepted | Granted the Application Service Account cross-project access to the BigQuery billing export project (`var.google_cloud_billing_project`) via project-level IAM roles, enabling centralized cost analysis. |
-| **BigQuery MCP** | Accepted | Use the remote Google BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) with ADK's MCP Toolset, to allow FinOps agent to query and understand the Billing export data. The remote endpoint is fully managed, so we have no MCP server to deploy or manage. |
-| **Hybrid-First CAI Scoping** | Accepted | Prioritize Organization-level scopes for CAI lookups but fall back to project-level lookups for any resources not found in the organization. This ensures complete visibility across all projects linked to the billing account, even those residing in independent projects outside the primary organization. Graceful handling of `403 Forbidden` errors at the organization level allows for silent fallback to project-level "sniper" queries if the service account lacks top-level permissions. |
-| **CAI Zombie Detection** | Accepted | Implemented specialized Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
-| **Developer Knowledge MCP** | Accepted | Use the remote Google Developer Knowledge MCP server (`https://developerknowledge.googleapis.com/mcp`) via OAuth 2.0 (Application Default Credentials) with ADK's MCP Toolset, allowing the FinOps agent to cross-reference identified infrastructure issues and cost spikes against official GCP best practices. |
-| **Direct Table Binding**   | Accepted | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. |
-| **Vite-React SPA Workspace** | Accepted | Created an isolated, type-safe React + TypeScript SPA under `/frontend` compiled via Vite. Rationale: Vite provides instant Hot Module Replacement (HMR) during dev; TypeScript ensures robust parsing of complex `application/json+a2ui` payloads; compiling to clean static assets maintains a tiny Python container footprint (no Node.js in production). |
-| **Split-Screen Workspace** | Accepted | Implemented a split-screen canvas layout with a persistent 35% Chat Copilot on the left and a dynamic 65% Workspace Canvas on the right. Rationale: It balances natural language conversation with data-rich observability (large tables and charts), enabling the agent to "project" rich UI components to the canvas via the A2UI protocol. |
-| **Keep-Alive Heartbeat SSE** | Accepted | Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
-| **Emerald Cyber Aesthetics** | Accepted | Adopted the 'Emerald Cyber' high-tech, high-contrast dark-mode styling system using pure CSS custom properties, obsidian cards, glowing neon borders (`#00F59B0F` default), and glowing cyber-teal charts, completely avoiding flat border strokes or muddy shadows. Rationale: Emphasizes precision, speed, and energy efficiency (core FinOps values) while maximizing visual engagement. |
-| **Vite 6 Tooling & Sandboxing** | Accepted | Upgraded the frontend compiler to Vite 6.4.2 and pinned esbuild to ^0.25.0 via npm overrides to resolve key security vulnerabilities (GHSA-4w7w-66w2-5vf9, GHSA-67mh-4wv8-2f99). Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
-| **Modularised Utilities** | Accepted | Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/app_utils/`. Rationale: Keeps the core `app/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
-| **Context Caching** | Accepted | Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on Vertex AI/Gemini. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
-| **Semantic Caching** | Accepted | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
-| **Visual Sync Overlay** | Accepted | Added a glassmorphic vertical scanning overlay inside `App.tsx` that triggers automatically when the JSON A2UI payload is streaming. Rationale: Solves the UX "frozen visual state" by clearly indicating to the user that the canvas data is actively synchronising. |
-| **CI/CD Variable Sync** | Accepted | Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
-| **Agent Runtime Hosting** | Accepted | Adopted Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Vertex AI agent management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
-
-
+| **Vite-React SPA Workspace** | Use an isolated, type-safe React + TypeScript SPA compiled via Vite. Rationale: Vite provides instant Hot Module Replacement (HMR) during dev; TypeScript ensures robust parsing of complex `application/json+a2ui` payloads; compiling to clean static assets maintains a tiny Python container footprint (no Node.js in production). |
+| **BFF Architecture** | Use FastAPI as a Backend for Frontend (BFF) to decouple agent logic from the React UI while serving static assets. |
+| **Unified Container for UI and BFF** | Pckage React and FastAPI into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. |
+| **ADK Orchestration** | Google ADK for robust multi-agent coordination, session management, and standardized tool calling. |
+| **A2UI Protocol** | Agent-driven rich UI generation (tables, charts, cards) to maintain a professional, information-dense UX. |
+| **Native IAP** | Identity-Aware Proxy directly on Cloud Run avoiding the cost and complexity of a Global Load Balancer while maintaining enterprise security. |
+| **GCS Remote State** | Store Terraform state on GCS (`finops-admin-prd-tfstate`) to ensure a shared source of truth across CI/CD environments and enable state locking. |
+| **Custom Domain Mapping**| Use Cloud Run Domain Mappings over an External ALB + Cloud DNS setup for simplicity and cost optimization. |
+| **Cross-Project Billing**| Grant the Application Service Account cross-project access to the BigQuery billing export project (`var.google_cloud_billing_project`) via project-level IAM roles, enabling centralised cost analysis. |
+| **BigQuery MCP for local development** | In our development workspace, the BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) is configured in the local `.gemini/settings.json` file. This enables developers to have natural language interactions with BigQuery during development, without deploying any code. |
+| **BigQuery ADK Toolset (Agent)** | The ADK agent uses the native `BigQueryToolset` (from `google.adk.integrations.bigquery`) with Application Default Credentials (ADC) to query dataset metadata and schemas. By avoiding a separate remote MCP layer, it simplifies authentication, reduces runtime latency, and aligns with ADK best practices. |
+| **Organisational CAI Scoping** | Prioritise Organisation-level scopes for CAI lookups but fall back to project-level lookups for any resources not found in the organisation. This ensures complete visibility across all projects linked to the billing account, even those residing in independent projects outside the primary organization. Graceful handling of `403 Forbidden` errors at the organisation level allows for silent fallback to project-level "sniper" queries if the service account lacks top-level permissions. |
+| **CAI Zombie Detection** | Specialised Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
+| **Developer Knowledge MCP** | The remote Google Developer Knowledge MCP server (`https://developerknowledge.googleapis.com/mcp`) allows our agent to cross-reference identified infrastructure issues and cost spikes against official GCP best practices, and to provide grounding for general Google-related queries. Additionally, it is fully-managed by Google, so no MCP servers to deploy and manage ourselves. |
+| **Direct Table Binding**   | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. (_Potentially fragile?_) |
+| **Keep-Alive Heartbeat SSE** | I Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
+| **Vite 6 Tooling & Sandboxing** | Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
+| **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/app_utils/`. Rationale: Keeps the core `app/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
+| **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on Vertex AI/Gemini. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
+| **Semantic Caching** | I Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
+| **CI/CD Variable Sync** | I Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
+| **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Vertex AI agent management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
 
 
 ## Solution Architecture
@@ -42,7 +38,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 2. **IAP Layer**: Identity-Aware Proxy intercepts the request, verifies the Google Identity, and checks IAM permissions (`roles/iap.httpsResourceAccessor`).
 3. **FastAPI BFF Layer**: Receives the authenticated request and either routes it to the remote **Gemini Enterprise Agent Runtime** (in production/staging execution) or runs it locally (in-container fallback mode for dev).
 4. **Agent Runtime (or Local ADK Runner)**: Orchestrates tools based on intent:
-    - **BigQuery MCP**: Directly queries billing data from the centralized billing project using semantic tools like `list_datasets` and `execute_sql`.
+    - **BigQuery native toolset**: Directly inspects datasets and schemas using native `BigQueryToolset` semantic tools like `list_dataset_ids` and `get_table_info`.
     - **Developer Knowledge API**: Fetching architectural best practices.
     - **Cloud Asset Inventory**: Analyzing infrastructure state across projects.
 5. **Rich UI Response**: Agent returns `application/json+a2ui` payloads via Server-Sent Events (SSE).
@@ -57,49 +53,12 @@ To facilitate seamless local development and robust managed execution, the syste
     *   **Behavior**: FastAPI loads the agent logic directly from the Python codebase (`from app.agent import root_agent`). It runs the ADK engine locally in a dedicated background thread of the application process. All tools (BigQuery, CAI, etc.) are executed locally using the developer's Application Default Credentials (ADC).
 *   **Remote Execution Mode (`AGENT_RUNTIME_ID` is set)**:
     *   **Trigger**: Deployed environments (Staging and Production Cloud Run services).
-    *   **Behavior**: FastAPI bypasses local execution and acts as a Backend-for-Frontend (BFF) proxy. It uses the `vertexai` client SDK to connect to the remote Reasoning Engine instance matching the `AGENT_RUNTIME_ID` resource name. User queries are streamed directly to the Vertex AI Agent Runtime, which manages agent execution and tool invocations remotely.
+    *   **Behavior**: FastAPI bypasses local execution and acts as a Backend-for-Frontend (BFF) proxy. It uses the `google-genai` client SDK to connect to the remote Agent Runtime instance matching the `AGENT_RUNTIME_ID` resource name. User queries are streamed directly to the Gemini Enterprise Agent Runtime, which manages agent execution and tool invocations remotely.
 *   **Automatic Agent Registry Cataloging**: When deployed in Remote Execution Mode, the agent is automatically enrolled in the Google Cloud Console **Agent Registry** catalog (found under **Agent Platform Deployments**). This registration requires zero manual API or configuration calls; the Gemini Enterprise Agent Platform auto-synchronizes URN mapping (e.g. `urn:agent:...`) and deployment metrics in real-time, providing immediate centralized cataloging and administrative visibility for organizational governance.
 
 ### Component Diagram
 
-```text
-                                +-----------------------------+
-                                |  React UI (Browser) / CLI   |
-                                +-----------------------------+
-                                               |
-                                            (HTTPS)
-                                               v
-                                +-----------------------------+
-                                |    Identity-Aware Proxy     |
-                                +-----------------------------+
-                                               |
-                                        (Authenticated)
-                                               v
-                                +-----------------------------+
-                                |  FastAPI BFF (Cloud Run)    |
-                                +-----------------------------+
-                                   |                       |
-                             (Local Mode)            (Remote Mode)
-                                   |                       |
-                                   v                       v
-                        +----------------------+ +-------------------------+
-                        |  Local ADK Runner    | | Gemini Enterprise       |
-                        |  (In-Container)      | | Agent Runtime           |
-                        +----------------------+ | (Vertex AI Reasoning)   |
-                                   |             +-------------------------+
-                                   |                          |
-                                   +------------+-------------+
-                                                |
-                                                v
-                                +-----------------------------+
-                                |   Google Cloud APIs & MCPs  |
-                                |                             |
-                                |  - BigQuery Remote MCP      |
-                                |  - Cloud Asset Inventory    |
-                                |  - Gemini Cloud Assist      |
-                                |  - Developer Knowledge API  |
-                                +-----------------------------+
-```
+![FinSavant Component Architecture](./images/component_architecture.png)
 
 ### Project Relationships & Cross-Project Interactions
 
@@ -142,56 +101,41 @@ graph TD
 - **Prod / CICD Project (`finops-admin-prd`)**: Hosts the CI/CD pipeline assets (GitHub Workload Identity Pool/Providers, central Artifact Registry repository) and the **Production** deployment of the Cloud Run app and its production-specific application Service Account.
 - **Dev / Staging Project (`finops-admin-dev`)**: Hosts the **Staging** deployment of the Cloud Run application, its staging-specific application Service Account, and any local assets or staging databases.
 
-#### 2. Cross-Project Interactions
+#### 2. Cross-Project 
+
 - **Artifact Registry Sharing**: The Artifact Registry repository is centralized in the Prod/CICD project. Both the Staging Cloud Run service (in `finops-admin-dev`) and the Production Cloud Run service (in `finops-admin-prd`) pull their container images from this registry. To support this cross-project interaction, Terraform grants `roles/artifactregistry.reader` to the serverless robot service agents of both projects on the central registry repository.
-- **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent connects to the remote BigQuery MCP server and passes `finops-admin-473520` in the `x-goog-user-project` header, so query processing quotas and costs are billed to the central project.
+- **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent uses the native `BigQueryToolset` with Application Default Credentials (ADC) to interact with BigQuery directly, with query execution quota routed through the quota project by passing the central billing project in the client credentials, so query processing quotas and costs are billed to the central project.
 - **Billing Account Discovery**: The Service Accounts are granted `roles/billing.viewer` at the **GCP Billing Account** level to dynamically discover which projects are currently linked to the billing footprint.
 - **Cloud Asset Inventory Inspection**: The Service Accounts are granted `roles/cloudasset.viewer` at either the Organization level (for global asset inspection) or project level (to audit resource statuses and trace historical cost-spike changes).
 
-
 ## Agent Implementation Details
 
-### BigQuery MCP Integration
+### BigQuery Native Toolset Integration
 
-The agent logic in `app/agent.py` uses the `McpToolset` to interface with the remote BigQuery MCP endpoint. This setup is crucial for enabling the agent to perform complex cost analysis without manually parsing raw API responses.
+The agent logic in `app/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
 
 **Configuration Key Points**:
-- **Authentication**: Uses a `BQAuthProvider` class to provide fresh OAuth 2.0 headers, ensuring tokens are refreshed automatically.
-- **Quota Routing**: Injects the `x-goog-user-project` header. This ensures that BigQuery "bills" the query processing costs to the FinOps Admin project rather than the project where the data resides.
+- **Authentication**: Configured via `BigQueryCredentialsConfig` using standard Application Default Credentials (ADC), which allows seamless authentication locally and on Cloud Run.
+- **Tool Filtering**: Instantiated with a custom `bq_tool_filter` function that excludes raw query execution tools (`execute_sql` and `ask_data_insights`). This guarantees that the agent executes all SQL queries through the optimized, cached `execute_cached_bigquery_sql` tool.
 - **System Context**: The agent's system prompt is dynamically generated to include the target billing project and dataset IDs, ensuring it always targets the correct source of truth.
 
 ```python
 # app/agent.py snippet
-class BQAuthProvider:
-    """Provides valid OAuth2 headers for the BigQuery MCP connection, caching credentials."""
-    def __init__(self):
-        self._credentials = None
+# Configure native BigQuery Toolset using Application Default Credentials (ADC)
+import google.auth
+from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredentialsConfig
 
-    def __call__(self, ctx: ReadonlyContext) -> dict[str, str]:
-        if self._credentials is None:
-            self._credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+credentials, _ = google.auth.default()
+credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
-        if not self._credentials.valid:
-            self._credentials.refresh(Request())
+def bq_tool_filter(tool, ctx=None) -> bool:
+    """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
+    name = tool.name.lower()
+    return "execute" not in name and "query" not in name
 
-        return {
-            "Authorization": f"Bearer {self._credentials.token}",
-            "x-goog-user-project": settings.google_cloud_billing_project,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        }
-
-# Instantiate as the header provider
-get_auth_headers = BQAuthProvider()
-
-# BigQuery MCP Toolset Configuration
-bq_mcp_toolset = McpToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url="https://bigquery.googleapis.com/mcp",
-    ),
-    header_provider=get_auth_headers
+bigquery_toolset = BigQueryToolset(
+    credentials_config=credentials_config,
+    tool_filter=bq_tool_filter,
 )
 ```
 
@@ -205,7 +149,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 | Use Case Category | Target Server / Tool | Key Capabilities | Why This Option? |
 |:---|:---|:---|:---|
-| **Financial Aggregation & Cost Trends** | **BigQuery MCP**<br>`execute_cached_bigquery_sql` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Direct query access to the standard and resource-level billing export tables. Bypasses metadata overhead. |
+| **Financial Aggregation & Cost Trends** | **BigQuery native toolset**<br>`execute_cached_bigquery_sql` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Direct query access to the standard and resource-level billing export tables. Bypasses metadata overhead. |
 | **Active Resource Optimisation** | **Gemini Cloud Assist MCP**<br>`ask_cloud_assist` | • Live VM/DB rightsizing recommendations<br>• Deployed service cost & scaling recommendations | Queries live Google recommender engines and active resource telemetry in real-time. |
 | **Operational State Auditing & RCA** | **Local CAI & Zombie Tools**<br>`list_zombie_resources`<br>`get_cai_metadata_for_resources`<br>`get_cai_history_for_resource` | • Scanning for unattached disks / idle IPs<br>• Cross-referencing operational status<br>• Retrieving 35-day configuration change history | Accesses Cloud Asset Inventory (CAI) metadata directly. Essential for locating cost-spike causes (Root Cause Analysis). |
 | **Best-Practice Reference Q&A** | **Developer Knowledge MCP**<br>`answer_query`<br>`search_documents` | • Autoclass vs Standard storage lookups<br>• Conceptual billing terms<br>• GCP architecture guidelines | Connects directly to Google's official product documentation and best-practices repository. |
@@ -261,7 +205,7 @@ graph TD
 - **Observability & Tracing**:
   - **Standard ADK Telemetry**: Programmatically configured via OpenTelemetry using `google.adk.telemetry` wrappers. Spans trace the full agent execution flow (spawning LLM calls and tool execution hierarchies).
   - **Local Agent Tracing**: Locally running agents support full tracing export. Developers can set `OTEL_TO_CLOUD=true` in their local environment variables (along with standard Google Application Default Credentials) to route local execution traces directly to Google Cloud Trace for instant inspection.
-  - **Gemini Enterprise Agent Runtime (GEAP) Integration**: Deploying the agent reasoning engine to Vertex AI enables automatic telemetry propagation. In addition to GCS/BigQuery structured logs, trace trajectories integrate seamlessly with the Gemini Enterprise Agent Platform (GEAP) observability interfaces with minimal friction.
+  - **Gemini Enterprise Agent Runtime (GEAP) Integration**: Deploying the agent to the Gemini Enterprise Agent Platform enables automatic telemetry propagation. In addition to GCS/BigQuery structured logs, trace trajectories integrate seamlessly with the Gemini Enterprise Agent Platform (GEAP) observability interfaces with minimal friction.
 
 
 ## A2UI Rationale & Gemini Enterprise Portability
@@ -278,7 +222,7 @@ To ensure full operational visibility for developers and operators, the React UI
 * **State Check**: On initialisation, the React client queries the thin BFF status endpoint (`GET /api/status`).
 * **Visual Representation**:
   * **In-Container Fallback (`mode: "local"`)**: Renders a glassmorphic amber pill badge labelled **`IN-CONTAINER FALLBACK`** (`#F59E0B`), indicating the agent is executing locally inside the BFF container using local Application Default Credentials (ADC).
-  * **Vertex Runtime (`mode: "remote"`)**: Renders a glowing neon-green badge labelled **`VERTEX RUNTIME`** (`#00F59B`), indicating the BFF is proxying queries to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine). Hovering over this badge displays the active Reasoning Engine resource name.
+  * **Vertex Runtime (`mode: "remote"`)**: Renders a glowing neon-green badge labelled **`VERTEX RUNTIME`** (`#00F59B`), indicating the BFF is proxying queries to the managed **Gemini Enterprise Agent Runtime**. Hovering over this badge displays the active Agent Runtime resource name.
 
 ---
 
