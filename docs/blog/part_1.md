@@ -38,6 +38,10 @@ This is what it looks like:
 
 ![FinSavant](../images/finsavant-explain-spike.png)
 
+I've open sourced the project, and you can find the [project and its code on GitHub](https://github.com/derailed-dash/smart-gcp-finops).
+
+https://github.com/derailed-dash/smart-gcp-finops
+
 ## Series Structure
 
 Let's see where we are in this series.
@@ -222,10 +226,12 @@ Stay tuned!
 ## Useful Links and References
 
 ### Project Demo & Portfolio
+
 - [Dazbo's Portfolio](https://dazbo.co.uk)
 - [FinSavant YouTube Demo](https://youtu.be/zs_IRUxIx4E)
 
 ### Gemini Enterprise Agent Platform & ADK
+
 - [Gemini Enterprise Agent Platform Overview](https://docs.cloud.google.com/gemini-enterprise-agent-platform/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Agent Runtime (ADK Hosting)](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [ADK Agent Building Guide](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/adk?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
