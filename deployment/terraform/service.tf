@@ -176,13 +176,13 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
     service_account = google_service_account.app_sa[each.key].email
 
     deployment_spec {
-      min_instances         = 1
+      min_instances         = 0
       max_instances         = 2
       container_concurrency = 10
 
       resource_limits = {
-        cpu    = "4"
-        memory = "8Gi"
+        cpu    = "1"
+        memory = "4Gi"
       }
 
       env {
@@ -248,6 +248,11 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = "${var.project_name}-${each.key}-backend"
+      }
+
+      env {
+        name  = "ADK_DEFAULT_APP_NAME"
+        value = "app"
       }
     }
 
