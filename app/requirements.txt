@@ -1,0 +1,15 @@
+google-adk
+mcp
+google-api-python-client
+google-cloud-dataplex
+opentelemetry-instrumentation-google-genai
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-gcp-logging
+opentelemetry-exporter-gcp-monitoring
+opentelemetry-resourcedetector-gcp
+gcsfs
+google-cloud-logging
+google-cloud-aiplatform
+fastapi
+uvicorn
+asyncpg

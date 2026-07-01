@@ -1,7 +1,14 @@
-# Load environment variables from .env file if it exists
+# WARNING: Do not remove the two empty lines below.
+# In GNU Make, defining a newline variable requires exactly two empty lines inside the define block.
+define newline
+
+
+endef
+
+# Load environment variables from .env file if it exists, sanitising quotes, comments, and trailing spaces in-memory
 ifneq (,$(wildcard .env))
-    include .env
-    export
+    CLEAN_ENV := $(shell sed -e 's/[#].*//' -e 's/["\x27]//g' -e 's/[[:space:]]*$$//' -e 's/$$/|/' .env)
+    $(eval $(subst |,$(newline),$(CLEAN_ENV)))
 endif
 
 # ==============================================================================
@@ -12,6 +19,7 @@ endif
 MIN_INSTANCES ?= 0
 MEMORY ?= "2Gi"
 OTEL_TO_CLOUD ?= true
+AGENT_RUNTIME_ID ?= $(shell uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend" 2>/dev/null || echo "")
 
 # Default log levels for development and production if not already defined (e.g. in .env)
 DEV_LOG_LEVEL = $(or $(LOG_LEVEL),DEBUG)
@@ -97,6 +105,8 @@ IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-f
 
 # Deploy the agent to Cloud Run
 # Usage: make deploy [IAP=true] [PORT=8080] - Set IAP=true to enable Identity-Aware Proxy, PORT to specify container port
+# IMPORTANT: This command automatically queries the live Agent Runtime to resolve the newest AGENT_RUNTIME_ID.
+# You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
 deploy-cloud-run:
 	@echo "🚀 Building and pushing container to Artifact Registry..."
 	gcloud builds submit --tag "$(IMAGE_TAG)" --project "$(CICD_PROJECT_ID)" .
@@ -112,17 +122,23 @@ deploy-cloud-run:
 		--cpu-boost \
 		--no-allow-unauthenticated \
 		--iap \
-		--set-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=$(PROD_LOG_LEVEL)"
+		--update-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=$(PROD_LOG_LEVEL),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)"
 
 # Deploy the agent backend to Gemini Enterprise Agent Runtime
-deploy-agent-runtime: export-requirements
-	uvx google-agents-cli deploy \
+# IMPORTANT: Deploys the Python agent logic (in `app/`) to Vertex AI, 
+# creating a new Reasoning Engine ID.
+# You MUST redeploy the Cloud Run service (`make deploy-cloud-run`) 
+#after running this target to route traffic to the new agent instance.
+deploy-agent-runtime:
+	cd app && uvx google-agents-cli deploy \
 		--deployment-target agent_runtime \
 		--no-confirm-project \
 		--project "$(GOOGLE_CLOUD_PROJECT)" \
 		--region "$(GOOGLE_CLOUD_REGION)" \
 		--service-account "$(SERVICE_SA_EMAIL)" \
 		--service-name "$(SERVICE_NAME)-backend" \
+		--min-instances 0 \
+		--max-instances 1 \
 		--update-env-vars="GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,OTEL_TO_CLOUD=$(OTEL_TO_CLOUD),LOG_LEVEL=$(PROD_LOG_LEVEL)"
 
 # Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
@@ -130,7 +146,7 @@ get-agent-runtime-id:
 	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
 
 export-requirements:
-	uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
+	uv pip compile pyproject.toml -o app/requirements.txt
 
 # ==============================================================================
 # Testing & Code Quality
@@ -188,7 +204,7 @@ lint:
 
 # Set up development environment resources using Terraform
 tf-plan:
-	(cd deployment/terraform && terraform init && terraform plan --var-file vars/env.tfvars)
+	(cd deployment/terraform && terraform init && GITHUB_TOKEN="$(GITHUB_TOKEN)" terraform plan --var-file vars/env.tfvars)
 
 tf-apply:
-	(cd deployment/terraform && terraform init && terraform apply --var-file vars/env.tfvars --auto-approve)
+	(cd deployment/terraform && terraform init && GITHUB_TOKEN="$(GITHUB_TOKEN)" terraform apply --var-file vars/env.tfvars --auto-approve)

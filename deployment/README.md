@@ -71,7 +71,7 @@ For local development and container runtime, configuration is driven by variable
 | `GOOGLE_CLOUD_REGION` | Infrastructure Region | The default region where Cloud Run and other regional services are deployed (e.g., `europe-west1`). |
 | `GOOGLE_CLOUD_LOCATION` | GenAI / Vertex AI | The Vertex AI API endpoint location.Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
 | `GOOGLE_CLOUD_BILLING_ACCOUNT` | Billing Scope | The target GCP Billing Account ID being audited (formatted as `XXXXXX-XXXXXX-XXXXXX`). |
-| `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g., `europe-west4`). |
+| `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g. `europe-west4`). |
 | `GOOGLE_CLOUD_BILLING_PROJECT` | Billing Project | The ID of the project hosting the BigQuery billing export dataset (for query execution and data viewing). |
 | `BILLING_EXPORT_DATASET` | Billing Dataset | The name of the BigQuery dataset where Google Cloud billing logs are exported. |
 | `SERVICE_SA` | Security / Identity | Prefix name of the custom application service account (e.g., `smart-gcp-finops-app`). |
@@ -307,6 +307,9 @@ To prevent Terraform from trying to strip or revert the deployment-metadata and 
 
 Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Agent Runtime), and deploying the container BFF proxy (Cloud Run).
 
+> [!IMPORTANT]
+> **Deployment Sequence Dependency**: Every time you update and redeploy the backend agent logic via `make deploy-agent-runtime`, a new `reasoningEngine` instance ID is created on Google Cloud. You **must** immediately redeploy the Cloud Run service (`make deploy-cloud-run`) afterwards so the front-end/BFF is updated to route user traffic to the new agent instance.
+
 ### 1. Provision Base Infrastructure (Terraform)
 
 Terraform sets up all required service accounts, IAM permission bindings (like BigQuery and Cloud Asset viewer roles), logging storage buckets, and Google API enablement.
@@ -320,23 +323,23 @@ terraform apply tfplan
 
 ### 2. Deploy Agent Logic to Vertex AI Agent Runtime
 
-Next, compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Agent Runtime using the CLI:
+Compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Agent Runtime (Reasoning Engine):
 
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles dependencies using `uv` to `app/app_utils/.requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime.
-*   **Result**: Upon successful completion, the CLI writes a `deployment_metadata.json` file to the root of your project containing the newly deployed `remote_agent_runtime_id` (e.g. `projects/PROJECT_NUMBER/locations/europe-west1/reasoningEngines/ENGINE_ID`).
+*   **What this does**: It compiles staging dependencies to `app/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
+*   **Result**: A new `reasoningEngine` resource instance is created on Vertex AI.
 
 ### 3. Deploy the Cloud Run BFF and Frontend
 
-Finally, deploy the lightweight frontend container. The deployment script reads the runtime ID from `deployment_metadata.json` and injects it as the `AGENT_RUNTIME_ID` environment variable.
+Deploy the unified frontend and BFF container. This target automatically fetches the latest deployed agent runtime ID and binds it.
 
 ```bash
-# Build the unified container (React assets + FastAPI) and deploy to Cloud Run
 make deploy-cloud-run
 ```
-*   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote Agent Runtime instead of running the agent locally inside the container.
+*   **How it resolves the ID**: During execution, the Makefile runs a helper Python script (`scripts/get-agent-runtime-id.py`) which queries Vertex AI for the most recently deployed reasoning engine matching your backend service name (`smart-gcp-finops-backend`).
+*   **How it routes**: The Makefile captures this newly retrieved ID and injects it as the `AGENT_RUNTIME_ID` environment variable in the Cloud Run deployment parameters. When the container boots, the FastAPI BFF detects this variable and automatically acts as a proxy, streaming chat sessions directly to the remote reasoning engine instead of using a local container runner.
 
 ## CI/CD Pipeline Flow
 

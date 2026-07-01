@@ -177,8 +177,8 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
 
     deployment_spec {
       min_instances         = 0
-      max_instances         = 2
-      container_concurrency = 10
+      max_instances         = 1
+      container_concurrency = 8
 
       resource_limits = {
         cpu    = "1"
@@ -193,6 +193,11 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
       env {
         name  = "GOOGLE_CLOUD_REGION"
         value = var.region
+      }
+
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = each.value
       }
 
       env {

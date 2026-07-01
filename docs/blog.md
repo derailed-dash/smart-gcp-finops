@@ -57,6 +57,7 @@ This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dyna
 35. Upgraded `google-adk` to version `1.34.1` (and `google-genai` to `1.75.0`), completely eliminating the internal `session_context` concurrency warning (`Error on session runner task`) from backend logs.
 36. Restored thread-isolated queue producer streaming architecture in [fast_api_app.py](../app/fast_api_app.py) using a background thread and `asyncio.Queue`, resolving uvicorn and gRPC event-loop conflicts that caused silent streaming crashes.
 37. Resolved a critical integration test failure (405 Method Not Allowed on `/apps/app/users/{user_id}/sessions`) by removing the trailing slash from `BASE_URL` in `test_server_e2e.py`, preventing double-slash path matching issues in Starlette/FastAPI's router.
+38. Sanitised environment variable loading in the Makefile by implementing an in-memory `sed` and `eval` newline substitution pattern, preventing literal double quotes and trailing comments/whitespace from corrupting deployment commands.
 
 ## Deep Dives
 
@@ -2124,3 +2125,36 @@ We refactored the logging architecture to be completely standard and unified:
 11. **Elimination of Global Statements**: Grouped FastAPI application lazy-initialised state variables (runner, sessions, session services, and thread-safety locks) into a structured `AppState` container class inside `fast_api_app.py`. Annotated state fields with `ClassVar` to comply with Ruff lint rule RUF012 and removed all Python `global` reassignment statements.
 
 All 52 unit tests are passing cleanly, and Ruff formatting and Codespell checkers verify full compliance! Hurrah!
+
+---
+
+### Makefile Quoting & Trailing Space Sanitisation
+
+**Problem**:
+When loading environment variables from a `.env` file, Make's `include` directive evaluates the file literally. This causes two issues:
+1. Surrounding double quotes (e.g. `export GOOGLE_CLOUD_PROJECT="finops-admin-dev"`) are loaded as literal parts of the variable value in Make (i.e. `"finops-admin-dev"`).
+2. Trailing spaces before inline comments (e.g. `export GOOGLE_CLOUD_REGION="europe-west1" # For resources`) are preserved as part of the value.
+When these variables are wrapped in another set of double quotes inside command recipes (e.g. `--region "$(GOOGLE_CLOUD_REGION)"`), they expand in the shell to doubled double-quotes and trailing spaces (e.g. `--region ""europe-west1" "`). The `google-agents-cli` deployment tool passes this invalid string directly to Vertex AI APIs, which fail validation (e.g. `ValueError: Unsupported region for Vertex AI`).
+
+**Resolution**:
+We implemented an in-memory `sed` and `eval` newline-substitution pattern in the [Makefile](../Makefile) right when reading `.env`:
+```makefile
+define newline
+
+
+endef
+
+# Load environment variables from .env file if it exists, sanitising quotes, comments, and trailing spaces in-memory
+ifneq (,$(wildcard .env))
+    CLEAN_ENV := $(shell sed -e 's/[#].*//' -e 's/["\x27]//g' -e 's/[[:space:]]*$$//' -e 's/$$/|/' .env)
+    $(eval $(subst |,$(newline),$(CLEAN_ENV)))
+endif
+```
+This sanitises the file content by:
+* Stripping comments (`s/[#].*//`)
+* Stripping single and double quotes (`s/["\x27]//g`)
+* Stripping trailing whitespace (`s/[[:space:]]*$$//`)
+* Appending a placeholder `|` to denote line breaks, which is then replaced by Make's native newline variable before running `eval`.
+
+This ensures all Makefile targets receive perfectly clean, unquoted values, preventing any command parsing issues.
+
