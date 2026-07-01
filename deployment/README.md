@@ -234,7 +234,11 @@ The Terraform state for this project is stored remotely in a **Google Cloud Stor
 
 ## Custom Domain Mapping
 
-The system supports mapping custom subdomains to Cloud Run via Terraform. The environment mappings are provided in your `env.tfvars` securely:
+The system supports mapping custom subdomains to Cloud Run via Terraform. The environment mappings are:
+* **Staging / Dev Endpoint**: [https://smart-finops-dev.just2good.co.uk/](https://smart-finops-dev.just2good.co.uk/)
+* **Production Endpoint**: [https://smart-finops.just2good.co.uk/](https://smart-finops.just2good.co.uk/)
+
+The configuration is specified in your `env.tfvars`:
 - `prod_app_domain_name` for the production endpoint
 - `staging_app_domain_name` for the staging endpoint
 
@@ -365,64 +369,114 @@ gcloud asset search-all-iam-policies \
 > Make sure your active project is set to a project where the `cloudasset.googleapis.com` API is enabled (e.g. `$GOOGLE_CLOUD_PROJECT`). Otherwise, `gcloud` will fail with an API-not-enabled error. You can set the quota project via:
 > `gcloud config set billing/quota_project "$GOOGLE_CLOUD_PROJECT"`
 
-### 2. Granting Missing Roles
+#### 2. Granting Missing Roles
 
-If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level:
+If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level.
 
 *   **Organization level** (required for organization-wide searches):
-    ```bash
-    gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer"
-    ```
+    *   **For Developer Account**:
+        ```bash
+        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
+            --member="user:$LOCAL_DEVELOPER_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
 *   **Folder level** (if scope is restricted to a folder):
-    ```bash
-    gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer"
-    ```
+    *   **For Developer Account**:
+        ```bash
+        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
+            --member="user:$LOCAL_DEVELOPER_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
 *   **Project level** (if scope is restricted to a project):
-    ```bash
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer" \
-        --condition=None
-    ```
-
-*(Note: Replace `user:$LOCAL_DEVELOPER_EMAIL` with `serviceAccount:$SERVICE_SA_EMAIL` to grant permissions to the application service account).*
-
-### 3. Bulk Binding Standalone (Orphaned) Projects
-
-If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you can retrieve and bind permissions to them in bulk:
-
-*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
-    ```bash
-    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-      echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
-      gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-          --member="user:$LOCAL_DEVELOPER_EMAIL" \
-          --role="roles/cloudasset.viewer" \
-          --condition=None
-    done
-    ```
-
-*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
-    ```bash
-    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-      PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
-      PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
-      
-      if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
-        echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
-        gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    *   **For Developer Account**:
+        ```bash
+        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
             --member="user:$LOCAL_DEVELOPER_EMAIL" \
             --role="roles/cloudasset.viewer" \
             --condition=None
-      fi
-    done
-    ```
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer" \
+            --condition=None
+        ```
 
+### 3. Bulk Binding Standalone (Orphaned) Projects
+
+If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you must retrieve and bind permissions to them in bulk:
+
+> [!IMPORTANT]
+> **Developer vs. Service Account Access**: You must run the bulk-binding commands for **both** your local developer user (for local testing via `make playground`) and the application service account (for deployed environments on Cloud Run). Failing to bind permissions for the service account will result in `403 Forbidden` errors in your staging and production logs.
+
+*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
+    *   **For Developer Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
+          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+              --member="user:$LOCAL_DEVELOPER_EMAIL" \
+              --role="roles/cloudasset.viewer" \
+              --condition=None
+        done
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
+          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+              --member="serviceAccount:$SERVICE_SA_EMAIL" \
+              --role="roles/cloudasset.viewer" \
+              --condition=None
+        done
+        ```
+
+*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
+    *   **For Developer Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
+          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
+          
+          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
+            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+                --member="user:$LOCAL_DEVELOPER_EMAIL" \
+                --role="roles/cloudasset.viewer" \
+                --condition=None
+          fi
+        done
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
+          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
+          
+          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
+            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+                --member="serviceAccount:$SERVICE_SA_EMAIL" \
+                --role="roles/cloudasset.viewer" \
+                --condition=None
+          fi
+        done
+        ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
+
 
 

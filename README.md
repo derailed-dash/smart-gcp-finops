@@ -213,6 +213,13 @@ FinSavant utilises a decoupled GitHub Actions pipeline to enforce a strict quali
 
 For details on network variables, service accounts, and Terraform variable propagation, refer to the [Deployment README](deployment/README.md).
 
+### Accessing the Environments
+
+IAP is enabled. Access the deployments via their respective custom domain URLs:
+* **Staging / Dev Endpoint**: [https://smart-finops-dev.just2good.co.uk/](https://smart-finops-dev.just2good.co.uk/)
+* **Production Endpoint**: [https://smart-finops.just2good.co.uk/](https://smart-finops.just2good.co.uk/)
+
+
 ## IAM Permissions & Validation
 
 For the agent and the executive dashboard to discover GCP resources and projects, the querying developer's account (and the deployed application service account) must have the appropriate Cloud Asset Inventory permissions.
