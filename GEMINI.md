@@ -111,3 +111,11 @@ The series should have several parts. I'm thinking:
 - 5. Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
 
 Each part will be drafted in a separate md file under docs/blog. We're going to document in Dazbo style, but don't overdo the character. Subtle Dazbo.
+
+## Deploying to Agent Runtime
+
+See:
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/quickstart-adk
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent#from-source-files
+- https://adk.dev/deploy/agent-runtime/
+- https://adk.dev/deploy/agent-runtime/deploy/

@@ -68,7 +68,13 @@ class AgentRuntimeApp(AdkApp):
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = [*operations.get("", []), "register_feedback"]
+        
+        # Force-register standard query methods to bypass the cloud-side inspection bug
+        standard_ops = ["query", "async_query", "stream_query", "async_stream_query", "register_feedback"]
+        existing_ops = operations.get("", [])
+        
+        # Merge existing operations with the standard required operations
+        operations[""] = list(set(existing_ops + standard_ops))
         return operations
 
     def clone(self) -> "AgentRuntimeApp":

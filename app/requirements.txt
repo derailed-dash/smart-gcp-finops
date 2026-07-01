@@ -10,6 +10,7 @@ opentelemetry-resourcedetector-gcp
 gcsfs
 google-cloud-logging
 google-cloud-aiplatform
+google-cloud-aiplatform[agent_engines,adk]>=1.112
 fastapi
 uvicorn
 asyncpg
