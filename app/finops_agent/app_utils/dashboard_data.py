@@ -216,9 +216,7 @@ def get_actual_dashboard_metrics(
             service_totals[srv] = service_totals.get(srv, 0.0) + cost
 
         # Sort services by total cost descending and pick the top 3
-        sorted_services = sorted(
-            service_totals.items(), key=lambda x: x[1], reverse=True
-        )
+        sorted_services = sorted(service_totals.items(), key=lambda x: x[1], reverse=True)
         top_n_services = [name for name, total in sorted_services[:3] if total > 0]
 
         # Group data by date
@@ -274,9 +272,7 @@ def get_actual_dashboard_metrics(
         if len(daily_totals) >= 5:
             # Clean baseline by filtering out extremely low start-up/idle days (less than 25% of median)
             median_val = statistics.median(daily_totals[:-1])
-            baseline_days = [
-                val for val in daily_totals[:-1] if val >= median_val * 0.25
-            ]
+            baseline_days = [val for val in daily_totals[:-1] if val >= median_val * 0.25]
             if len(baseline_days) >= 3:
                 mean = statistics.mean(baseline_days)
                 std_dev = statistics.stdev(baseline_days)
@@ -303,11 +299,7 @@ def get_actual_dashboard_metrics(
         # Scan for unattached persistent disks
         unattached_disks = list_zombie_resources("UNATTACHED_DISKS")
         for item in unattached_disks:
-            proj = (
-                item.get("project", "").split("/")[-1]
-                if item.get("project")
-                else "unknown"
-            )
+            proj = item.get("project", "").split("/")[-1] if item.get("project") else "unknown"
             # Scoping Filter
             if allowed_projects is not None and proj not in allowed_projects:
                 continue
@@ -324,9 +316,7 @@ def get_actual_dashboard_metrics(
                     "name": name,
                     "type": "Persistent Disk",
                     "project": proj,
-                    "size": (item.get("additionalAttributes") or {}).get(
-                        "size", "Unknown Size"
-                    ),
+                    "size": (item.get("additionalAttributes") or {}).get("size", "Unknown Size"),
                     "cost": cost,
                     "status": "UNATTACHED",
                 }
@@ -335,11 +325,7 @@ def get_actual_dashboard_metrics(
         # Scan for idle IP addresses
         idle_ips = list_zombie_resources("IDLE_IPS")
         for item in idle_ips:
-            proj = (
-                item.get("project", "").split("/")[-1]
-                if item.get("project")
-                else "unknown"
-            )
+            proj = item.get("project", "").split("/")[-1] if item.get("project") else "unknown"
             # Scoping Filter
             if allowed_projects is not None and proj not in allowed_projects:
                 continue

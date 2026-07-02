@@ -2197,5 +2197,26 @@ We optimized the container configurations and package scopes:
    * [app/finops_agent/requirements.txt](../app/finops_agent/requirements.txt)
    This slashes container weight and minimizes security/vulnerability footprints on the remote runtime. All 52 unit tests and quality checks continue to pass cleanly.
 
+---
 
+### Serving Command Correction, Dependency Standardization & Logging Cleanup
 
+**Problem**:
+Following the BFF and Agent decoupling, several runtime issues arose during staging deployment and local execution:
+1. **Staging Deploy Failure (`ModuleNotFoundError`)**: The container failed to launch with `/code/.venv/bin/python3: Error while finding module specification for 'google.cloud.aiplatform.reasoning_engines.web_server' (ModuleNotFoundError: No module named 'google.cloud.aiplatform.reasoning_engines')`. We discovered that `google.cloud.aiplatform.reasoning_engines.web_server` is not distributed inside PyPI's public `google-cloud-aiplatform` package, and that the Reasoning Engine actually serving ADK applications uses the ADK standard FastAPI CLI.
+2. **Duplicate/Redundant Telemetry Files**: Two separate modules (`logging_and_telemetry.py` and `telemetry.py`) existed in the `app_utils/` directory, exposing duplicate `setup_telemetry()` implementations.
+3. **Noisy Logger Warnings in Staging**: The container logs emitted continuous `httplib2 transport does not support per-request timeout` and `[EXPERIMENTAL] feature...` warnings. The warning filters were not run early enough during import-time of the entrypoint files (`fast_api_app.py` and `agent_runtime_app.py`), and duplicating raw `warnings.filterwarnings` filter lists across entrypoints created poor code structure.
+
+**Resolution**:
+We resolved the startup configurations, cleaned up redundant modules, and standardized warnings management:
+1. **Dockerfile Command Correction**: Restored the ADK FastAPI server serving command in [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile):
+   ```dockerfile
+   CMD ["python", "-m", "google.adk.cli", "api_server", "--host", "0.0.0.0", "--port", "8080"]
+   ```
+   This successfully starts the Reasoning Engine inside Agent Runtime.
+2. **Standardized Warning Suppressions**:
+   * Moved all third-party imports (like `google.auth` and `google-adk` libraries) inside `setup_telemetry()` in [logging_and_telemetry.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/app_utils/logging_and_telemetry.py) so importing the module triggers zero warnings.
+   * Imported and executed `setup_logging_suppressions()` at the very top of [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) and [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), fully suppressing import-time and run-time warnings. Added `# ruff: noqa: E402` to document and allow this PEP 8 exception.
+3. **Redundancy Cleanup**: Deleted the unused, leftover `telemetry.py` module.
+4. **Dependency Standardization**: Aligned package ranges inside [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) to use recent stable versions (e.g. `google-adk>=2.3.0`, `google-cloud-aiplatform>=1.159.0`, `mcp>=1.28.1`), regenerated `uv.lock` files, and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
+5. **Quality & Validation**: Ran `make lint` and `make test`, verifying all 52 unit tests and quality checks pass with 0 errors.

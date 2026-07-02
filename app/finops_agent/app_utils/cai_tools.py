@@ -101,9 +101,7 @@ def get_cai_metadata_for_resources(
 
     # 3. Last Resort Fallback: If URIs lacked project IDs
     if unmatched_names:
-        billing_account_name = (
-            f"billingAccounts/{settings.google_cloud_billing_account}"
-        )
+        billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
         unmatched_records = [{"resource_name": name} for name in unmatched_names]
 
@@ -119,10 +117,7 @@ def get_cai_metadata_for_resources(
 
             for enriched_chunk in results:
                 for record in enriched_chunk:
-                    if (
-                        record.get("cai_metadata")
-                        and record["cai_metadata"] not in all_metadata
-                    ):
+                    if record.get("cai_metadata") and record["cai_metadata"] not in all_metadata:
                         all_metadata.append(record["cai_metadata"])
 
     with _METADATA_CACHE_LOCK:
@@ -160,9 +155,7 @@ def get_cai_history_for_resource(
             start_time = f"{start_time}+00:00"
 
         start_dt = datetime.fromisoformat(start_time)
-        min_allowed_dt = datetime.now(UTC) - timedelta(
-            days=34, hours=23, minutes=50
-        )
+        min_allowed_dt = datetime.now(UTC) - timedelta(days=34, hours=23, minutes=50)
 
         if start_dt < min_allowed_dt:
             start_time = min_allowed_dt.isoformat()
@@ -205,18 +198,12 @@ def get_cai_history_for_resource(
         scope = f"projects/{project_match.group(1)}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    if (
-        not history_results
-        and settings.google_cloud_organization
-        and not is_org_scope_disabled()
-    ):
+    if not history_results and settings.google_cloud_organization and not is_org_scope_disabled():
         scope = f"organizations/{settings.google_cloud_organization}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
     if not history_results:
-        billing_account_name = (
-            f"billingAccounts/{settings.google_cloud_billing_account}"
-        )
+        billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
 
         queried_projects = {project_match.group(1)} if project_match else set()
@@ -224,9 +211,7 @@ def get_cai_history_for_resource(
             if project_id in queried_projects:
                 continue
             scope = f"projects/{project_id}"
-            history_results = get_asset_history(
-                resource_name, scope, start_time, end_time
-            )
+            history_results = get_asset_history(resource_name, scope, start_time, end_time)
             if history_results:
                 break
 

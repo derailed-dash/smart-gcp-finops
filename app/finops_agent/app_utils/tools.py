@@ -101,6 +101,7 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
                 from finops_agent.app_utils.project_discovery import (
                     get_user_accessible_projects,
                 )
+
                 allowed_projects = list(get_user_accessible_projects(user_email))
                 if state is not None and not isinstance(state, MagicMock):
                     state["allowed_projects"] = allowed_projects
@@ -117,8 +118,12 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
                 subquery_resource = f"(SELECT * FROM `{resource_table}` LIMIT 0)"
             else:
                 proj_list = ", ".join(f"'{p}'" for p in sanitized_projects)
-                subquery_standard = f"(SELECT * FROM `{standard_table}` WHERE project.id IN ({proj_list}))"
-                subquery_resource = f"(SELECT * FROM `{resource_table}` WHERE project.id IN ({proj_list}))"
+                subquery_standard = (
+                    f"(SELECT * FROM `{standard_table}` WHERE project.id IN ({proj_list}))"
+                )
+                subquery_resource = (
+                    f"(SELECT * FROM `{resource_table}` WHERE project.id IN ({proj_list}))"
+                )
 
             escaped_std = re.escape(standard_table)
             pattern_std = re.compile(rf"`{escaped_std}`|{escaped_std}")

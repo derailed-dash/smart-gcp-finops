@@ -10,11 +10,13 @@ if not settings.google_cloud_project or not settings.google_cloud_region:
 client = vertexai.Client(
     project=settings.google_cloud_project,
     location=settings.google_cloud_region,
-    http_options={"api_version": "v1beta1"}
+    http_options={"api_version": "v1beta1"},
 )
 
 
-print(f"🤖 Deploying agent to project '{settings.google_cloud_project}' in region '{settings.google_cloud_region}'...")
+print(
+    f"🤖 Deploying agent to project '{settings.google_cloud_project}' in region '{settings.google_cloud_region}'..."
+)
 
 remote_agent = client.agent_engines.create(
     config={
@@ -30,14 +32,12 @@ remote_agent = client.agent_engines.create(
                 "api_mode": "",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "question": {"type": "string"}
-                    },
-                    "required": ["question"]
-                }
+                    "properties": {"question": {"type": "string"}},
+                    "required": ["question"],
+                },
             },
         ],
-        "service_account": f"smart-gcp-finops-app@{settings.google_cloud_project}.iam.gserviceaccount.com"
+        "service_account": f"smart-gcp-finops-app@{settings.google_cloud_project}.iam.gserviceaccount.com",
     }
 )
 

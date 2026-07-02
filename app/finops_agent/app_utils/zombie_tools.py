@@ -103,6 +103,7 @@ def list_zombie_resources(
         from finops_agent.app_utils.project_discovery import (
             get_user_accessible_projects,
         )
+
         allowed_projects = list(get_user_accessible_projects(tool_context.user_id))
         tool_context.state["allowed_projects"] = allowed_projects
 
@@ -164,9 +165,7 @@ def list_zombie_resources(
                 for asset in assets:
                     all_zombies_map[asset["name"]] = asset
             except Exception as e:
-                logger.error(
-                    f"Error scanning project {futures[future]} for zombies: {e}"
-                )
+                logger.error(f"Error scanning project {futures[future]} for zombies: {e}")
 
     results_list = list(all_zombies_map.values())
 

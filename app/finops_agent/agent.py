@@ -255,11 +255,18 @@ async def discover_projects_callback(callback_context: CallbackContext, **kwargs
             from finops_agent.app_utils.project_discovery import (
                 get_user_accessible_projects,
             )
+
             allowed_projects = get_user_accessible_projects(user_email)
             state["allowed_projects"] = list(allowed_projects)
-            logger.info("Discovered projects for user %s and stored in state: %s", user_email, state["allowed_projects"])
+            logger.info(
+                "Discovered projects for user %s and stored in state: %s",
+                user_email,
+                state["allowed_projects"],
+            )
         else:
-            logger.warning("Unauthenticated request inside discover_projects_callback: missing user_id.")
+            logger.warning(
+                "Unauthenticated request inside discover_projects_callback: missing user_id."
+            )
             state["allowed_projects"] = []
 
 
@@ -275,9 +282,7 @@ def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) ->
     )
     if count > 25:
         logger.error("Defensive stop triggered: Tool call count exceeded limit of 25!")
-        raise RuntimeError(
-            "Defensive stop: too many tool calls executed in a single turn."
-        )
+        raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
 
 
 class AgentQueryCacheManager:
@@ -298,9 +303,7 @@ _AGENT_CACHE_LOCK = agent_query_cache_manager.cache_lock
 AGENT_CACHE_TTL = 300  # 5 minutes
 
 
-async def before_agent_cache_lookup(
-    callback_context: CallbackContext, **kwargs
-) -> None:
+async def before_agent_cache_lookup(callback_context: CallbackContext, **kwargs) -> None:
     """Uses a fast model to verify semantic query equivalence, skipping main agent execution on a match."""
     ctx = callback_context
 
@@ -462,7 +465,10 @@ async def after_agent_save_cache(
     if user_query and final_text:
         now = time.time()
         with agent_query_cache_manager.cache_lock:
-            agent_query_cache_manager.query_cache[user_query.strip()] = (now + AGENT_CACHE_TTL, final_text)
+            agent_query_cache_manager.query_cache[user_query.strip()] = (
+                now + AGENT_CACHE_TTL,
+                final_text,
+            )
         logger.debug("Saved agent response to ADK cache for query: %s", user_query)
 
     return None
@@ -508,7 +514,11 @@ root_agent = Agent(
         get_cai_metadata_for_resources,
         get_cai_history_for_resource,
     ],
-    before_agent_callback=[reset_tool_call_counter, discover_projects_callback, before_agent_cache_lookup],
+    before_agent_callback=[
+        reset_tool_call_counter,
+        discover_projects_callback,
+        before_agent_cache_lookup,
+    ],
     before_tool_callback=check_tool_call_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,

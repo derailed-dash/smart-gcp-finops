@@ -73,17 +73,15 @@ class CAIClientManager:
             return cost_records
 
         all_resource_names = list(
-            {
-                record.get("resource_name")
-                for record in cost_records
-                if record.get("resource_name")
-            }
+            {record.get("resource_name") for record in cost_records if record.get("resource_name")}
         )
 
         if not all_resource_names:
             return cost_records
 
-        logger.debug("Enriching %d cost records with CAI metadata in scope: %s", len(cost_records), scope)
+        logger.debug(
+            "Enriching %d cost records with CAI metadata in scope: %s", len(cost_records), scope
+        )
         cai_metadata_map = {}
         service = self.get_service("cloudasset", "v1")
         CHUNK_SIZE = 20
@@ -94,14 +92,21 @@ class CAIClientManager:
             query = " OR ".join(query_parts)
 
             try:
-                logger.debug("Querying searchAllResources: scope=%s, chunk_size=%d, query=%s", scope, len(chunk), query[:120])
+                logger.debug(
+                    "Querying searchAllResources: scope=%s, chunk_size=%d, query=%s",
+                    scope,
+                    len(chunk),
+                    query[:120],
+                )
                 request = service.v1().searchAllResources(scope=scope, query=query)
                 while request is not None:
                     response = request.execute()
                     results_count = len(response.get("results", []))
                     logger.debug("searchAllResources returned %d asset results.", results_count)
                     if results_count > 0:
-                        logger.debug("Snippet of first search result: %s", response.get("results")[0])
+                        logger.debug(
+                            "Snippet of first search result: %s", response.get("results")[0]
+                        )
                     for asset in response.get("results", []):
                         cai_metadata_map[asset["name"]] = asset
 

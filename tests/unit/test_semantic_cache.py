@@ -38,9 +38,7 @@ async def test_semantic_cache_hit():
     # 2. Creating a mock callback context with a semantically similar query in event history
     mock_event = MagicMock(spec=Event)
     mock_event.role = "user"
-    mock_event.content = Content(
-        role="user", parts=[Part(text="tell me the billing trend")]
-    )
+    mock_event.content = Content(role="user", parts=[Part(text="tell me the billing trend")])
 
     mock_session = MagicMock()
     mock_session.events = [mock_event]
@@ -138,9 +136,7 @@ async def test_fast_local_cache_hit():
     # 2. Creating a mock context with the exact query but different casing
     mock_event = MagicMock(spec=Event)
     mock_event.role = "user"
-    mock_event.content = Content(
-        role="user", parts=[Part(text="  what is the billing trend?  ")]
-    )
+    mock_event.content = Content(role="user", parts=[Part(text="  what is the billing trend?  ")])
 
     mock_session = MagicMock()
     mock_session.events = [mock_event]

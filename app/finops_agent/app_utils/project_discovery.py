@@ -42,7 +42,9 @@ class ProjectDiscoveryManager:
                     logger.debug("Cache hit for user accessible projects: %s", user_email)
                     return cached_projects
 
-        logger.debug("Cache miss for user accessible projects: %s. Performing lookup...", user_email)
+        logger.debug(
+            "Cache miss for user accessible projects: %s. Performing lookup...", user_email
+        )
         projects = set()
         has_top_level_access = False
 
@@ -84,7 +86,10 @@ class ProjectDiscoveryManager:
             try:
                 billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
                 all_billing_projects = list_billing_projects(billing_account)
-                logger.debug("Falling back to project-level checks. Auditing %d billing projects.", len(all_billing_projects))
+                logger.debug(
+                    "Falling back to project-level checks. Auditing %d billing projects.",
+                    len(all_billing_projects),
+                )
 
                 crm_service = get_service("cloudresourcemanager", "v1")
                 for project_id in all_billing_projects:
@@ -105,7 +110,10 @@ class ProjectDiscoveryManager:
                                 if (
                                     member_lower == f"user:{user_email.lower()}"
                                     or member_lower == f"group:{user_email.lower()}"
-                                    or (user_domain and member_lower == f"domain:{user_domain.lower()}")
+                                    or (
+                                        user_domain
+                                        and member_lower == f"domain:{user_domain.lower()}"
+                                    )
                                 ):
                                     is_member = True
                                     break
@@ -115,7 +123,9 @@ class ProjectDiscoveryManager:
                         if is_member:
                             projects.add(project_id)
                     except Exception as ex:
-                        logger.warning(f"Failed to verify IAM policy for project {project_id}: {ex}")
+                        logger.warning(
+                            f"Failed to verify IAM policy for project {project_id}: {ex}"
+                        )
             except Exception as e:
                 logger.error(f"Error executing project-level permission discovery: {e}")
 
@@ -161,7 +171,9 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
             response = request.execute()
 
             project_billing_info = response.get("projectBillingInfo", [])
-            logger.debug("Billing account projects list returned %d items.", len(project_billing_info))
+            logger.debug(
+                "Billing account projects list returned %d items.", len(project_billing_info)
+            )
             for info in project_billing_info:
                 projects.append(info["projectId"])
 
@@ -174,9 +186,7 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
         return projects
 
     except Exception as e:
-        logger.error(
-            f"Error listing projects for billing account {billing_account_name}: {e}"
-        )
+        logger.error(f"Error listing projects for billing account {billing_account_name}: {e}")
         return []
 
 
@@ -195,12 +205,18 @@ def get_projects_in_org(org_id: str) -> set[str]:
         asset_types = ["cloudresourcemanager.googleapis.com/Project"]
 
         projects = set()
-        logger.debug("Querying searchAllResources for org projects: scope=%s, assetTypes=%s", scope, asset_types)
+        logger.debug(
+            "Querying searchAllResources for org projects: scope=%s, assetTypes=%s",
+            scope,
+            asset_types,
+        )
         request = service.v1().searchAllResources(scope=scope, assetTypes=asset_types)
 
         while request is not None:
             response = request.execute()
-            logger.debug("searchAllResources returned %d resource items.", len(response.get("results", [])))
+            logger.debug(
+                "searchAllResources returned %d resource items.", len(response.get("results", []))
+            )
             for asset in response.get("results", []):
                 name = asset.get("name", "")
                 if "/projects/" in name:

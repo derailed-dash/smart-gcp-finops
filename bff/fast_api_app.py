@@ -3,6 +3,7 @@ Description: Backend BFF FastAPI application.
 Why: Serves as the Backend-for-Frontend (BFF) proxy and static React asset host on Cloud Run.
 How: Sets up FastAPI endpoints, handles IAP user authentication headers, resolves project access scoping, and proxies chat requests to the remote Agent Runtime or runs a local ADK fallback thread.
 """
+# ruff: noqa: E402  # Setup logging suppressions early to catch import-time warnings from subsequent packages
 
 import asyncio
 import contextlib
@@ -17,6 +18,10 @@ from typing import ClassVar
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
 
+from finops_agent.app_utils.logging_and_telemetry import setup_logging_suppressions
+
+setup_logging_suppressions()
+
 import google.auth
 import google.cloud.logging
 from a2a.server.tasks import InMemoryTaskStore  # type: ignore
@@ -27,16 +32,12 @@ from fastapi.staticfiles import StaticFiles
 from finops_agent.app_utils import services
 from finops_agent.app_utils.a2a import attach_a2a_routes
 from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
-from finops_agent.app_utils.logging_and_telemetry import (
-    setup_logging_suppressions,
-    setup_telemetry,
-)
+from finops_agent.app_utils.logging_and_telemetry import setup_telemetry
 from finops_agent.app_utils.project_discovery import get_user_accessible_projects
 from finops_agent.app_utils.typing import Feedback
+from finops_agent.config import settings
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
-
-from finops_agent.config import settings
 
 load_dotenv()
 setup_telemetry()
@@ -81,8 +82,10 @@ allow_origins = (
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 
+
 class AppState:
     """Encapsulates persistent, lazy-initialised application state."""
+
     remote_session_id = None
     _remote_session_lock: ClassVar[asyncio.Lock | None] = None
 
@@ -104,6 +107,7 @@ def _get_user_email(request: Request) -> str:
     elif user_email:
         return user_email
     from finops_agent.config import settings
+
     return settings.local_developer_email
 
 
@@ -217,7 +221,9 @@ async def chat_stream(request: Request):
         from google.genai import types
 
         # Inject dynamic user security instruction into the prompt
-        proj_list_str = ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "'__NONE__'"
+        proj_list_str = (
+            ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "'__NONE__'"
+        )
         security_guard_prompt = (
             f"\n\n[SECURITY CONSTRAINT: You are acting on behalf of the user '{user_email}'. "
             f"This user only has access to the following projects: [{proj_list_str}]. "
@@ -261,9 +267,7 @@ async def chat_stream(request: Request):
 
                 async with AppState.get_remote_session_lock():
                     if AppState.remote_session_id is None:
-                        session_obj = await agent_engine.async_create_session(
-                            user_id=user_email
-                        )
+                        session_obj = await agent_engine.async_create_session(user_id=user_email)
                         AppState.remote_session_id = (
                             session_obj.get("id")
                             if isinstance(session_obj, dict)
@@ -302,6 +306,7 @@ async def chat_stream(request: Request):
             task.add_done_callback(background_tasks.discard)
         else:
             import threading
+
             threading.Thread(target=run_agent_in_thread, daemon=True).start()
 
         seen_function_calls = set()
@@ -332,11 +337,7 @@ async def chat_stream(request: Request):
 
                 yield (
                     "data: "
-                    + json.dumps(
-                        {
-                            "reasoning": f"❌ Error: {event!s}\n{traceback.format_exc()}\n"
-                        }
-                    )
+                    + json.dumps({"reasoning": f"❌ Error: {event!s}\n{traceback.format_exc()}\n"})
                     + "\n\n"
                 )
                 break
@@ -382,9 +383,7 @@ async def chat_stream(request: Request):
                                 yield (
                                     "data: "
                                     + json.dumps(
-                                        {
-                                            "reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"
-                                        }
+                                        {"reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"}
                                     )
                                     + "\n\n"
                                 )
@@ -433,9 +432,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
 
 
 # Serve the static pre-compiled React frontend SPA assets in production
-FRONTEND_DIST = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-)
+FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
 if os.path.exists(FRONTEND_DIST):
     # Mount the /assets static assets subfolder
@@ -472,4 +469,5 @@ if os.path.exists(FRONTEND_DIST):
 # Main execution
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

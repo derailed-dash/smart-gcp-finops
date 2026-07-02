@@ -8,22 +8,20 @@ import logging
 import os
 import warnings
 
-import google.auth
-from google.adk.cli.api_server import _setup_instrumentation_lib_if_installed
-from google.adk.telemetry.google_cloud import get_gcp_exporters, get_gcp_resource
-from google.adk.telemetry.setup import maybe_set_otel_providers
-
 logger = logging.getLogger(__name__)
 
 
 def setup_telemetry() -> str | None:
     """Configure GenAI prompt/response logging via OpenTelemetry."""
+    import google.auth
+    from google.adk.cli.api_server import _setup_instrumentation_lib_if_installed
+    from google.adk.telemetry.google_cloud import get_gcp_exporters, get_gcp_resource
+    from google.adk.telemetry.setup import maybe_set_otel_providers
+
     os.environ.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
 
     bucket = os.environ.get("LOGS_BUCKET_NAME")
-    capture_content = os.environ.get(
-        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false"
-    )
+    capture_content = os.environ.get("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false")
     if bucket and capture_content != "false":
         logging.info(
             "Prompt-response logging enabled - mode: NO_CONTENT (metadata only, no prompts/responses)"
@@ -31,9 +29,7 @@ def setup_telemetry() -> str | None:
         os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_UPLOAD_FORMAT", "jsonl")
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK", "upload")
-        os.environ.setdefault(
-            "OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental"
-        )
+        os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         commit_sha = os.environ.get("COMMIT_SHA", "dev")
         os.environ.setdefault(
             "OTEL_RESOURCE_ATTRIBUTES",
@@ -76,6 +72,9 @@ def setup_telemetry() -> str | None:
 def setup_logging_suppressions() -> None:
     """Configures Python logging levels and warning filters to suppress noisy third-party outputs."""
     warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")
+    warnings.filterwarnings(
+        "ignore", message=".*httplib2 transport does not support per-request timeout.*"
+    )
 
     logging.getLogger("urllib3").setLevel(logging.INFO)
     logging.getLogger("googleapiclient").setLevel(logging.INFO)

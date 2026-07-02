@@ -24,15 +24,11 @@ def test_classify_project():
 def test_estimate_zombie_cost():
     # Disks with parsed sizes
     assert (
-        estimate_zombie_cost(
-            {"additionalAttributes": {"size": "100 GB"}}, "UNATTACHED_DISKS"
-        )
+        estimate_zombie_cost({"additionalAttributes": {"size": "100 GB"}}, "UNATTACHED_DISKS")
         == 10.0
     )
     assert (
-        estimate_zombie_cost(
-            {"additionalAttributes": {"size": "500 GiB"}}, "UNATTACHED_DISKS"
-        )
+        estimate_zombie_cost({"additionalAttributes": {"size": "500 GiB"}}, "UNATTACHED_DISKS")
         == 50.0
     )
     # Disk with unknown size defaults to 40.0
@@ -45,9 +41,7 @@ def test_estimate_zombie_cost():
 @patch("finops_agent.app_utils.dashboard_data.list_zombie_resources")
 @patch("finops_agent.app_utils.dashboard_data.bigquery.Client")
 @patch("finops_agent.app_utils.dashboard_data.default")
-def test_get_actual_dashboard_metrics(
-    mock_default, mock_bq_client_class, mock_list_zombies
-):
+def test_get_actual_dashboard_metrics(mock_default, mock_bq_client_class, mock_list_zombies):
     mock_default.return_value = (MagicMock(), "fake-project")
 
     # Mock BigQuery Client and query results
@@ -170,7 +164,7 @@ def test_get_actual_dashboard_metrics_with_allowed_projects(
             "displayName": "disk-2",
             "project": "projects/p2",
             "additionalAttributes": {"size": "200 GB"},
-        }
+        },
     ]
 
     allowed_projects = {"p1"}

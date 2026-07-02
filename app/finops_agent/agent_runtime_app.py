@@ -3,6 +3,7 @@ Description: Agent Runtime application bootstrapper.
 Why: Connects the locally defined root agent to the Gemini Enterprise Agent Runtime.
 How: Instantiates and initializes the ADK agent runtime and exports the Agent Runtime deployment configuration.
 """
+# ruff: noqa: E402  # Setup logging suppressions early to catch import-time warnings from subsequent packages
 
 import logging
 import os
@@ -12,6 +13,13 @@ from typing import Any
 # Ensure the parent directory is in sys.path so that 'import finops_agent' resolves correctly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from finops_agent.app_utils.logging_and_telemetry import (
+    setup_logging_suppressions,
+    setup_telemetry,
+)
+
+setup_logging_suppressions()
+
 import google.cloud.logging
 import vertexai
 from dotenv import load_dotenv
@@ -19,10 +27,6 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from vertexai.agent_engines.templates.adk import AdkApp
 
 from finops_agent.agent import app as adk_app
-from finops_agent.app_utils.logging_and_telemetry import (
-    setup_logging_suppressions,
-    setup_telemetry,
-)
 from finops_agent.app_utils.typing import Feedback
 from finops_agent.config import settings
 
@@ -73,7 +77,13 @@ class AgentRuntimeApp(AdkApp):
         operations = super().register_operations()
 
         # Force-register standard query methods to bypass the cloud-side inspection bug
-        standard_ops = ["query", "async_query", "stream_query", "async_stream_query", "register_feedback"]
+        standard_ops = [
+            "query",
+            "async_query",
+            "stream_query",
+            "async_stream_query",
+            "register_feedback",
+        ]
         existing_ops = operations.get("", [])
 
         # Merge existing operations with the standard required operations

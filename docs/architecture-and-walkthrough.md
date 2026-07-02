@@ -82,6 +82,40 @@ To support clean isolation, local testing, and separate scaling in production, t
    - **Dependencies**: Includes `google-adk`, `mcp`, and Google Cloud client libraries, with all web-serving and database dependencies (`fastapi`, `uvicorn`, `asyncpg`, etc.) completely pruned.
 
 
+### Developer Configuration & Deployment "Sets"
+
+To manage the decoupled lifecycle of the UI/BFF and the Agent, the project maintains two isolated configuration sets. It is crucial to understand which files govern each deployment:
+
+#### 1. The Root Deployment Set (FastAPI BFF & React UI)
+This set manages the web container deployed to Cloud Run, which hosts the static frontend assets and exposes the endpoints to the user client.
+*   **Dependencies**: Governed by the root [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and root `uv.lock`. This includes web frameworks (`fastapi`, `uvicorn`), database drivers (`asyncpg`), and the client SDK (`google-genai`) to communicate with the remote agent.
+*   **Build Target**: Governed by the root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile). This is a multi-stage Docker build that compiles the React application using Node.js/Vite and mounts the static dist output directly inside the FastAPI Python runtime.
+*   **Configuration**: Initialized locally via `.env` and secured in the repository using the `.env.enc` git-crypt file.
+*   **Deploy Command**: Triggers building the unified image and pushing it to Artifact Registry via Cloud Build, then deploying to Cloud Run:
+    ```bash
+    make deploy-cloud-run
+    ```
+
+#### 2. The Agent Deployment Set (ADK Agent & Agent Runtime)
+This set manages the Reasoning Engine container deployed to Vertex AI Agent Runtime, which executes the cognitive loops and calls tools.
+*   **Dependencies**: Governed by [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and `app/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
+*   **Build Target**: Governed by [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
+*   **Configuration**: Initialized locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
+*   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Vertex AI Agent Runtime:
+    ```bash
+    make deploy-agent-runtime
+    ```
+
+#### 3. Automatic Requirements Compilation (`requirements.txt`)
+In the `app/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) file. 
+*   **Purpose**: The Vertex AI SDK requires a standard `requirements.txt` file inside the agent source directory during Reasoning Engine registration/serialization to map package dependencies.
+*   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `app/pyproject.toml` and run the compilation target to generate it automatically:
+    ```bash
+    make export-requirements
+    ```
+    This compiles the frozen dependencies from `app/pyproject.toml` directly into `app/finops_agent/requirements.txt`.
+
+
 ### Project Relationships & Cross-Project Interactions
 
 The FinSavant system relies on a multi-project GCP architecture to isolate operational environments, billing assets, and build pipelines. The relationships and interactions between these components are described below:

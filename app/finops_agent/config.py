@@ -70,4 +70,4 @@ class Settings(BaseSettings):
     local_developer_email: str = "local-dev@example.com"
 
 
-settings = Settings()  # ty: ignore[missing-argument]
+settings = Settings()

@@ -19,12 +19,14 @@ def mock_settings():
         mock_set.google_cloud_billing_account = "123456-7890AB-CDEF01"
         yield mock_set
 
+
 @pytest.fixture
 def mock_bq_client():
     with patch("finops_agent.app_utils.tools._get_bq_client") as mock_get_client:
         client = MagicMock()
         mock_get_client.return_value = client
         yield client
+
 
 @pytest.fixture
 def mock_context():

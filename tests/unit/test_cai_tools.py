@@ -82,11 +82,7 @@ def test_get_cai_metadata_for_resources_org_scope(mock_enrich, mock_list_project
         assert len(result) == 1
         mock_list_projects.assert_not_called()
         mock_enrich.assert_called_once_with(
-            [
-                {
-                    "resource_name": "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
-                }
-            ],
+            [{"resource_name": "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"}],
             "organizations/12345678",
         )
     finally:
@@ -101,11 +97,7 @@ def test_get_cai_history_for_resource(mock_history, mock_list_projects):
 
     try:
         mock_history.return_value = [
-            {
-                "asset": {
-                    "name": "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
-                }
-            }
+            {"asset": {"name": "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"}}
         ]
 
         # Use a dynamic time (10 days ago) within the 35-day window to prevent defensive override
@@ -128,9 +120,7 @@ def test_get_cai_history_for_resource(mock_history, mock_list_projects):
 
 @patch("finops_agent.app_utils.cai_tools.list_billing_projects")
 @patch("finops_agent.app_utils.cai_tools.get_asset_history")
-def test_get_cai_history_for_resource_older_than_35_days(
-    mock_history, mock_list_projects
-):
+def test_get_cai_history_for_resource_older_than_35_days(mock_history, mock_list_projects):
     mock_history.return_value = []
 
     # Request a time 100 days ago
@@ -203,11 +193,7 @@ def test_get_cai_metadata_for_resources_hybrid(mock_enrich, mock_list_projects):
 
         # Verify the project scope was called with only the remaining name
         mock_enrich.assert_any_call(
-            [
-                {
-                    "resource_name": "//compute.googleapis.com/projects/p2/zones/z1/disks/d2"
-                }
-            ],
+            [{"resource_name": "//compute.googleapis.com/projects/p2/zones/z1/disks/d2"}],
             "projects/p2",
         )
     finally:
@@ -216,9 +202,7 @@ def test_get_cai_metadata_for_resources_hybrid(mock_enrich, mock_list_projects):
 
 @patch("finops_agent.app_utils.cai_tools.list_billing_projects")
 @patch("finops_agent.app_utils.cai_tools.get_asset_history")
-def test_get_cai_history_for_resource_project_first_success(
-    mock_history, mock_list_projects
-):
+def test_get_cai_history_for_resource_project_first_success(mock_history, mock_list_projects):
     old_org = settings.google_cloud_organization
     settings.google_cloud_organization = "12345678"
 
@@ -243,9 +227,7 @@ def test_get_cai_history_for_resource_project_first_success(
 
 @patch("finops_agent.app_utils.cai_tools.list_billing_projects")
 @patch("finops_agent.app_utils.cai_tools.get_asset_history")
-def test_get_cai_history_for_resource_with_org_fallback(
-    mock_history, mock_list_projects
-):
+def test_get_cai_history_for_resource_with_org_fallback(mock_history, mock_list_projects):
     old_org = settings.google_cloud_organization
     settings.google_cloud_organization = "12345678"
 

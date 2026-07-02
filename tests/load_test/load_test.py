@@ -100,9 +100,7 @@ class ChatStreamUser(HttpUser):
                                 # Flag any non-2xx codes as errors
                                 if event_data["code"] >= 400:
                                     has_error = True
-                                    error_msg = event_data.get(
-                                        "message", "Unknown error"
-                                    )
+                                    error_msg = event_data.get("message", "Unknown error")
                                     response.failure(f"Error in response: {error_msg}")
                                     logger.error(
                                         "Received error response: code=%s, message=%s",

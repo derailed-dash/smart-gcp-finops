@@ -36,9 +36,7 @@ def test_list_billing_projects_success(mock_build):
 
     # Verify
     assert projects == ["project-1", "project-2"]
-    mock_build.assert_called_with(
-        "cloudbilling", "v1", credentials=ANY, cache_discovery=False
-    )
+    mock_build.assert_called_with("cloudbilling", "v1", credentials=ANY, cache_discovery=False)
 
 
 @patch("googleapiclient.discovery.build")
@@ -77,9 +75,7 @@ def test_get_projects_in_org_success(mock_build):
     projects = get_projects_in_org("123456789")
 
     assert projects == {"org-project-1", "org-project-2"}
-    mock_build.assert_called_with(
-        "cloudasset", "v1", credentials=ANY, cache_discovery=False
-    )
+    mock_build.assert_called_with("cloudasset", "v1", credentials=ANY, cache_discovery=False)
 
 
 @patch("finops_agent.app_utils.project_discovery.get_service")
@@ -111,7 +107,9 @@ def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
 @patch("finops_agent.app_utils.project_discovery.list_billing_projects")
 @patch("finops_agent.app_utils.project_discovery.get_service")
 @patch("finops_agent.app_utils.project_discovery.settings")
-def test_get_user_accessible_projects_standalone(mock_settings, mock_get_service, mock_list_billing):
+def test_get_user_accessible_projects_standalone(
+    mock_settings, mock_get_service, mock_list_billing
+):
     """Test get_user_accessible_projects in standalone mode using project-level IAM policies."""
     from finops_agent.app_utils.project_discovery import get_user_accessible_projects
 
@@ -127,14 +125,10 @@ def test_get_user_accessible_projects_standalone(mock_settings, mock_get_service
     # Configure getIamPolicy responses:
     # User has access to proj-a, but not proj-b
     mock_policy_a = {
-        "bindings": [
-            {"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}
-        ]
+        "bindings": [{"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}]
     }
     mock_policy_b = {
-        "bindings": [
-            {"role": "roles/viewer", "members": ["user:some-other-user@dazbo.co.uk"]}
-        ]
+        "bindings": [{"role": "roles/viewer", "members": ["user:some-other-user@dazbo.co.uk"]}]
     }
 
     def get_iam_policy_side_effect(resource):

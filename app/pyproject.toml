@@ -1,20 +1,24 @@
+# Description: Agent-specific pyproject.toml configuration.
+# Scope: Governs the standalone ADK (Agent Development Kit) agent environment and reasoning loops.
+# Build Target: app/Dockerfile compiling the Reasoning Engine backend deployed to managed Vertex AI Agent Runtime.
+
 [project]
-name = "app"
+name = "finops-agent"
 version = "0.1.0"
 description = ""
-authors = [{ name = "Your Name", email = "your@email.com" }]
+authors = [{ name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com" }]
 
 dependencies = [
-    "google-adk[a2a]>=2.1.0,<3.0.0",
-    "mcp>=1.26.0",
-    "google-api-python-client>=2.193.0",
+    "google-adk[a2a]>=2.3.0,<3.0.0",
+    "mcp>=1.28.0",
+    "google-api-python-client>=2.198.0",
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
     "opentelemetry-exporter-gcp-logging>=0.38b0",
     "opentelemetry-exporter-gcp-monitoring>=0.38b0",
     "opentelemetry-resourcedetector-gcp>=1.5.0",
-    "google-cloud-logging>=3.12.0,<4.0.0",
-    "google-cloud-aiplatform[evaluation]>=1.130.0",
-    "google-cloud-aiplatform[agent_engines,adk]",
+    "google-cloud-logging>=3.16.0,<4.0.0",
+    "google-cloud-aiplatform[evaluation,agent-engines]>=1.159.0",
+    "gcsfs>=2026.6.0",
     "pydantic-settings",
 ]
 requires-python = ">=3.12,<3.14"

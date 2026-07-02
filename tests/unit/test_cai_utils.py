@@ -75,10 +75,7 @@ def test_get_asset_history(mock_build):
     )
 
     assert len(history) == 1
-    assert (
-        history[0]["asset"]["name"]
-        == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
-    )
+    assert history[0]["asset"]["name"] == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
 
 
 @patch("finops_agent.app_utils.cai_utils.discovery.build")
@@ -104,13 +101,9 @@ def test_enrich_with_cai_metadata_chunking(mock_build):
     assert mock_service.v1().searchAllResources.call_count == 2
 
     # Check the query string for the first chunk (20 items)
-    first_call_query = (
-        mock_service.v1().searchAllResources.call_args_list[0].kwargs["query"]
-    )
+    first_call_query = mock_service.v1().searchAllResources.call_args_list[0].kwargs["query"]
     assert len(first_call_query.split(" OR ")) == 20
 
     # Check the query string for the second chunk (5 items)
-    second_call_query = (
-        mock_service.v1().searchAllResources.call_args_list[1].kwargs["query"]
-    )
+    second_call_query = mock_service.v1().searchAllResources.call_args_list[1].kwargs["query"]
     assert len(second_call_query.split(" OR ")) == 5

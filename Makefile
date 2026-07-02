@@ -109,9 +109,9 @@ docker-run:
 # Define the fully-qualified Artifact Registry image name
 IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
 
-# Deploy the agent to Cloud Run
-# Usage: make deploy [IAP=true] [PORT=8080] - Set IAP=true to enable Identity-Aware Proxy, PORT to specify container port
-# IMPORTANT: This command automatically queries the live Agent Runtime to resolve the newest AGENT_RUNTIME_ID.
+# Deploy the FastAPI BFF & React UI container to Google Cloud Run.
+# Usage: make deploy-cloud-run [MEMORY=2Gi] [MIN_INSTANCES=0]
+# Note: This target resolves the newest AGENT_RUNTIME_ID dynamically, packaging it as an env var on Cloud Run.
 # You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
 deploy-cloud-run:
 	@echo "🚀 Building and pushing container to Artifact Registry..."
@@ -130,11 +130,9 @@ deploy-cloud-run:
 		--iap \
 		--update-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=$(PROD_LOG_LEVEL),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)"
 
-# Deploy the agent backend to Gemini Enterprise Agent Runtime
-# IMPORTANT: Deploys the Python agent logic (in `app/`) to Vertex AI, 
-# creating a new Reasoning Engine ID.
-# You MUST redeploy the Cloud Run service (`make deploy-cloud-run`) 
-#after running this target to route traffic to the new agent instance.
+# Deploy the standalone ADK agent (packaged via app/Dockerfile) to Gemini Enterprise Agent Runtime (Vertex AI).
+# Note: Deploys the Python agent logic (in `app/`) to create a new Reasoning Engine ID.
+# After this finishes, you MUST redeploy the Cloud Run service (`make deploy-cloud-run`) to update BFF routing to this new instance.
 deploy-agent-runtime:
 	cd app && uvx google-agents-cli deploy \
 		--deployment-target agent_runtime \
@@ -151,6 +149,9 @@ deploy-agent-runtime:
 get-agent-runtime-id:
 	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
 
+# Compile requirements.txt inside the agent package.
+# Why: Vertex AI SDK requires a standard requirements.txt for Reasoning Engine packaging.
+# Note: Developers must NOT edit requirements.txt manually. Add dependencies to app/pyproject.toml and run this target.
 export-requirements:
 	uv pip compile pyproject.toml -o app/finops_agent/requirements.txt
 

@@ -1,4 +1,4 @@
-name: "app"
+name: "finops_agent"
 acli_version: "1.0.0"
 agent_directory: "finops_agent"
 region: "us-east1"
