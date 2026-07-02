@@ -2270,6 +2270,78 @@ During the unified Docker image build process, changes to package manifests inva
 2. **Analysis**: Google Cloud Build runs inside ephemeral VM containers and does not enable BuildKit by default. Since the build VMs are completely clean and deleted after each build, cache mounts do not persist between separate runs anyway.
 3. **Standard Caching**: Retained the standard, highly efficient Docker layer caching structure. As long as `package-lock.json` and `uv.lock` manifests are unchanged, Docker will use standard cached layers, bypassing `npm ci` and `uv sync` operations completely.
 
+---
+
+### Resolving Hanging Remote Agent Response with Unary LLM Routing (Vertex AI SDK Streaming + AFC Bug)
+
+**Problem**:
+After resolving container entrypoints and routing mismatches, the remote Reasoning Engine started up, initialized toolsets, and executed Developer Knowledge and Gemini Cloud Assist MCP calls successfully. However, the connection hung indefinitely right after printing `models.py:8686 - AFC is enabled with max remote calls: 10.`, returning empty responses to the React UI and resulting in high BFF HTTP response latencies.
+
+**Investigation**:
+1. **Network Connectivity**: Checked domain resolution and TCP routing. The container successfully connected to internal Google APIs (returning `200 OK` for MCP lookups), proving egress was fully functional.
+2. **SDK Bug Identification**: Discovered a known client-side streaming bug in the `google-genai` SDK. When combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) in Vertex AI mode, the generator hangs indefinitely after tool execution, failing to return the final text response.
+3. **Interactions API Compatibility**: Researched migrating the agent layer to the stateful, cloud-managed **Interactions API**. However, the Interactions API returned `Unsupported model interaction: gemini-3.5-flash` under our required `gemini-3.5-flash` model, making migration impossible due to strict project constraints.
+
+**Resolution**:
+We bypassed the client-side SDK streaming hang by running the LLM in unary (non-streaming) mode while preserving SSE compatibility in the BFF:
+1. **BFF Run Config Injection**: Modified [fast_api_app.py](../bff/fast_api_app.py) to pass `run_config={"streaming_mode": None}` to all `agent_engine.async_stream_query` calls.
+2. **How it Works**: This instructs the ADK runner inside the container to call the model using unary `generate_content` instead of `generate_content_stream`, bypassing the AFC streaming bug. The runner still compiles the final response events and yields them as an async generator.
+3. **SSE Preservation**: The FastAPI BFF's SSE stream to the React UI remains fully intact, receiving and forwarding the final aggregated text and reasoning events without any UI modifications.
+4. **Validation**: All 52 unit tests pass successfully.
+
+This resolves the hanging response bug, enabling reliable tool execution and quick query responses on the remote Reasoning Engine! Hurrah!
+
+---
+
+### Unswallowing the Final Response: Unary SSE Routing Fix
+
+**Problem**:
+After switching to unary mode to bypass the Vertex AI SDK streaming hang, the remote agent began executing quickly and returning correct responses. However, the React frontend still received empty responses.
+*Investigation:*
+The FastAPI BFF's SSE stream generator in [bff/fast_api_app.py](../bff/fast_api_app.py) contained an `if not is_final:` filter when yielding text chunks. In streaming mode, the ADK yields multiple partial events followed by a final accumulated event containing the entire text. To prevent rendering the text twice, the BFF skipped the final event (`is_final = True`).
+However, in unary mode, there are no partial chunks—only a single final event (where `is_final_response()` is `True` and `partial` is `False`). The filter skipped this single response entirely, sending exactly `0` bytes of text to the UI.
+
+**Resolution**:
+We modified the BFF text chunk extractor to track whether any partial text chunks have been yielded. It checks `is_partial = getattr(event, "partial", False)`:
+```python
+is_partial = getattr(event, "partial", False)
+if hasattr(event, "content") and event.content:
+    parts = event.content.parts if hasattr(event.content, "parts") else []
+    text_chunk = "".join(
+        part.text for part in parts if hasattr(part, "text") and part.text
+    )
+    if text_chunk:
+        if is_partial:
+            has_yielded_partial_text = True
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+        elif not has_yielded_partial_text:
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+```
+This elegantly supports both modes:
+1. **Streaming Mode**: Streams partial chunks (`is_partial = True`, setting `has_yielded_partial_text = True`) and skips the final accumulated response.
+2. **Unary Mode**: Streams the single final response (since `is_partial = False` and `has_yielded_partial_text` remains `False`).
+
+This completely recovers our UI chat updates, bringing the remote Agent Runtime solution fully alive! Hurrah!
+
+---
+
+### Dynamic Debug Logging Telemetry for SSE Inspection
+
+**Problem**:
+Debugging asynchronous streaming channels and remote Reasoning Engine execution flows was extremely difficult without real-time insights into the exact event payloads being returned across the network.
+
+**Resolution**:
+We added detailed `logger.debug` statements inside the FastAPI BFF's `run_remote_agent` thread task:
+1. Logs session creation arguments and resolved session IDs.
+2. Prints each raw incoming event dictionary yielded from the `async_stream_query()` generator.
+3. Automatically outputs full stack tracebacks to Cloud Logging on execution exceptions.
+
+These telemetry logs are dynamically enabled by deploying the container with:
+```bash
+make deploy-cloud-run LOG_LEVEL=DEBUG
+```
+This enables developers to examine the event payloads step-by-step directly from the Cloud Run logs console! Hurrah!
+
 
 
 

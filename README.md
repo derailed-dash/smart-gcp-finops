@@ -123,7 +123,7 @@ make install && make playground
 | `make tf-apply`      | Initialise Terraform and apply deployment configuration           |
 | `make deploy-agent-runtime` | Deploy backend agent code to Gemini Enterprise Agent Runtime   |
 | `make get-agent-runtime-id` | Retrieve the deployed Agent Runtime ID (resource URN)              |
-| `make deploy-cloud-run` | Deploy BFF container to Cloud Run using Cloud Build              |
+| `make deploy-cloud-run` | Deploy BFF container to Cloud Run using Cloud Build. Pass `LOG_LEVEL=DEBUG` to enable debugging |
 
 
 ## Local Development & Testing Flow
@@ -197,6 +197,22 @@ An interactive notebook is available at [adk_app_testing.ipynb](notebooks/adk_ap
 - **Remote Testing (Cloud Run)**: Triggering the deployed uvicorn server/SSE streaming interface.
 
 For full usage instructions, refer to the [Testing Guide](docs/testing.md#interactive-testing-via-jupyter-notebook).
+
+### Debug Logging
+
+FinSavant is pre-configured with detailed debug logs to trace remote session creation, agent queries, and incoming event payloads.
+
+To enable full debug logging in local development or deployed Cloud Run instances:
+
+*   **Local Development**: Set the environment variable in your local `.env` file:
+    ```env
+    LOG_LEVEL=DEBUG
+    ```
+*   **Deployed Environments**: Redeploy the Cloud Run BFF passing the `LOG_LEVEL` make variable:
+    ```bash
+    make deploy-cloud-run LOG_LEVEL=DEBUG
+    ```
+    This updates the container's environment variables and outputs logs to Google Cloud Logging at the `DEBUG` level.
 
 ## CI/CD & Deployment Flow
 

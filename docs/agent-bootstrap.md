@@ -77,4 +77,66 @@ All tests pass successfully under the new architecture:
   ```
 - **Local Container Run Mode:** Running `make docker-run` originally passed the host-resolved `AGENT_RUNTIME_ID` environment variable to the container. If a remote agent runtime had already been deployed once, this forced the local container to run as a remote proxy client instead of running the local agent code in-container. We introduced the `DOCKER_AGENT_RUNTIME_ID` Makefile variable (defaulting to empty), and updated the `docker-run` target to pass `AGENT_RUNTIME_ID="$(DOCKER_AGENT_RUNTIME_ID)"`. This forces the local container to run the local agent by default, while still allowing developers to test remote proxy mode explicitly using `make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)`.
 
+## 8. Dataplex Dependency and Remote API 404 Routing Resolution (2026-07-02)
 
+- **Issue 1 (Import Error):** The remote Reasoning Engine container crashed at startup with:
+  ```text
+  ImportError: cannot import name 'dataplex_v1' from 'google.cloud'
+  ```
+  *Why:* ADK's `BigQueryToolset` depends internally on the `google-cloud-dataplex` package. When we pruned dependencies to optimize container sizes, we accidentally omitted Dataplex.
+  *Resolution:* Added `google-cloud-dataplex` to the dependencies in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
+
+- **Issue 2 (404 Mapped Routing):** Remote calls to the container returned HTTP `404 Not Found` (detail: `"Not Found"`) from the Vertex AI Control Plane.
+  *Why:* To suppress warning logs, we had pruned the `"async"` and `"async_stream"` keys from `register_operations()` in `agent_runtime_app.py`. However, the Vertex control plane uses these keys to construct its routing tables; removing them broke the routing paths.
+  *Resolution:* Restored the original keys in `register_operations()`, confirming that the client-side warning is harmless, whereas removing the keys breaks execution.
+
+## 9. Bypassing SDK Streaming Hang with Unary Mode (2026-07-02)
+
+- **Issue:** The agent execution hung indefinitely immediately after logging:
+  ```text
+  models.py:8686 - AFC is enabled with max remote calls: 10.
+  ```
+  *Why:* The `google-genai` SDK version 2.x contains a known client-side bug where combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) on Vertex AI results in a deadlocked thread that hangs and fails to return the final text response.
+  *Resolution:* Bypassed the streaming bug by instructing the ADK runner inside the Reasoning Engine container to execute in unary (non-streaming) mode by injecting `run_config={"streaming_mode": None}`:
+  ```python
+  async for event_dict in agent_engine.async_stream_query(
+      message=augmented_message,
+      user_id=user_email,
+      session_id=AppState.remote_session_id,
+      run_config={"streaming_mode": None},
+  ):
+      event = Event.model_validate(event_dict)
+      await event_queue.put(event)
+  ```
+
+## 10. BFF Response Swallowing and Stream Recovery (2026-07-02)
+
+- **Issue:** The UI received empty chat bubbles, and the BFF logged very low latencies (e.g., 2.2 seconds) and returned empty responses.
+  *Why:* The BFF event generator loop had an `if not is_final:` filter. This was designed to skip the final accumulated response in streaming mode to prevent showing duplicate text. However, in unary mode, the engine only returns a single event where `is_final_response()` is `True` and `partial` is `False`. The filter skipped this final event, resulting in a blank response.
+  *Resolution:* Modified [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) to check `event.partial` to keep track of whether any partial text has been yielded:
+  ```python
+  is_partial = getattr(event, "partial", False)
+  if hasattr(event, "content") and event.content:
+      parts = event.content.parts if hasattr(event.content, "parts") else []
+      text_chunk = "".join(
+          part.text for part in parts if hasattr(part, "text") and part.text
+      )
+      if text_chunk:
+          if is_partial:
+              has_yielded_partial_text = True
+              yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+          elif not has_yielded_partial_text:
+              yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+  ```
+  This handles both normal streaming (yield chunks, skip final duplicate) and unary mode (yield the single final response).
+
+## 11. Debug Logging and Deployment Configurations (2026-07-02)
+
+- **Resolution:** Added detailed `logger.debug` tracing to log:
+  1. Session creation arguments and results.
+  2. Incoming remote JSON payloads from the `agent_engine.async_stream_query()` generator.
+  3. Structured stack trace dumps on execution failures.
+- **Usage:** Developers can deploy with debug logging enabled by specifying `LOG_LEVEL` in the deployment targets:
+  ```bash
+  make deploy-cloud-run LOG_LEVEL=DEBUG
+  ```

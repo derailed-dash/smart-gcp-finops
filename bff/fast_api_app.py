@@ -267,6 +267,7 @@ async def chat_stream(request: Request):
 
                 async with AppState.get_remote_session_lock():
                     if AppState.remote_session_id is None:
+                        logger.debug("Creating new remote session for user %s", user_email)
                         session_obj = await agent_engine.async_create_session(user_id=user_email)
                         AppState.remote_session_id = (
                             session_obj.get("id")
@@ -275,13 +276,17 @@ async def chat_stream(request: Request):
                         )
                         if not AppState.remote_session_id:
                             AppState.remote_session_id = str(session_obj)
+                        logger.debug("Created remote session ID: %s", AppState.remote_session_id)
 
+                logger.debug("Starting remote query execution with session ID: %s", AppState.remote_session_id)
                 try:
                     async for event_dict in agent_engine.async_stream_query(
                         message=augmented_message,
                         user_id=user_email,
                         session_id=AppState.remote_session_id,
+                        run_config={"streaming_mode": None},
                     ):
+                        logger.debug("Received remote event payload: %s", event_dict)
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
                 except SessionNotFoundError:
@@ -291,13 +296,18 @@ async def chat_stream(request: Request):
                     async with AppState.get_remote_session_lock():
                         AppState.remote_session_id = None
                     async for event_dict in agent_engine.async_stream_query(
-                        message=message, user_id=user_email
+                        message=message,
+                        user_id=user_email,
+                        run_config={"streaming_mode": None},
                     ):
+                        logger.debug("Received remote event payload (retry): %s", event_dict)
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
             except Exception as e:
+                logger.error("Exception in run_remote_agent background thread: %s", e, exc_info=True)
                 await event_queue.put(e)
             finally:
+                logger.debug("Remote agent runner task completed.")
                 await event_queue.put(None)
 
         if agent_runtime_id:
@@ -311,6 +321,7 @@ async def chat_stream(request: Request):
 
         seen_function_calls = set()
         seen_function_responses = set()
+        has_yielded_partial_text = False
         seconds_passed = 0
         while True:
             # Proactively check if client has disconnected (closes tab or refreshes)
@@ -345,20 +356,18 @@ async def chat_stream(request: Request):
             seconds_passed = 0
 
             # Stream real-time text chunks
-            is_final = False
-            if hasattr(event, "is_final_response"):
-                try:
-                    is_final = event.is_final_response()
-                except Exception:
-                    pass
-
-            if not is_final and hasattr(event, "content") and event.content:
+            is_partial = getattr(event, "partial", False)
+            if hasattr(event, "content") and event.content:
                 parts = event.content.parts if hasattr(event.content, "parts") else []
                 text_chunk = "".join(
                     part.text for part in parts if hasattr(part, "text") and part.text
                 )
                 if text_chunk:
-                    yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                    if is_partial:
+                        has_yielded_partial_text = True
+                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                    elif not has_yielded_partial_text:
+                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
 
             # Stream intermediate reasoning/tool status updates
             if hasattr(event, "status") and event.status:
