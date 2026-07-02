@@ -1,17 +1,15 @@
-# app
+# FinOps_Agent App
 
-Simple ReAct agent
-Agent generated with `agents-cli` version `1.0.0`
+Originally bootstrapped with `agents-cli` version `1.0.0`.
+Then modified to achieve required logic.
 
 ## Project Structure
 
 ```
 app/
-├── app/         # Core agent code
+├── finops_agent/         # Core agent code
 │   ├── agent.py               # Main agent logic
-│   ├── fast_api_app.py        # FastAPI Backend server
 │   └── app_utils/             # App utilities and helpers
-├── tests/                     # Unit, integration, and load tests
 ├── GEMINI.md                  # AI-assisted development guide
 └── pyproject.toml             # Project dependencies
 ```

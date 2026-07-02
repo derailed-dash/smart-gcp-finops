@@ -332,7 +332,7 @@ Compile the dependencies and package/upload the Python agent logic (configured i
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles staging dependencies to `app/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
+*   **What this does**: It compiles staging dependencies to `app/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
 *   **Result**: A new `reasoningEngine` resource instance is created on Vertex AI.
 
 ### 3. Deploy the Cloud Run BFF and Frontend

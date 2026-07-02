@@ -100,19 +100,26 @@ class AppState:
 def _get_user_email(request: Request) -> str:
     """Extracts the authenticated user email from IAP headers, falling back to local settings."""
     user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
-    if user_email.startswith("accounts.google.com:"):
-        return user_email.split("accounts.google.com:")[-1]
-    elif user_email.startswith("mailto:"):
-        return user_email.split("mailto:")[-1]
-    elif user_email:
-        return user_email
-    from finops_agent.config import settings
+    match user_email.split(":", 1):
+        case ["accounts.google.com", email]:
+            return email
+        case ["mailto", email]:
+            return email
+        case [email] if email:
+            return email
+        case _:
+            from finops_agent.config import settings
 
-    return settings.local_developer_email
+            return settings.local_developer_email
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manages the startup and shutdown lifecycle of the FastAPI application.
+
+    Initialises the ADK Runner, configures the session and artifact services,
+    and maps them to the application state for global access.
+    """
     from finops_agent.agent import app as adk_app
     from finops_agent.agent import root_agent
 
@@ -191,9 +198,15 @@ def get_dashboard(
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
 async def chat_stream(request: Request):
-    """Streams the ADK agent chat responses using Server-Sent Events (SSE).
+    """Streams the ADK agent chat responses to the frontend using Server-Sent Events (SSE).
 
-    Includes a 15-second heartbeat to prevent Cloud Run timeouts.
+    This handler supports two runtime streaming scenarios:
+    1. Standard SSE Streaming: Yields real-time partial text chunks as they are generated.
+    2. Unary Fallback Mode: Used during remote runs to bypass Vertex AI SDK streaming
+       deadlocks. It executes the model in unary mode and yields the final compiled
+       response in a single event.
+
+    Includes a 15-second heartbeat to prevent intermediate proxy or Cloud Run timeouts.
     """
     body = await request.json()
     message = body.get("message", "")
@@ -431,7 +444,15 @@ async def chat_stream(request: Request):
 
 @app.post("/feedback")
 def collect_feedback(feedback: Feedback) -> dict[str, str]:
-    """Collect and log feedback."""
+    """Collects and logs user feedback for agent responses.
+
+    This endpoint is triggered when a user interacts with the feedback controls
+    (thumbs up/down, optional text comments) in the React chat UI. The feedback
+    data includes the session ID, query context, and satisfaction score.
+
+    Logs are structured to enable downstream telemetry ingestion, quality
+    audits, and training set curation for model evaluation and tuning.
+    """
     logger.info(
         "Feedback received: %s",
         feedback.model_dump(),
@@ -475,7 +496,10 @@ if os.path.exists(FRONTEND_DIST):
         raise HTTPException(status_code=404, detail="Index file not found")
 
 
-# Main execution
+# Main execution entry point.
+# This block is only entered when executing the script directly (e.g. `python bff/fast_api_app.py`).
+# It is skipped in local development (`make run-backend`) and production (Docker)
+# where uvicorn imports `bff.fast_api_app:app` dynamically as a module.
 if __name__ == "__main__":
     import uvicorn
 

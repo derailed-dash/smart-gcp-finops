@@ -1,3 +1,9 @@
+"""
+Description: Agent Runtime deployment helper.
+Why: Programmatically registers and deploys the ADK agent to Vertex AI Agent Runtime.
+How: Initialises the Vertex AI client and registers the finops_agent package.
+"""
+
 import vertexai
 
 from finops_agent.config import settings
