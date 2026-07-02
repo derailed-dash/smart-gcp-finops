@@ -53,7 +53,7 @@ playground:
 # Launch local development server with hot-reload
 # Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
 local-backend:
-	PYTHONPATH=app uv run uvicorn bff.fast_api_app:app --host localhost --port $(or $(PORT),8000) --reload
+	PYTHONPATH=app uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
 
 # Run the Backend BFF Server (FastAPI + ADK Agent)
 run-backend:
