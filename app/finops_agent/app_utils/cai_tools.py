@@ -1,7 +1,8 @@
 """
 Description: Cloud Asset Inventory (CAI) custom tools.
 Why: Exposes project, resource, and history scanning capabilities to the agent.
-How: Integrates with CAI REST APIs using the Google API Python client, providing cached discovery and temporal configuration drift checks.
+How: Integrates with CAI REST APIs using the Google API Python client,
+providing cached discovery and temporal configuration drift checks.
 """
 
 import logging
@@ -14,23 +15,21 @@ from functools import partial
 
 from google.adk.tools import ToolContext
 
-from app.app_utils.cai_utils import (
+from finops_agent.app_utils.cai_utils import (
     enrich_with_cai_metadata,
     get_asset_history,
     is_org_scope_disabled,
 )
-from app.app_utils.project_discovery import list_billing_projects
-from app.config import settings
+from finops_agent.app_utils.project_discovery import list_billing_projects
+from finops_agent.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Thread-safe in-memory cache for CAI metadata
-# Format: {sorted_tuple_of_resource_names: (expiry_timestamp, list_of_metadata)}
 _METADATA_CACHE: dict[tuple[str, ...], tuple[float, list[dict]]] = {}
 _METADATA_CACHE_LOCK = threading.Lock()
 
 # Thread-safe in-memory cache for CAI resource history
-# Format: {(resource_name, start_time, end_time): (expiry_timestamp, list_of_history)}
 _HISTORY_CACHE: dict[tuple[str, str, str | None], tuple[float, list[dict]]] = {}
 _HISTORY_CACHE_LOCK = threading.Lock()
 
@@ -102,17 +101,13 @@ def get_cai_metadata_for_resources(
 
     # 3. Last Resort Fallback: If URIs lacked project IDs
     if unmatched_names:
-        billing_account_name = (
-            f"billingAccounts/{settings.google_cloud_billing_account}"
-        )
+        billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
         unmatched_records = [{"resource_name": name} for name in unmatched_names]
 
-        # Use a partial function to curry the fixed 'unmatched_records' argument
         enrich_func = partial(enrich_with_cai_metadata, unmatched_records)
 
         with ThreadPoolExecutor() as executor:
-            # Map the enrich function over the project scopes that need checking
             scopes_to_check = [
                 f"projects/{pid}"
                 for pid in project_ids
@@ -122,10 +117,7 @@ def get_cai_metadata_for_resources(
 
             for enriched_chunk in results:
                 for record in enriched_chunk:
-                    if (
-                        record.get("cai_metadata")
-                        and record["cai_metadata"] not in all_metadata
-                    ):
+                    if record.get("cai_metadata") and record["cai_metadata"] not in all_metadata:
                         all_metadata.append(record["cai_metadata"])
 
     with _METADATA_CACHE_LOCK:
@@ -156,28 +148,20 @@ def get_cai_history_for_resource(
         list[dict]: A list of historical asset states showing configuration changes over time.
     """
 
-    # Enforce CAI 35-day history limit
     try:
-        # Standardize the timestamp format to match what Google API expects (RFC 3339)
-        # ADK/LLMs sometimes output "Z" which Google's Python client doesn't always parse cleanly
-        # or they omit the +00:00 timezone indicator entirely.
         if "Z" in start_time:
             start_time = start_time.replace("Z", "+00:00")
         elif "+" not in start_time and "-" not in start_time.split("T")[-1]:
             start_time = f"{start_time}+00:00"
 
         start_dt = datetime.fromisoformat(start_time)
-        min_allowed_dt = datetime.now(UTC) - timedelta(
-            days=34, hours=23, minutes=50
-        )  # Slightly less than 35 days to be safe
+        min_allowed_dt = datetime.now(UTC) - timedelta(days=34, hours=23, minutes=50)
 
         if start_dt < min_allowed_dt:
-            # Adjust to the minimum allowed time to prevent 400 Bad Request
             start_time = min_allowed_dt.isoformat()
     except Exception:
-        pass  # If parsing fails, pass it through to the API to handle
+        pass
 
-    # Ensure end_time is also properly formatted if provided
     if end_time:
         try:
             if "Z" in end_time:
@@ -187,7 +171,7 @@ def get_cai_history_for_resource(
         except Exception:
             pass
 
-    logger.info(
+    logger.debug(
         "Requesting CAI history: resource_name=%s, start_time=%s, end_time=%s",
         resource_name,
         start_time,
@@ -200,7 +184,7 @@ def get_cai_history_for_resource(
         if cache_key in _HISTORY_CACHE:
             expiry, cached_data = _HISTORY_CACHE[cache_key]
             if now <= expiry:
-                logger.info(
+                logger.debug(
                     "CAI history cache hit for resource: %s (returned %d records)",
                     resource_name,
                     len(cached_data),
@@ -209,42 +193,29 @@ def get_cai_history_for_resource(
 
     history_results = []
 
-    # 1. Try project-level lookup first if project can be extracted from resource name
     project_match = re.search(r"/projects/([^/]+)", resource_name)
     if project_match:
         scope = f"projects/{project_match.group(1)}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    # 2. Fall back to organization scope if no history was found (or project wasn't extracted)
-    # AND organization scope has not been disabled due to 403 errors
-    if (
-        not history_results
-        and settings.google_cloud_organization
-        and not is_org_scope_disabled()
-    ):
+    if not history_results and settings.google_cloud_organization and not is_org_scope_disabled():
         scope = f"organizations/{settings.google_cloud_organization}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    # 3. Fallback to querying all billing projects if previous steps yielded nothing
     if not history_results:
-        billing_account_name = (
-            f"billingAccounts/{settings.google_cloud_billing_account}"
-        )
+        billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
 
-        # Avoid re-querying the project we already queried in step 1
         queried_projects = {project_match.group(1)} if project_match else set()
         for project_id in project_ids:
             if project_id in queried_projects:
                 continue
             scope = f"projects/{project_id}"
-            history_results = get_asset_history(
-                resource_name, scope, start_time, end_time
-            )
+            history_results = get_asset_history(resource_name, scope, start_time, end_time)
             if history_results:
                 break
 
-    logger.info(
+    logger.debug(
         "CAI history lookup returned %d records for resource: %s",
         len(history_results),
         resource_name,

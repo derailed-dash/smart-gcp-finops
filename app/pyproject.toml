@@ -1,0 +1,89 @@
+# Description: Agent-specific pyproject.toml configuration.
+# Scope: Governs the standalone ADK (Agent Development Kit) agent environment and reasoning loops.
+# Build Target: app/Dockerfile compiling the Reasoning Engine backend deployed to managed Vertex AI Agent Runtime.
+
+[project]
+name = "finops-agent"
+version = "0.1.0"
+description = ""
+authors = [{ name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com" }]
+
+dependencies = [
+    "google-adk[a2a]>=2.3.0,<3.0.0",
+    "mcp>=1.28.0",
+    "google-api-python-client>=2.198.0",
+    "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
+    "opentelemetry-exporter-gcp-logging>=0.38b0",
+    "opentelemetry-exporter-gcp-monitoring>=0.38b0",
+    "opentelemetry-resourcedetector-gcp>=1.5.0",
+    "google-cloud-logging>=3.16.0,<4.0.0",
+    "google-cloud-dataplex>=2.20.0,<3.0.0",
+    "google-cloud-aiplatform[evaluation,agent-engines]>=1.159.0",
+    "gcsfs>=2026.6.0",
+    "pydantic-settings",
+]
+requires-python = ">=3.12,<3.14"
+
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
+    "nest-asyncio>=1.6.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+eval = [
+    "google-adk[eval]>=2.0.0,<3.0.0",
+    "google-cloud-aiplatform[evaluation]>=1.156.0",
+]
+lint = ["ruff>=0.4.6,<1.0.0", "ty>=0.0.1a0", "codespell>=2.2.0,<3.0.0"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # ruff specific rules
+]
+ignore = ["E501", "C901", "B006"] # ignore line too long, too complex
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "frontend"]
+
+[tool.ty]
+# ty is Astral's Rust-based type checker (same team as ruff/uv)
+# See: https://docs.astral.sh/ty/
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = [".venv/**"]
+
+[tool.ty.rules]
+# Ignore common issues with third-party libraries and dynamic code patterns
+unresolved-import = "ignore"
+unresolved-attribute = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+invalid-return-type = "ignore"
+possibly-missing-attribute = "ignore"
+not-subscriptable = "ignore"
+deprecated = "ignore"
+
+[tool.codespell]
+ignore-words-list = "rouge"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json"
+
+
+[tool.uv]
+package = false

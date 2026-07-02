@@ -23,11 +23,13 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Direct Table Binding**   | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. (_Potentially fragile?_) |
 | **Keep-Alive Heartbeat SSE** | I Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
 | **Vite 6 Tooling & Sandboxing** | Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
-| **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/app_utils/`. Rationale: Keeps the core `app/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
+| **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/finops_agent/app_utils/`. Rationale: Keeps the core `app/finops_agent/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
 | **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on Vertex AI/Gemini. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
 | **Semantic Caching** | I Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
 | **CI/CD Variable Sync** | I Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
 | **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Vertex AI agent management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
+| **Object-Oriented State Managers** | Refactored mutable global module-level variables (caching and client states) into thread-safe object-oriented singleton managers. Rationale: Improves thread safety under concurrent requests, makes testing isolation straightforward, and structures state management logically. |
+| **Standard Native Logging** | Standardised all logging on Python's native `logging` library instead of direct vendor SDK client logging. Rationale: Integrates seamlessly with standard python tools, dynamically routes logs to Cloud Logging in production, and suppresses noisy third-party frameworks. |
 
 
 ## Solution Architecture
@@ -59,6 +61,60 @@ To facilitate seamless local development and robust managed execution, the syste
 ### Component Diagram
 
 ![FinSavant Component Architecture](./images/component_architecture.png)
+
+### Docker Containerization & Deployment Options
+
+To support clean isolation, local testing, and separate scaling in production, the workspace is structured with **three separate Dockerfiles**:
+
+1. **Unified Container ([Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) at root)**:
+   - **Purpose**: Combines both the compiled static React frontend assets and the FastAPI BFF backend into a single image.
+   - **Use Case**: Used for local container testing (`make docker-run`) and unified Cloud Run deployments where the frontend and backend scale together.
+   - **Build Mode**: Multi-stage build (Node.js stage for Vite compiler, Python stage for FastAPI).
+
+2. **Standalone FastAPI BFF Container ([bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile))**:
+   - **Purpose**: Packages only the FastAPI application and the compiled React frontend static assets.
+   - **Use Case**: Used when deploying/scaling the Backend-for-Frontend independently of the agent code. It relies on `google-genai` to call the remote Agent Runtime.
+   - **Dependencies**: Includes `fastapi`, `uvicorn`, and `google-genai` client packages.
+
+3. **Standalone Agent Runtime Container ([app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile))**:
+   - **Purpose**: Packages the core ADK agent code (`finops_agent`) and the `agent_runtime_app.py` bootstrapper.
+   - **Use Case**: Used when deploying the agent as a standalone container to Google Cloud Run/GKE to act as a custom Agent Runtime backend.
+   - **Dependencies**: Includes `google-adk`, `mcp`, and Google Cloud client libraries, with all web-serving and database dependencies (`fastapi`, `uvicorn`, `asyncpg`, etc.) completely pruned.
+
+
+### Developer Configuration & Deployment "Sets"
+
+To manage the decoupled lifecycle of the UI/BFF and the Agent, the project maintains two isolated configuration sets. It is crucial to understand which files govern each deployment:
+
+#### 1. The Root Deployment Set (FastAPI BFF & React UI)
+This set manages the web container deployed to Cloud Run, which hosts the static frontend assets and exposes the endpoints to the user client.
+*   **Dependencies**: Governed by the root [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and root `uv.lock`. This includes web frameworks (`fastapi`, `uvicorn`), database drivers (`asyncpg`), and the client SDK (`google-genai`) to communicate with the remote agent.
+*   **Build Target**: Governed by the root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile). This is a multi-stage Docker build that compiles the React application using Node.js/Vite and mounts the static dist output directly inside the FastAPI Python runtime.
+*   **Configuration**: Initialized locally via `.env` and secured in the repository using the `.env.enc` git-crypt file.
+*   **Deploy Command**: Triggers building the unified image and pushing it to Artifact Registry via Cloud Build, then deploying to Cloud Run:
+    ```bash
+    make deploy-cloud-run
+    ```
+
+#### 2. The Agent Deployment Set (ADK Agent & Agent Runtime)
+This set manages the Reasoning Engine container deployed to Vertex AI Agent Runtime, which executes the cognitive loops and calls tools.
+*   **Dependencies**: Governed by [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and `app/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
+*   **Build Target**: Governed by [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
+*   **Configuration**: Initialized locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
+*   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Vertex AI Agent Runtime:
+    ```bash
+    make deploy-agent-runtime
+    ```
+
+#### 3. Automatic Requirements Compilation (`requirements.txt`)
+In the `app/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) file. 
+*   **Purpose**: The Vertex AI SDK requires a standard `requirements.txt` file inside the agent source directory during Reasoning Engine registration/serialization to map package dependencies.
+*   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `app/pyproject.toml` and run the compilation target to generate it automatically:
+    ```bash
+    make export-requirements
+    ```
+    This compiles the frozen dependencies from `app/pyproject.toml` directly into `app/finops_agent/requirements.txt`.
+
 
 ### Project Relationships & Cross-Project Interactions
 
@@ -112,7 +168,7 @@ graph TD
 
 ### BigQuery Native Toolset Integration
 
-The agent logic in `app/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
+The agent logic in `app/finops_agent/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
 
 **Configuration Key Points**:
 - **Authentication**: Configured via `BigQueryCredentialsConfig` using standard Application Default Credentials (ADC), which allows seamless authentication locally and on Cloud Run.
@@ -120,7 +176,7 @@ The agent logic in `app/agent.py` uses the native ADK `BigQueryToolset` to query
 - **System Context**: The agent's system prompt is dynamically generated to include the target billing project and dataset IDs, ensuring it always targets the correct source of truth.
 
 ```python
-# app/agent.py snippet
+# app/finops_agent/agent.py snippet
 # Configure native BigQuery Toolset using Application Default Credentials (ADC)
 import google.auth
 from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredentialsConfig
@@ -156,7 +212,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 #### 2. Latency-Aware Agent Routing Flow
 
-To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../app/agent.py) injects a strict classification tree.
+To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../app/finops_agent/agent.py) injects a strict classification tree.
 
 The agent evaluates the incoming prompt and routes it into one of four mutually exclusive execution lanes, actively blocking/banning the tools belonging to other routes:
 
@@ -200,7 +256,7 @@ graph TD
 
 ## Implementation Notes
 
-- **Language**: Python 3.12+ (Backend), TypeScript (Frontend).
+- **Language**: Python 3.13+ (Backend), TypeScript (Frontend).
 - **Package Management**: `uv` for backend, `npm`/`pnpm` for frontend.
 - **Observability & Tracing**:
   - **Standard ADK Telemetry**: Programmatically configured via OpenTelemetry using `google.adk.telemetry` wrappers. Spans trace the full agent execution flow (spawning LLM calls and tool execution hierarchies).

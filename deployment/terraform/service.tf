@@ -9,7 +9,7 @@ resource "google_cloud_run_v2_service" "app" {
   for_each = local.deploy_project_ids
 
   name                = var.project_name
-  location            = var.region
+  location            = var.google_cloud_region
   project             = each.value
   deletion_protection = false
   ingress             = "INGRESS_TRAFFIC_ALL"
@@ -35,7 +35,7 @@ resource "google_cloud_run_v2_service" "app" {
 
       env {
         name  = "GOOGLE_CLOUD_REGION"
-        value = var.region
+        value = var.google_cloud_region
       }
 
       env {
@@ -108,8 +108,8 @@ resource "google_cloud_run_v2_service" "app" {
     max_instance_request_concurrency = 40
 
     scaling {
-      min_instance_count = local.min_instances[each.key]
-      max_instance_count = local.max_instances[each.key]
+      min_instance_count = local.cloud_run_min_instances[each.key]
+      max_instance_count = local.cloud_run_max_instances[each.key]
     }
 
     session_affinity = true
@@ -168,7 +168,7 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
 
   display_name = "${var.project_name}-backend"
   description  = "FinSavant Agent Runtime Backend"
-  region       = var.region
+  region       = var.google_cloud_region
   project      = each.value
 
   spec {
@@ -176,13 +176,13 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
     service_account = google_service_account.app_sa[each.key].email
 
     deployment_spec {
-      min_instances         = 1
-      max_instances         = 2
-      container_concurrency = 10
+      min_instances         = local.agent_runtime_min_instances[each.key]
+      max_instances         = local.agent_runtime_max_instances[each.key]
+      container_concurrency = 5
 
       resource_limits = {
-        cpu    = "4"
-        memory = "8Gi"
+        cpu    = local.agent_runtime_cpu
+        memory = local.agent_runtime_memory
       }
 
       env {
@@ -192,7 +192,7 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
 
       env {
         name  = "GOOGLE_CLOUD_REGION"
-        value = var.region
+        value = var.google_cloud_region
       }
 
       env {
@@ -249,6 +249,11 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
         name  = "OTEL_SERVICE_NAME"
         value = "${var.project_name}-${each.key}-backend"
       }
+
+      env {
+        name  = "ADK_DEFAULT_APP_NAME"
+        value = local.agent_name
+      }
     }
 
     source_code_spec {
@@ -259,7 +264,7 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
       python_spec {
         entrypoint_module  = "app.agent_runtime_app"
         entrypoint_object  = "agent_runtime"
-        requirements_file  = "app/app_utils/.requirements.txt"
+        requirements_file  = "app/${local.agent_name}/requirements.txt"
         version            = "3.12"
       }
     }
@@ -267,7 +272,7 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
 
   lifecycle {
     ignore_changes = [
-      spec[0].source_code_spec,
+      spec,
     ]
   }
 

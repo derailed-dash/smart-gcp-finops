@@ -1,7 +1,7 @@
 """
 Description: Model Context Protocol (MCP) toolsets and authentication providers.
 Why: Isolates MCP server configurations and authorisation loops from agent orchestration.
-How: Uses `google-adk` to define and configure MCP toolsets for BigQuery and Developer Knowledge.
+How: Uses `google-adk` to define and configure MCP toolsets for Developer Knowledge and Gemini Cloud Assist.
 """
 
 import logging
@@ -13,10 +13,9 @@ from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 from google.auth.transport.requests import Request
 
-from app.config import settings
+from finops_agent.config import settings
 
 logger = logging.getLogger(__name__)
-
 
 
 class DevKnowledgeAuthProvider:

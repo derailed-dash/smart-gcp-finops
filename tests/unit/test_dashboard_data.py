@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from app.app_utils.dashboard_data import (
+from finops_agent.app_utils.dashboard_data import (
     classify_project,
     estimate_zombie_cost,
     get_actual_dashboard_metrics,
@@ -24,15 +24,11 @@ def test_classify_project():
 def test_estimate_zombie_cost():
     # Disks with parsed sizes
     assert (
-        estimate_zombie_cost(
-            {"additionalAttributes": {"size": "100 GB"}}, "UNATTACHED_DISKS"
-        )
+        estimate_zombie_cost({"additionalAttributes": {"size": "100 GB"}}, "UNATTACHED_DISKS")
         == 10.0
     )
     assert (
-        estimate_zombie_cost(
-            {"additionalAttributes": {"size": "500 GiB"}}, "UNATTACHED_DISKS"
-        )
+        estimate_zombie_cost({"additionalAttributes": {"size": "500 GiB"}}, "UNATTACHED_DISKS")
         == 50.0
     )
     # Disk with unknown size defaults to 40.0
@@ -42,12 +38,10 @@ def test_estimate_zombie_cost():
     assert estimate_zombie_cost({}, "IDLE_IPS") == 15.0
 
 
-@patch("app.app_utils.dashboard_data.list_zombie_resources")
-@patch("app.app_utils.dashboard_data.bigquery.Client")
-@patch("app.app_utils.dashboard_data.default")
-def test_get_actual_dashboard_metrics(
-    mock_default, mock_bq_client_class, mock_list_zombies
-):
+@patch("finops_agent.app_utils.dashboard_data.list_zombie_resources")
+@patch("finops_agent.app_utils.dashboard_data.bigquery.Client")
+@patch("finops_agent.app_utils.dashboard_data.default")
+def test_get_actual_dashboard_metrics(mock_default, mock_bq_client_class, mock_list_zombies):
     mock_default.return_value = (MagicMock(), "fake-project")
 
     # Mock BigQuery Client and query results
@@ -143,9 +137,9 @@ def test_get_actual_dashboard_metrics(
     assert metrics_custom["forecast"] == 2000.0
 
 
-@patch("app.app_utils.dashboard_data.list_zombie_resources")
-@patch("app.app_utils.dashboard_data.bigquery.Client")
-@patch("app.app_utils.dashboard_data.default")
+@patch("finops_agent.app_utils.dashboard_data.list_zombie_resources")
+@patch("finops_agent.app_utils.dashboard_data.bigquery.Client")
+@patch("finops_agent.app_utils.dashboard_data.default")
 def test_get_actual_dashboard_metrics_with_allowed_projects(
     mock_default, mock_bq_client_class, mock_list_zombies
 ):
@@ -170,7 +164,7 @@ def test_get_actual_dashboard_metrics_with_allowed_projects(
             "displayName": "disk-2",
             "project": "projects/p2",
             "additionalAttributes": {"size": "200 GB"},
-        }
+        },
     ]
 
     allowed_projects = {"p1"}

@@ -1,12 +1,12 @@
 provider "google" {
-  region                = var.region
+  region                = var.google_cloud_region
   user_project_override = true
 }
 
 resource "google_storage_bucket" "logs_data_bucket" {
   for_each                    = toset(local.all_project_ids)
   name                        = "${each.value}-${var.project_name}-logs"
-  location                    = var.region
+  location                    = var.google_cloud_region
   project                     = each.value
   uniform_bucket_level_access = true
   force_destroy               = true
@@ -15,7 +15,7 @@ resource "google_storage_bucket" "logs_data_bucket" {
 }
 
 resource "google_artifact_registry_repository" "repo-artifacts-genai" {
-  location      = var.region
+  location      = var.google_cloud_region
   repository_id = "${var.project_name}-repo"
   description   = "Repo for Generative AI applications"
   format        = "DOCKER"
@@ -25,7 +25,7 @@ resource "google_artifact_registry_repository" "repo-artifacts-genai" {
 
 resource "google_storage_bucket" "terraform-state-bucket" {
   name                        = "${var.cicd_runner_project_id}-tfstate"
-  location                    = var.region
+  location                    = var.google_cloud_region
   project                     = var.cicd_runner_project_id
   uniform_bucket_level_access = true
   versioning {

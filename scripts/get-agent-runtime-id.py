@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Description: Retrieves the deployed Vertex AI Reasoning Engine resource ID.
+Description: Retrieves the deployed Vertex AI Agent Runtime resource ID.
 Usage: python scripts/get-agent-runtime-id.py <project_id> <region> <service_name>
 """
 
@@ -31,12 +31,12 @@ def main():
                 sys.exit(0)
 
         print(
-            f"Error: Reasoning Engine with display name '{service_name}' not found.",
+            f"Error: Agent Runtime with display name '{service_name}' not found.",
             file=sys.stderr,
         )
         sys.exit(1)
     except Exception as e:
-        print(f"Error: Failed to retrieve reasoning engine list: {e}", file=sys.stderr)
+        print(f"Error: Failed to retrieve Agent Runtime list: {e}", file=sys.stderr)
         sys.exit(1)
 
 

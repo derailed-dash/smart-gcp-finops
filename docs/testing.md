@@ -259,6 +259,12 @@ To verify that the unified frontend and backend container builds correctly and s
     make run
     ```
     This securely passes your local Google Application Default Credentials (ADC) and FinOps variables, spinning up uvicorn inside the container on port `8080`.
+    
+    *   **Local Fallback Mode (Default)**: By default, the container runs the agent locally inside the container's Python process using your local ADC.
+    *   **Remote Proxy Mode**: To test the container acting as a Backend-for-Frontend (BFF) proxy that calls your deployed Agent Runtime instance in GCP, run:
+        ```bash
+        make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)
+        ```
 
 3.  **Access and Verify**:
     *   Open your browser and navigate to `http://localhost:8080`.
@@ -271,7 +277,7 @@ Standard ADK telemetry and OpenTelemetry tracing are integrated into the applica
 
 #### How Tracing Works Under the Hood
 
-The application telemetry is configured in [telemetry.py](../app/app_utils/telemetry.py) and initialised during backend startup (in [fast_api_app.py](../app/fast_api_app.py) and [agent_runtime_app.py](../app/agent_runtime_app.py)).
+The application logging and telemetry is configured in [logging_and_telemetry.py](../app/finops_agent/app_utils/logging_and_telemetry.py) and initialised during backend startup (in [fast_api_app.py](../bff/fast_api_app.py) and [agent_runtime_app.py](../app/finops_agent/agent_runtime_app.py)).
 
 1. **Standard ADK Tracing & Logging**: If `OTEL_TO_CLOUD` is set to `"true"` (or when running on Cloud Run), the app uses standard `google.adk.telemetry` APIs to configure Google Cloud Trace and Cloud Logging exporters. This is safely initialised via `maybe_set_otel_providers()`, which ensures existing global OpenTelemetry providers are not overridden.
 2. **GenAI SDK Instrumentation**: The `GoogleGenAiSdkInstrumentor` from `opentelemetry.instrumentation.google_genai` is loaded to instrument all Gemini model calls. This captures detailed metrics and span events for model queries.
@@ -348,7 +354,7 @@ This tests the deployed Agent Runtime remotely on Google Cloud.
 - **Auto-Detection**: The notebook parses `deployment_metadata.json` automatically to load the active `remote_agent_runtime_id`.
 - **Querying**: It calls the remote agent endpoint:
   ```python
-  remote_agent_engine = client.agent_engines.get(name=REASONING_ENGINE_ID)
+  remote_agent_engine = client.agent_engines.get(name=REMOTE_AGENT_RUNTIME_ID)
   async for event in remote_agent_engine.async_stream_query(message="hi!", user_id="test"):
       print(event)
   ```

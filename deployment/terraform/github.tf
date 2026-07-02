@@ -87,7 +87,7 @@ resource "github_actions_variable" "prod_project_id" {
 resource "github_actions_variable" "region" {
   repository    = var.repository_name
   variable_name = "REGION"
-  value         = var.region
+  value         = var.google_cloud_region
   depends_on    = [github_repository.repo]
 }
 
@@ -218,31 +218,59 @@ resource "github_actions_variable" "google_cloud_organization" {
   depends_on    = [github_repository.repo]
 }
 
-resource "github_actions_variable" "staging_min_instances" {
+resource "github_actions_variable" "cloud_run_staging_min_instances" {
   repository    = var.repository_name
-  variable_name = "STAGING_MIN_INSTANCES"
-  value         = tostring(var.staging_min_instances)
+  variable_name = "CLOUD_RUN_STAGING_MIN_INSTANCES"
+  value         = tostring(var.cloud_run_staging_min_instances)
   depends_on    = [github_repository.repo]
 }
 
-resource "github_actions_variable" "staging_max_instances" {
+resource "github_actions_variable" "cloud_run_staging_max_instances" {
   repository    = var.repository_name
-  variable_name = "STAGING_MAX_INSTANCES"
-  value         = tostring(var.staging_max_instances)
+  variable_name = "CLOUD_RUN_STAGING_MAX_INSTANCES"
+  value         = tostring(var.cloud_run_staging_max_instances)
   depends_on    = [github_repository.repo]
 }
 
-resource "github_actions_variable" "prod_min_instances" {
+resource "github_actions_variable" "cloud_run_prod_min_instances" {
   repository    = var.repository_name
-  variable_name = "PROD_MIN_INSTANCES"
-  value         = tostring(var.prod_min_instances)
+  variable_name = "CLOUD_RUN_PROD_MIN_INSTANCES"
+  value         = tostring(var.cloud_run_prod_min_instances)
   depends_on    = [github_repository.repo]
 }
 
-resource "github_actions_variable" "prod_max_instances" {
+resource "github_actions_variable" "cloud_run_prod_max_instances" {
   repository    = var.repository_name
-  variable_name = "PROD_MAX_INSTANCES"
-  value         = tostring(var.prod_max_instances)
+  variable_name = "CLOUD_RUN_PROD_MAX_INSTANCES"
+  value         = tostring(var.cloud_run_prod_max_instances)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "agent_runtime_staging_min_instances" {
+  repository    = var.repository_name
+  variable_name = "AGENT_RUNTIME_STAGING_MIN_INSTANCES"
+  value         = tostring(var.agent_runtime_staging_min_instances)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "agent_runtime_staging_max_instances" {
+  repository    = var.repository_name
+  variable_name = "AGENT_RUNTIME_STAGING_MAX_INSTANCES"
+  value         = tostring(var.agent_runtime_staging_max_instances)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "agent_runtime_prod_min_instances" {
+  repository    = var.repository_name
+  variable_name = "AGENT_RUNTIME_PROD_MIN_INSTANCES"
+  value         = tostring(var.agent_runtime_prod_min_instances)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "agent_runtime_prod_max_instances" {
+  repository    = var.repository_name
+  variable_name = "AGENT_RUNTIME_PROD_MAX_INSTANCES"
+  value         = tostring(var.agent_runtime_prod_max_instances)
   depends_on    = [github_repository.repo]
 }
 

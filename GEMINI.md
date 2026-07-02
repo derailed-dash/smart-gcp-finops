@@ -24,17 +24,50 @@ To create an agentic FinOps solution for GCP that:
 - The UI and backend are hosted in a single Cloud Run service.
 - The UI and backend are secured using IAP, enabled on Cloud Run (not via a Load Balancer)
 
-## Tool Use
+## Tool Use: Skills, Gemini Enterprise Agent Platform, Agent Runtime and ADK
 
-Be sure to use all adk skills you have available for developing ADK agents and best practices, and use adk-docs-mcp for latest documentation.
+Be sure to use all agents skills, Gemini Enterprise Agent Platform skills, and ADK skills you have available for developing ADK agents and best practices, and use adk-docs-mcp for latest documentation. These skills will be listed here for convenience.
+
+### ADK & agents-cli Lifecycle Skills
+
+- `google-agents-cli-workflow`: Entrypoint for building ADK agents (scaffold, build, evaluate, deploy, publish, observe).
+- `google-agents-cli-scaffold`: Creating and upgrading agent projects (agents-cli scaffold create/enhance/upgrade).
+- `google-agents-cli-adk-code`: Agent Development Kit (ADK) Python API patterns, tool definitions, callbacks, and state management.
+- `google-agents-cli-deploy`: Configuring and executing deployments to Agent Runtime, Cloud Run, or GKE.
+- `google-agents-cli-eval`: Running agent evaluations and understanding the Agent Platform Quality Flywheel.
+- `google-agents-cli-observability`: Monitoring, tracing, and logging deployed ADK agents in production.
+- `google-agents-cli-publish`: Registering and publishing ADK agents to the Gemini Enterprise / Agent Registry.
+
+### Gemini Enterprise Agent Platform APIs
+
+- `gemini-api`: Vertex AI, Google Cloud, and Agent Platform enterprise usage with the Google Gen AI SDK.
+- `gemini-agents-api / gemini-managed-agents-api`: Creating, configuring, and managing custom Agent resources programmatically.
+- `gemini-interactions-api`: Stateful, server-managed multi-turn conversation and function execution workflows.
+
+### Agent Platform Engine & Model Management
+
+- `agent-platform-deploy`: Deploying models and tuned weights to Agent Platform endpoints.
+- `agent-platform-model-registry`: Uploading, versioning, and managing models in the Agent Platform Model Registry.
+- `agent-platform-prompt-management`: Managing and versioning system/agent prompts.
+- `agent-platform-rag-engine-management`: Managing RAG Engine Corpora and retrieving grounded contexts.
+- `agent-platform-skill-registry`: Integrating and searching for registered agent skills.
+- `agent-platform-tuning`: Fine-tuning models on Agent Platform infrastructure.
+- `agent-platform-tuning-management`: Managing GenAI tuning jobs (listing, checking, cancelling).
+
+### Other Guides for Deploying to Agent Runtime
+
+See:
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/quickstart-adk
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent#from-source-files
+- https://adk.dev/deploy/agent-runtime/
+- https://adk.dev/deploy/agent-runtime/deploy/
+
 
 ## ADK + React UI Best Practices
 
 - **Architecture**: Use the **Unified Container** pattern (React + FastAPI + ADK) for Cloud Run deployments to simplify CORS and authentication (IAP).
 - **Backend for Frontend (BFF)**: Use FastAPI as a thin layer to serve static React assets and provide a robust API for the ADK agent.
 - **Rich UI (A2UI)**: Leverage the **Agent-to-UI (A2UI)** protocol for structured data outputs. The agent should return `application/json+a2ui` payloads for complex components like tables, charts, and cards.
-- **Streaming & UX**: Use **Server-Sent Events (SSE)** for all chat interactions. Implement a **heartbeat mechanism** (e.g., sending whitespace or comments every 15s) to prevent Cloud Run timeouts during long agent operations.
-- **State Synchronization**: Use **AG-UI** patterns for bi-directional state sharing between the UI and the agent when building complex interactive features.
 - **UI Acceleration**: Use **Stitch with MCP** to rapidly build and iterate on information-dense dashboards.
 
 ## Key Internal Documentation
@@ -50,15 +83,10 @@ You should read and leverage these resources for guidance and best practices, in
 
 | Resource | Description and Relevance |
 | -------- | ------------------------- |
-| https://cloud.google.com/blog/topics/developers-practitioners/build-a-multi-agent-system-for-expert-content-with-google-adk-mcp-and-cloud-run-part-1?e=48754805 | Build a multi-agent system for expert content with Google ADK, MCP, and Cloud Run (Part 1). This gives instructions for how to build a multi-agent system using ADK and Cloud Run, and which leverages Google Developer Knowledge API MCP. |
-| https://medium.com/google-cloud/tutorial-getting-started-with-google-mcp-services-60b23b22a0e7 | Tutorial: Getting started with Google MCP services. This gives instructions for how to use Google MCP services. |
 | https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp | Use the BigQuery MCP server | 
 | https://adk.dev/integrations/bigquery/ | BigQuery tool for ADK |
-| https://developers.google.com/knowledge/mcp | Google Developer Knowledge API MCP. This MCP server provides access to Google Cloud documentation and best practices. This document describes how to use it. |
 | https://docs.cloud.google.com/gemini-enterprise-agent-platform | Gemini Enterprise Agent Platform Overview |
 | https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/observability/overview | Gemini Enterprise Agent Platform - Observability Overview |
-| https://developers.googleblog.com/agents-cli-in-agent-platform-create-to-production-in-one-cli/ | Agents CLI - for bootstrapping your ADK agent | 
-| https://dev.to/gde/beyond-dashboards-architecting-a-genai-finops-analyst-using-bigquery-native-mcp-48jc | Beyond Dashboards: Architecting a GenAI FinOps Analyst using BigQuery Native MCP. This gives instructions for how to build a FinOps analyst using ADK and Cloud Run, and which leverages Google Developer Knowledge API MCP. |
 | https://docs.cloud.google.com/asset-inventory/docs/asset-inventory-overview | Google Cloud Asset Inventory overview. This provides an overview of Google Cloud Asset Inventory, and how to use it. |
 | https://docs.cloud.google.com/asset-inventory/docs/list-assets | List assets. This gives instructions for how to list assets using Google Cloud Asset Inventory. |
 

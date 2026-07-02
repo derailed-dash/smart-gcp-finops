@@ -1,9 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.app_utils.cai_utils import clear_services_cache
-from app.app_utils.zombie_resources import search_zombie_resources
+from finops_agent.app_utils.cai_utils import clear_services_cache
+from finops_agent.app_utils.zombie_resources import search_zombie_resources
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +38,7 @@ def test_search_unattached_disks(mock_build):
 
     # Should filter out the attached disk
     assert len(results) == 1
-    assert (
-        results[0]["name"] == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
-    )
+    assert results[0]["name"] == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
 
     mock_service.v1().searchAllResources.assert_called_with(
         scope="projects/test-project",
@@ -76,10 +73,7 @@ def test_search_idle_ips(mock_build):
 
     # Should filter out the used IP
     assert len(results) == 1
-    assert (
-        results[0]["name"]
-        == "//compute.googleapis.com/projects/p1/regions/r1/addresses/a1"
-    )
+    assert results[0]["name"] == "//compute.googleapis.com/projects/p1/regions/r1/addresses/a1"
 
     mock_service.v1().searchAllResources.assert_called_with(
         scope="projects/test-project",

@@ -8,6 +8,7 @@ locals {
     "cloudtrace.googleapis.com",
     "telemetry.googleapis.com",
     "artifactregistry.googleapis.com",
+    "agentregistry.googleapis.com",
   ]
 
   deploy_project_services = [
@@ -28,6 +29,7 @@ locals {
     "cloudbilling.googleapis.com",
     "cloudasset.googleapis.com",
     "developerknowledge.googleapis.com",
+    "agentregistry.googleapis.com",
   ]
 
 
@@ -47,14 +49,29 @@ locals {
     staging = var.staging_app_domain_name
   }
 
-  min_instances = {
-    prod    = var.prod_min_instances
-    staging = var.staging_min_instances
+  cloud_run_min_instances = {
+    prod    = var.cloud_run_prod_min_instances
+    staging = var.cloud_run_staging_min_instances
   }
 
-  max_instances = {
-    prod    = var.prod_max_instances
-    staging = var.staging_max_instances
+  cloud_run_max_instances = {
+    prod    = var.cloud_run_prod_max_instances
+    staging = var.cloud_run_staging_max_instances
   }
+
+  agent_runtime_min_instances = {
+    prod    = var.agent_runtime_prod_min_instances
+    staging = var.agent_runtime_staging_min_instances
+  }
+
+  agent_runtime_max_instances = {
+    prod    = var.agent_runtime_prod_max_instances
+    staging = var.agent_runtime_staging_max_instances
+  }
+
+  agent_name = "finops_agent"
+
+  agent_runtime_cpu    = "1"
+  agent_runtime_memory = "4Gi"
 }
 

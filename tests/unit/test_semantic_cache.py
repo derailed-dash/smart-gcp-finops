@@ -8,15 +8,14 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.events.event import Event
-from google.genai.types import Content, Part
-
-from app.agent import (
+from finops_agent.agent import (
     _AGENT_QUERY_CACHE,
     after_agent_save_cache,
     before_agent_cache_lookup,
 )
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.events.event import Event
+from google.genai.types import Content, Part
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +38,7 @@ async def test_semantic_cache_hit():
     # 2. Creating a mock callback context with a semantically similar query in event history
     mock_event = MagicMock(spec=Event)
     mock_event.role = "user"
-    mock_event.content = Content(
-        role="user", parts=[Part(text="tell me the billing trend")]
-    )
+    mock_event.content = Content(role="user", parts=[Part(text="tell me the billing trend")])
 
     mock_session = MagicMock()
     mock_session.events = [mock_event]
@@ -57,7 +54,7 @@ async def test_semantic_cache_hit():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = mock_response
 
-    with patch("app.agent.genai_client", mock_client):
+    with patch("finops_agent.agent.genai_client", mock_client):
         await before_agent_cache_lookup(ctx)
 
         mock_client.models.generate_content.assert_called_once()
@@ -92,7 +89,7 @@ async def test_semantic_cache_miss():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = mock_response
 
-    with patch("app.agent.genai_client", mock_client):
+    with patch("finops_agent.agent.genai_client", mock_client):
         await before_agent_cache_lookup(ctx)
 
         assert "cached_agent_response" not in ctx.state
@@ -139,9 +136,7 @@ async def test_fast_local_cache_hit():
     # 2. Creating a mock context with the exact query but different casing
     mock_event = MagicMock(spec=Event)
     mock_event.role = "user"
-    mock_event.content = Content(
-        role="user", parts=[Part(text="  what is the billing trend?  ")]
-    )
+    mock_event.content = Content(role="user", parts=[Part(text="  what is the billing trend?  ")])
 
     mock_session = MagicMock()
     mock_session.events = [mock_event]
@@ -152,7 +147,7 @@ async def test_fast_local_cache_hit():
 
     mock_client = MagicMock()
 
-    with patch("app.agent.genai_client", mock_client):
+    with patch("finops_agent.agent.genai_client", mock_client):
         await before_agent_cache_lookup(ctx)
 
         # Confirm the LLM models check was completely bypassed (not called)

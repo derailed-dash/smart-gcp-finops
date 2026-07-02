@@ -7,25 +7,26 @@ How: Sets up fixtures to mock BigQuery client executions and asserts query wrapp
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.app_utils.context import ALLOWED_PROJECTS_VAR
-from app.app_utils.tools import execute_cached_bigquery_sql
+from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
+from finops_agent.app_utils.tools import execute_cached_bigquery_sql
 
 
 @pytest.fixture
 def mock_settings():
-    with patch("app.app_utils.tools.settings") as mock_set:
+    with patch("finops_agent.app_utils.tools.settings") as mock_set:
         mock_set.google_cloud_billing_project = "billing-proj"
         mock_set.billing_export_dataset = "billing_dataset"
         mock_set.google_cloud_billing_account = "123456-7890AB-CDEF01"
         yield mock_set
 
+
 @pytest.fixture
 def mock_bq_client():
-    with patch("app.app_utils.tools._get_bq_client") as mock_get_client:
+    with patch("finops_agent.app_utils.tools._get_bq_client") as mock_get_client:
         client = MagicMock()
         mock_get_client.return_value = client
         yield client
+
 
 @pytest.fixture
 def mock_context():
@@ -34,7 +35,7 @@ def mock_context():
     return ctx
 
 
-@patch("app.app_utils.tools.execute_cached_query")
+@patch("finops_agent.app_utils.tools.execute_cached_query")
 def test_execute_cached_bigquery_sql_no_restriction(
     mock_execute_query, mock_bq_client, mock_settings, mock_context
 ):
@@ -50,7 +51,7 @@ def test_execute_cached_bigquery_sql_no_restriction(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-@patch("app.app_utils.tools.execute_cached_query")
+@patch("finops_agent.app_utils.tools.execute_cached_query")
 def test_execute_cached_bigquery_sql_with_restriction(
     mock_execute_query, mock_bq_client, mock_settings, mock_context
 ):
@@ -71,7 +72,7 @@ def test_execute_cached_bigquery_sql_with_restriction(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-@patch("app.app_utils.tools.execute_cached_query")
+@patch("finops_agent.app_utils.tools.execute_cached_query")
 def test_execute_cached_bigquery_sql_empty_allowed_projects(
     mock_execute_query, mock_bq_client, mock_settings, mock_context
 ):
@@ -88,7 +89,7 @@ def test_execute_cached_bigquery_sql_empty_allowed_projects(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-@patch("app.app_utils.tools.execute_cached_query")
+@patch("finops_agent.app_utils.tools.execute_cached_query")
 def test_execute_cached_bigquery_sql_agent_vs_user_visibility(
     mock_execute_query, mock_bq_client, mock_settings, mock_context
 ):
@@ -112,8 +113,8 @@ def test_execute_cached_bigquery_sql_agent_vs_user_visibility(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-@patch("app.app_utils.project_discovery.get_user_accessible_projects")
-@patch("app.app_utils.tools.execute_cached_query")
+@patch("finops_agent.app_utils.project_discovery.get_user_accessible_projects")
+@patch("finops_agent.app_utils.tools.execute_cached_query")
 def test_execute_cached_bigquery_sql_dynamic_resolution(
     mock_execute_query, mock_get_projects, mock_bq_client, mock_settings
 ):

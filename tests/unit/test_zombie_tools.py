@@ -1,9 +1,8 @@
 from unittest.mock import call, patch
 
 import pytest
-
-from app.app_utils.zombie_tools import clear_zombie_cache, list_zombie_resources
-from app.config import settings
+from finops_agent.app_utils.zombie_tools import clear_zombie_cache, list_zombie_resources
+from finops_agent.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -13,12 +12,10 @@ def clean_zombie_cache():
     clear_zombie_cache()
 
 
-@patch("app.app_utils.zombie_tools.get_active_billing_projects")
-@patch("app.app_utils.zombie_tools.list_billing_projects")
-@patch("app.app_utils.zombie_tools.search_zombie_resources")
-def test_list_zombie_resources_no_org(
-    mock_search, mock_list_projects, mock_get_active_projects
-):
+@patch("finops_agent.app_utils.zombie_tools.get_active_billing_projects")
+@patch("finops_agent.app_utils.zombie_tools.list_billing_projects")
+@patch("finops_agent.app_utils.zombie_tools.search_zombie_resources")
+def test_list_zombie_resources_no_org(mock_search, mock_list_projects, mock_get_active_projects):
     mock_get_active_projects.return_value = []
     mock_list_projects.return_value = ["project-a", "project-b"]
 
@@ -57,9 +54,7 @@ def test_list_zombie_resources_no_org(
         assert any(r["name"] == "fake_disk_a" for r in results)
         assert any(r["name"] == "fake_disk_b" for r in results)
 
-        mock_list_projects.assert_called_once_with(
-            "billingAccounts/012345-ABCDEF-012345"
-        )
+        mock_list_projects.assert_called_once_with("billingAccounts/012345-ABCDEF-012345")
         assert mock_search.call_count == 2
     finally:
         # Restore old values
@@ -67,10 +62,10 @@ def test_list_zombie_resources_no_org(
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.zombie_tools.get_active_billing_projects")
-@patch("app.app_utils.zombie_tools.get_projects_in_org")
-@patch("app.app_utils.zombie_tools.list_billing_projects")
-@patch("app.app_utils.zombie_tools.search_zombie_resources")
+@patch("finops_agent.app_utils.zombie_tools.get_active_billing_projects")
+@patch("finops_agent.app_utils.zombie_tools.get_projects_in_org")
+@patch("finops_agent.app_utils.zombie_tools.list_billing_projects")
+@patch("finops_agent.app_utils.zombie_tools.search_zombie_resources")
 def test_list_zombie_resources_with_org_optimized(
     mock_search, mock_list_projects, mock_get_org_projects, mock_get_active_projects
 ):
@@ -101,29 +96,25 @@ def test_list_zombie_resources_with_org_optimized(
         assert any(r["name"] == "disk_outside_org" for r in results)
 
         # Verify calls
-        mock_search.assert_any_call(
-            scope="organizations/123456789", category="UNATTACHED_DISKS"
-        )
+        mock_search.assert_any_call(scope="organizations/123456789", category="UNATTACHED_DISKS")
         mock_search.assert_any_call(
             scope="projects/project-outside-org", category="UNATTACHED_DISKS"
         )
 
         # CRITICAL: Verify project-in-org was NOT searched individually
-        inside_project_call = call(
-            scope="projects/project-in-org", category="UNATTACHED_DISKS"
-        )
+        inside_project_call = call(scope="projects/project-in-org", category="UNATTACHED_DISKS")
         assert inside_project_call not in mock_search.call_args_list
     finally:
         # Restore old values
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.zombie_tools.bigquery.Client")
-@patch("app.app_utils.zombie_tools.get_credentials")
+@patch("finops_agent.app_utils.zombie_tools.bigquery.Client")
+@patch("finops_agent.app_utils.zombie_tools.get_credentials")
 def test_get_active_billing_projects(mock_get_credentials, mock_bq_client_class):
     from unittest.mock import MagicMock
 
-    from app.app_utils.zombie_tools import get_active_billing_projects
+    from finops_agent.app_utils.zombie_tools import get_active_billing_projects
 
     mock_get_credentials.return_value = MagicMock()
 
@@ -145,7 +136,7 @@ def test_get_active_billing_projects(mock_get_credentials, mock_bq_client_class)
     mock_client.query.assert_called_once()
 
 
-@patch("app.app_utils.zombie_tools.search_zombie_resources")
+@patch("finops_agent.app_utils.zombie_tools.search_zombie_resources")
 def test_list_zombie_resources_scoped_project(mock_search):
     mock_search.return_value = [{"name": "fake_disk_scoped"}]
 

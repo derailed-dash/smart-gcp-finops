@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.app_utils.query_cache import (
+from finops_agent.app_utils.query_cache import (
     clear_query_cache,
     execute_cached_query,
 )

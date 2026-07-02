@@ -3,28 +3,70 @@ Description: Backend BFF FastAPI application.
 Why: Serves as the Backend-for-Frontend (BFF) proxy and static React asset host on Cloud Run.
 How: Sets up FastAPI endpoints, handles IAP user authentication headers, resolves project access scoping, and proxies chat requests to the remote Agent Runtime or runs a local ADK fallback thread.
 """
+# ruff: noqa: E402  # Setup logging suppressions early to catch import-time warnings from subsequent packages
 
 import asyncio
+import contextlib
 import json
+import logging
 import os
+import sys
+from collections.abc import AsyncIterator
+from typing import ClassVar
+
+# Ensure workspace root and app/ directory are in sys.path so finops_agent resolves
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
+
+from finops_agent.app_utils.logging_and_telemetry import setup_logging_suppressions
+
+setup_logging_suppressions()
 
 import google.auth
+import google.cloud.logging
+from a2a.server.tasks import InMemoryTaskStore  # type: ignore
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from finops_agent.app_utils import services
+from finops_agent.app_utils.a2a import attach_a2a_routes
+from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
+from finops_agent.app_utils.logging_and_telemetry import setup_telemetry
+from finops_agent.app_utils.project_discovery import get_user_accessible_projects
+from finops_agent.app_utils.typing import Feedback
+from finops_agent.config import settings
 from google.adk.cli.fast_api import get_fast_api_app
-from google.cloud import logging as google_cloud_logging
+from google.adk.runners import Runner
 
-from app.app_utils.context import ALLOWED_PROJECTS_VAR
-from app.app_utils.project_discovery import get_user_accessible_projects
-from app.app_utils.telemetry import setup_telemetry
-from app.app_utils.typing import Feedback
-
+load_dotenv()
 setup_telemetry()
 _, project_id = google.auth.default()
-logging_client = google_cloud_logging.Client()
-logger = logging_client.logger(__name__)
-_background_tasks = set()
+
+# Configure logging using standard Python library and cloud-logging backend
+otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
+    os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
+)
+
+log_level = os.getenv("LOG_LEVEL", settings.log_level).upper()
+
+if otel_to_cloud:
+    try:
+        logging_client = google.cloud.logging.Client()
+        logging_client.setup_logging()
+    except Exception:
+        # Fallback to local basic configuration if Cloud Logging client fails
+        logging.basicConfig(level=log_level)
+else:
+    logging.basicConfig(level=log_level)
+
+logging.getLogger().setLevel(log_level)
+
+setup_logging_suppressions()
+logger = logging.getLogger(__name__)
+
+background_tasks = set()
+
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",")
     if os.getenv("ALLOW_ORIGINS")
@@ -38,75 +80,78 @@ allow_origins = (
 
 # Artifact bucket for ADK (created by Terraform, passed via env var)
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
+AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 
-AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# In-memory session configuration - no persistent storage
-session_service_uri = None
 
-artifact_service_uri = f"gs://{logs_bucket_name}" if logs_bucket_name else None
+class AppState:
+    """Encapsulates persistent, lazy-initialised application state."""
 
-# Enable OpenTelemetry Cloud exporting in Cloud Run (prod) or if explicitly requested locally
-otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
-    os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
-)
+    remote_session_id = None
+    _remote_session_lock: ClassVar[asyncio.Lock | None] = None
 
-app: FastAPI = get_fast_api_app(
-    agents_dir=AGENT_DIR,
-    web=False,
-    artifact_service_uri=artifact_service_uri,
-    allow_origins=allow_origins,
-    session_service_uri=session_service_uri,
-    otel_to_cloud=otel_to_cloud,
-)
-app.title = "smart-gcp-finops"
-app.description = "API for interacting with the Agent smart-gcp-finops"
-
-# Thread-safe lazy-initialisation helper for global ADK session and runner by user
-_GLOBAL_SESSION_SERVICE = None
-_GLOBAL_SESSIONS = {}
-_GLOBAL_RUNNER = None
-_INIT_LOCK = asyncio.Lock()
-_REMOTE_SESSION_ID = None
-_REMOTE_SESSION_LOCK = asyncio.Lock()
+    @classmethod
+    def get_remote_session_lock(cls) -> asyncio.Lock:
+        """Returns the lazy-initialised event-loop-safe Lock for remote session creation."""
+        if cls._remote_session_lock is None:
+            cls._remote_session_lock = asyncio.Lock()
+        return cls._remote_session_lock
 
 
 def _get_user_email(request: Request) -> str:
     """Extracts the authenticated user email from IAP headers, falling back to local settings."""
     user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
-    if user_email.startswith("accounts.google.com:"):
-        return user_email.split("accounts.google.com:")[-1]
-    elif user_email.startswith("mailto:"):
-        return user_email.split("mailto:")[-1]
-    elif user_email:
-        return user_email
-    from app.config import settings
-    return settings.local_developer_email
+    match user_email.split(":", 1):
+        case ["accounts.google.com", email]:
+            return email
+        case ["mailto", email]:
+            return email
+        case [email] if email:
+            return email
+        case _:
+            from finops_agent.config import settings
+
+            return settings.local_developer_email
 
 
-async def get_global_runner_and_session(user_email: str = "default_user"):
-    """Initialises and returns a persistent global Runner and Session to preserve conversation memory."""
-    global _GLOBAL_SESSION_SERVICE, _GLOBAL_SESSIONS, _GLOBAL_RUNNER
-    async with _INIT_LOCK:
-        if _GLOBAL_RUNNER is None:
-            from google.adk.runners import Runner
-            from google.adk.sessions import InMemorySessionService
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manages the startup and shutdown lifecycle of the FastAPI application.
 
-            from app.agent import root_agent
+    Initialises the ADK Runner, configures the session and artifact services,
+    and maps them to the application state for global access.
+    """
+    from finops_agent.agent import app as adk_app
+    from finops_agent.agent import root_agent
 
-            _GLOBAL_SESSION_SERVICE = InMemorySessionService()
-            _GLOBAL_RUNNER = Runner(
-                agent=root_agent,
-                session_service=_GLOBAL_SESSION_SERVICE,
-                app_name="smart-gcp-finops",
-            )
+    runner = Runner(
+        app=adk_app,
+        session_service=services.get_session_service(),
+        artifact_service=services.get_artifact_service(),
+        auto_create_session=True,
+    )
+    app.state.runner = runner
+    app.state.agent_app_name = adk_app.name
+    await attach_a2a_routes(
+        app,
+        agent=root_agent,
+        runner=runner,
+        task_store=InMemoryTaskStore(),
+        rpc_path=f"/a2a/{adk_app.name}",
+    )
+    yield
 
-        if user_email not in _GLOBAL_SESSIONS:
-            session = _GLOBAL_SESSION_SERVICE.create_session_sync(
-                user_id=user_email, session_id=user_email, app_name="smart-gcp-finops"
-            )
-            _GLOBAL_SESSIONS[user_email] = session
 
-        return _GLOBAL_RUNNER, _GLOBAL_SESSIONS[user_email]
+app: FastAPI = get_fast_api_app(
+    agents_dir=AGENT_DIR,
+    web=False,
+    artifact_service_uri=services.ARTIFACT_SERVICE_URI,
+    allow_origins=allow_origins,
+    session_service_uri=services.SESSION_SERVICE_URI,
+    otel_to_cloud=otel_to_cloud,
+    lifespan=lifespan,
+)
+app.title = "smart-gcp-finops-bff"
+app.description = "BFF API for interacting with the FinOps Agent"
 
 
 @app.get("/api/status")
@@ -126,7 +171,7 @@ def get_dashboard(
     clientMonthDays: int | None = None,
 ) -> dict:
     """Returns actual real-time executive dashboard metrics from BQ and CAI."""
-    from app.app_utils.dashboard_data import get_actual_dashboard_metrics
+    from finops_agent.app_utils.dashboard_data import get_actual_dashboard_metrics
 
     try:
         user_email = _get_user_email(request)
@@ -137,7 +182,7 @@ def get_dashboard(
             client_month_days=clientMonthDays,
         )
     except Exception as e:
-        logger.log_text(f"Error compiling dashboard metrics: {e}", severity="ERROR")
+        logger.error(f"Error compiling dashboard metrics: {e}")
         return {
             "mtdSpend": 0.0,
             "mtdChange": 0.0,
@@ -153,9 +198,15 @@ def get_dashboard(
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
 async def chat_stream(request: Request):
-    """Streams the ADK agent chat responses using Server-Sent Events (SSE).
+    """Streams the ADK agent chat responses to the frontend using Server-Sent Events (SSE).
 
-    Includes a 15-second heartbeat to prevent Cloud Run timeouts.
+    This handler supports two runtime streaming scenarios:
+    1. Standard SSE Streaming: Yields real-time partial text chunks as they are generated.
+    2. Unary Fallback Mode: Used during remote runs to bypass Vertex AI SDK streaming
+       deadlocks. It executes the model in unary mode and yields the final compiled
+       response in a single event.
+
+    Includes a 15-second heartbeat to prevent intermediate proxy or Cloud Run timeouts.
     """
     body = await request.json()
     message = body.get("message", "")
@@ -165,8 +216,7 @@ async def chat_stream(request: Request):
     ALLOWED_PROJECTS_VAR.set(allowed_projects)
 
     agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
-    if not agent_runtime_id:
-        runner, session = await get_global_runner_and_session(user_email)
+    runner = request.app.state.runner
 
     async def event_generator():
         # Set the context variable in the generator context
@@ -184,7 +234,9 @@ async def chat_stream(request: Request):
         from google.genai import types
 
         # Inject dynamic user security instruction into the prompt
-        proj_list_str = ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "'__NONE__'"
+        proj_list_str = (
+            ", ".join(f"'{p}'" for p in allowed_projects) if allowed_projects else "'__NONE__'"
+        )
         security_guard_prompt = (
             f"\n\n[SECURITY CONSTRAINT: You are acting on behalf of the user '{user_email}'. "
             f"This user only has access to the following projects: [{proj_list_str}]. "
@@ -205,7 +257,7 @@ async def chat_stream(request: Request):
                 for event in runner.run(
                     new_message=message_content,
                     user_id=user_email,
-                    session_id=session.id,
+                    session_id=user_email,
                     run_config=RunConfig(streaming_mode=StreamingMode.SSE),
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
@@ -215,7 +267,6 @@ async def chat_stream(request: Request):
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
         async def run_remote_agent():
-            global _REMOTE_SESSION_ID
             try:
                 import vertexai
                 from google.adk.errors.session_not_found_error import (
@@ -227,48 +278,55 @@ async def chat_stream(request: Request):
                 client = vertexai.Client(location=location)
                 agent_engine = client.agent_engines.get(name=agent_runtime_id)
 
-                async with _REMOTE_SESSION_LOCK:
-                    if _REMOTE_SESSION_ID is None:
-                        session_obj = await agent_engine.async_create_session(
-                            user_id=user_email
-                        )
-                        _REMOTE_SESSION_ID = (
+                async with AppState.get_remote_session_lock():
+                    if AppState.remote_session_id is None:
+                        logger.debug("Creating new remote session for user %s", user_email)
+                        session_obj = await agent_engine.async_create_session(user_id=user_email)
+                        AppState.remote_session_id = (
                             session_obj.get("id")
                             if isinstance(session_obj, dict)
                             else getattr(session_obj, "id", None)
                         )
-                        if not _REMOTE_SESSION_ID:
-                            _REMOTE_SESSION_ID = str(session_obj)
+                        if not AppState.remote_session_id:
+                            AppState.remote_session_id = str(session_obj)
+                        logger.debug("Created remote session ID: %s", AppState.remote_session_id)
 
+                logger.debug("Starting remote query execution with session ID: %s", AppState.remote_session_id)
                 try:
                     async for event_dict in agent_engine.async_stream_query(
                         message=augmented_message,
                         user_id=user_email,
-                        session_id=_REMOTE_SESSION_ID,
+                        session_id=AppState.remote_session_id,
+                        run_config={"streaming_mode": None},
                     ):
+                        logger.debug("Received remote event payload: %s", event_dict)
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
                 except SessionNotFoundError:
-                    logger.log_text(
-                        "Remote session not found/expired. Resetting session and retrying.",
-                        severity="WARNING",
+                    logger.warning(
+                        "Remote session not found/expired. Resetting session and retrying."
                     )
-                    async with _REMOTE_SESSION_LOCK:
-                        _REMOTE_SESSION_ID = None
+                    async with AppState.get_remote_session_lock():
+                        AppState.remote_session_id = None
                     async for event_dict in agent_engine.async_stream_query(
-                        message=message, user_id="default_user"
+                        message=message,
+                        user_id=user_email,
+                        run_config={"streaming_mode": None},
                     ):
+                        logger.debug("Received remote event payload (retry): %s", event_dict)
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
             except Exception as e:
+                logger.error("Exception in run_remote_agent background thread: %s", e, exc_info=True)
                 await event_queue.put(e)
             finally:
+                logger.debug("Remote agent runner task completed.")
                 await event_queue.put(None)
 
         if agent_runtime_id:
             task = asyncio.create_task(run_remote_agent())
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
         else:
             import threading
 
@@ -276,17 +334,16 @@ async def chat_stream(request: Request):
 
         seen_function_calls = set()
         seen_function_responses = set()
+        has_yielded_partial_text = False
         seconds_passed = 0
         while True:
             # Proactively check if client has disconnected (closes tab or refreshes)
             if await request.is_disconnected():
-                logger.log_text(
-                    "Client disconnected from chat stream.", severity="INFO"
-                )
+                logger.info("Client disconnected from chat stream.")
                 break
 
             try:
-                # Non-blocking wait for next event from the queue (timeouts do not cancel the generator)
+                # Non-blocking wait for next event from the queue
                 event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
             except TimeoutError:
                 seconds_passed += 1
@@ -299,18 +356,12 @@ async def chat_stream(request: Request):
                 break
 
             if isinstance(event, Exception):
-                logger.log_text(
-                    f"Error in background runner: {event}", severity="ERROR"
-                )
+                logger.error(f"Error in background runner: {event}")
                 import traceback
 
                 yield (
                     "data: "
-                    + json.dumps(
-                        {
-                            "reasoning": f"❌ Error: {event!s}\n{traceback.format_exc()}\n"
-                        }
-                    )
+                    + json.dumps({"reasoning": f"❌ Error: {event!s}\n{traceback.format_exc()}\n"})
                     + "\n\n"
                 )
                 break
@@ -318,20 +369,18 @@ async def chat_stream(request: Request):
             seconds_passed = 0
 
             # Stream real-time text chunks
-            is_final = False
-            if hasattr(event, "is_final_response"):
-                try:
-                    is_final = event.is_final_response()
-                except Exception:
-                    pass
-
-            if not is_final and hasattr(event, "content") and event.content:
+            is_partial = getattr(event, "partial", False)
+            if hasattr(event, "content") and event.content:
                 parts = event.content.parts if hasattr(event.content, "parts") else []
                 text_chunk = "".join(
                     part.text for part in parts if hasattr(part, "text") and part.text
                 )
                 if text_chunk:
-                    yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                    if is_partial:
+                        has_yielded_partial_text = True
+                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                    elif not has_yielded_partial_text:
+                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
 
             # Stream intermediate reasoning/tool status updates
             if hasattr(event, "status") and event.status:
@@ -356,9 +405,7 @@ async def chat_stream(request: Request):
                                 yield (
                                     "data: "
                                     + json.dumps(
-                                        {
-                                            "reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"
-                                        }
+                                        {"reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"}
                                     )
                                     + "\n\n"
                                 )
@@ -397,22 +444,25 @@ async def chat_stream(request: Request):
 
 @app.post("/feedback")
 def collect_feedback(feedback: Feedback) -> dict[str, str]:
-    """Collect and log feedback.
+    """Collects and logs user feedback for agent responses.
 
-    Args:
-        feedback: The feedback data to log
+    This endpoint is triggered when a user interacts with the feedback controls
+    (thumbs up/down, optional text comments) in the React chat UI. The feedback
+    data includes the session ID, query context, and satisfaction score.
 
-    Returns:
-        Success message
+    Logs are structured to enable downstream telemetry ingestion, quality
+    audits, and training set curation for model evaluation and tuning.
     """
-    logger.log_struct(feedback.model_dump(), severity="INFO")
+    logger.info(
+        "Feedback received: %s",
+        feedback.model_dump(),
+        extra={"json_fields": feedback.model_dump()},
+    )
     return {"status": "success"}
 
 
 # Serve the static pre-compiled React frontend SPA assets in production
-FRONTEND_DIST = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-)
+FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
 if os.path.exists(FRONTEND_DIST):
     # Mount the /assets static assets subfolder
@@ -446,7 +496,10 @@ if os.path.exists(FRONTEND_DIST):
         raise HTTPException(status_code=404, detail="Index file not found")
 
 
-# Main execution
+# Main execution entry point.
+# This block is only entered when executing the script directly (e.g. `python bff/fast_api_app.py`).
+# It is skipped in local development (`make run-backend`) and production (Docker)
+# where uvicorn imports `bff.fast_api_app:app` dynamically as a module.
 if __name__ == "__main__":
     import uvicorn
 

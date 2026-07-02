@@ -1,9 +1,8 @@
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
-
-from app.app_utils.cai_utils import clear_services_cache
-from app.app_utils.project_discovery import (
+from finops_agent.app_utils.cai_utils import clear_services_cache
+from finops_agent.app_utils.project_discovery import (
     _USER_PROJECTS_CACHE,
     get_projects_in_org,
     list_billing_projects,
@@ -37,9 +36,7 @@ def test_list_billing_projects_success(mock_build):
 
     # Verify
     assert projects == ["project-1", "project-2"]
-    mock_build.assert_called_with(
-        "cloudbilling", "v1", credentials=ANY, cache_discovery=False
-    )
+    mock_build.assert_called_with("cloudbilling", "v1", credentials=ANY, cache_discovery=False)
 
 
 @patch("googleapiclient.discovery.build")
@@ -78,16 +75,14 @@ def test_get_projects_in_org_success(mock_build):
     projects = get_projects_in_org("123456789")
 
     assert projects == {"org-project-1", "org-project-2"}
-    mock_build.assert_called_with(
-        "cloudasset", "v1", credentials=ANY, cache_discovery=False
-    )
+    mock_build.assert_called_with("cloudasset", "v1", credentials=ANY, cache_discovery=False)
 
 
-@patch("app.app_utils.project_discovery.get_service")
-@patch("app.app_utils.project_discovery.settings")
+@patch("finops_agent.app_utils.project_discovery.get_service")
+@patch("finops_agent.app_utils.project_discovery.settings")
 def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
     """Test get_user_accessible_projects using organization Cloud Asset IAM policy search."""
-    from app.app_utils.project_discovery import get_user_accessible_projects
+    from finops_agent.app_utils.project_discovery import get_user_accessible_projects
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = "123456789"
@@ -109,12 +104,14 @@ def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
     assert projects == {"allowed-project-1", "allowed-project-2"}
 
 
-@patch("app.app_utils.project_discovery.list_billing_projects")
-@patch("app.app_utils.project_discovery.get_service")
-@patch("app.app_utils.project_discovery.settings")
-def test_get_user_accessible_projects_standalone(mock_settings, mock_get_service, mock_list_billing):
+@patch("finops_agent.app_utils.project_discovery.list_billing_projects")
+@patch("finops_agent.app_utils.project_discovery.get_service")
+@patch("finops_agent.app_utils.project_discovery.settings")
+def test_get_user_accessible_projects_standalone(
+    mock_settings, mock_get_service, mock_list_billing
+):
     """Test get_user_accessible_projects in standalone mode using project-level IAM policies."""
-    from app.app_utils.project_discovery import get_user_accessible_projects
+    from finops_agent.app_utils.project_discovery import get_user_accessible_projects
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = None
@@ -128,14 +125,10 @@ def test_get_user_accessible_projects_standalone(mock_settings, mock_get_service
     # Configure getIamPolicy responses:
     # User has access to proj-a, but not proj-b
     mock_policy_a = {
-        "bindings": [
-            {"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}
-        ]
+        "bindings": [{"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}]
     }
     mock_policy_b = {
-        "bindings": [
-            {"role": "roles/viewer", "members": ["user:some-other-user@dazbo.co.uk"]}
-        ]
+        "bindings": [{"role": "roles/viewer", "members": ["user:some-other-user@dazbo.co.uk"]}]
     }
 
     def get_iam_policy_side_effect(resource):

@@ -42,12 +42,28 @@
 [x] Migrate to Gemini Enterprise Agent Runtime, with UI in separate Cloud Run
 [~] Create blog series
   - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
+  - [x] Blog part 1
+  - [ ] Blog part 2
+  - [ ] Blog part 3
+  - [ ] Blog part 4
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
 [x] Remove env var redundancy in architecture walkthrough md
+[x] Bootstrap new ADK agent folder with agents-cli
+  - [x] Delete existing empty `app` directory to allow clean bootstrapping.
+  - [x] Run `agents-cli scaffold create app` as a prototype with `GEMINI.md` guidance.
+  - [x] Create `docs/agent-bootstrap.md` to track bootstrapping, migration, and deployment progress.
+  - [x] Implement up-front project discovery in `before_agent_callback` and save to ADK session state.
+  - [x] Adapt/re-implement business logic from `app-old` (zombie resources, CAI tools, BigQuery SQL caching) to retrieve scoping configuration from ADK state.
+  - [x] Run local smoke tests (`agents-cli run`) to verify agent and tool execution.
+  - [x] Clean separation of BFF and Agent with separate deployable Dockerfiles
+  - [x] Verify local BFF and Agent work together
+  - [x] Verify unified container build still works
+  - [x] Update documentation to reflect clean separation
+  - [x] Deploy/enhance to Agent Runtime once validated.
+  - [ ] Update Terraform and CI/CD to ensure all is working.
 [ ] Convert arch diagrams to renders
-[ ] Optimise Docker image
+[ ] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
-[ ] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
-[ ] Click a bar?
+[x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

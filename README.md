@@ -68,30 +68,48 @@ This repository is associated with a multi-part series of articles documenting t
 
 ```
 smart-gcp-finops/
-├── app/               # Core agent code (FastAPI + ADK)
-│   ├── agent.py               # Main agent logic
-│   ├── fast_api_app.py        # FastAPI Backend for Frontend
-│   └── app_utils/             # App utilities and helpers
-├── deployment/        # Infrastructure and CI/CD (Terraform)
+├── app/                  # Standalone Agent Runtime Package (ADK Agent)
+│   ├── finops_agent/          # Core ADK agent python package
+│   │   ├── app_utils/             # CAI, BQ tools, credential & cache helpers
+│   │   ├── agent.py               # Root agent definitions & tool routing
+│   │   ├── deploy_to_agent_runtime.py   # Deploys agent to Agent Runtime
+│   │   ├── agent_runtime_app.py   # Bootstrapper for remote Agent Runtime
+│   │   └── requirements.txt   # Dynamically generated at deploy time
+│   ├── .env              # Agent specific environment vars
+│   ├── agents-cli-manifest.yaml   # ADK Agent CLI manifest to support lifecycle
+│   ├── Dockerfile             # For deploying agent to Agent Runtime
+│   └── pyproject.toml         # Agent runtime dependencies
+├── bff/                  # Backend-for-Frontend (FastAPI Web App)
+│   ├── Dockerfile             # UI/BFF-only Dockerfile (TBD)
+│   └── fast_api_app.py        # Serves UI, proxies queries, and manages SSE streams
+├── deployment/           # Infrastructure & CI/CD (Terraform IaC)
 │   └── terraform/             # Centralised IaC for Prod & Staging
-├── docs/              # System-wide architecture and design documentation
+├── docs/                 # System-wide architecture and design documentation
 │   ├── images/                # Diagrams and architectural visual assets
 │   ├── DESIGN.md              # Visual identity, components, and design tokens
 │   ├── architecture-and-walkthrough.md # Solution blueprints, ADRs, and component data flows
 │   └── testing.md             # Testing strategy and verification instructions
-├── notebooks/         # Jupyter notebooks for prototyping and evaluation
+├── frontend/             # Single Page Application (React + Vite + Stitch)
+│   ├── src/                   # Application source code
+│   └── index.html             # Homepage
+├── notebooks/            # Jupyter notebooks for prototyping and evaluation
 │   └── adk_app_testing.ipynb  # Interactive playground for testing local and remote runs
-├── tests/             # Unit and integration tests
-├── .gemini/           # Gemini CLI configuration (MCP settings)
-├── GEMINI.md          # Context for the Antigravity/Gemini AI development assistant
-├── Makefile           # Development commands
-└── pyproject.toml     # Project dependencies (Python 3.12, uv)
+├── scripts/              # Env setup and other utility scripts
+├── tests/                # Unit and integration test suites
+├── .gemini/              # Gemini configuration (MCP settings)
+├── .github/              # GitHub Actions workflows and CI/CD
+├── Dockerfile            # Configuration for the unified development image
+├── Makefile              # Centralised developer command pipeline
+├── GEMINI.md             # Developer context & guidelines
+├── pyproject.toml        # Root developer environment configuration
+├── README.md             # Developer documentation homepage
+└── TODO.md               # TODO list
 ```
 
 ## Requirements
 
 Before you begin, ensure you have:
-- **uv**: Python package manager (Python 3.12+)
+- **uv**: Python package manager (Python 3.13+)
 - **Google Cloud SDK**: Authenticated with your GCP project
 - **Terraform**: For infrastructure deployment
 - **make**: Build automation tool
@@ -117,13 +135,13 @@ make install && make playground
 | `make test`          | Run unit and integration tests (`pytest`)                         |
 | `make build`         | Shortcut to build the unified production container image locally    |
 | `make docker-build`  | Build the unified production container image (React + FastAPI) locally |
-| `make docker-run`    | Run the built container locally (runs agent locally unless `AGENT_RUNTIME_ID` is set) |
+| `make docker-run`    | Run the built container locally (runs agent locally by default; set `DOCKER_AGENT_RUNTIME_ID` to proxy) |
 | `make run`           | Shortcut for `make docker-run` to run the container locally        |
 | `make tf-plan`       | Initialise Terraform and plan infrastructure deployment           |
 | `make tf-apply`      | Initialise Terraform and apply deployment configuration           |
 | `make deploy-agent-runtime` | Deploy backend agent code to Gemini Enterprise Agent Runtime   |
 | `make get-agent-runtime-id` | Retrieve the deployed Agent Runtime ID (resource URN)              |
-| `make deploy-cloud-run` | Deploy BFF container to Cloud Run using Cloud Build              |
+| `make deploy-cloud-run` | Deploy BFF container to Cloud Run using Cloud Build. Pass `LOG_LEVEL=DEBUG` to enable debugging |
 
 
 ## Local Development & Testing Flow
@@ -165,8 +183,11 @@ Alternatively, you can run the entire unified container (which bundles both the 
 # Build the unified container image locally
 make docker-build
 
-# Run the container locally (runs the agent locally unless AGENT_RUNTIME_ID is configured)
+# Run the container locally in fallback mode (executes agent locally in-container)
 make docker-run
+
+# Run the container locally in remote proxy mode (connects to remote Agent Runtime):
+make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)
 ```
 This launches the application on `http://localhost:8000`, running exactly as it would on Cloud Run.
 
@@ -195,6 +216,22 @@ An interactive notebook is available at [adk_app_testing.ipynb](notebooks/adk_ap
 
 For full usage instructions, refer to the [Testing Guide](docs/testing.md#interactive-testing-via-jupyter-notebook).
 
+### Debug Logging
+
+FinSavant is pre-configured with detailed debug logs to trace remote session creation, agent queries, and incoming event payloads.
+
+To enable full debug logging in local development or deployed Cloud Run instances:
+
+*   **Local Development**: Set the environment variable in your local `.env` file:
+    ```env
+    LOG_LEVEL=DEBUG
+    ```
+*   **Deployed Environments**: Redeploy the Cloud Run BFF passing the `LOG_LEVEL` make variable:
+    ```bash
+    make deploy-cloud-run LOG_LEVEL=DEBUG
+    ```
+    This updates the container's environment variables and outputs logs to Google Cloud Logging at the `DEBUG` level.
+
 ## CI/CD & Deployment Flow
 
 FinSavant utilises a decoupled GitHub Actions pipeline to enforce a strict quality gate before releasing code to Production. The architecture splits the application into two deployed targets:
@@ -212,6 +249,13 @@ FinSavant utilises a decoupled GitHub Actions pipeline to enforce a strict quali
   - **Actions**: The [.github/workflows/deploy-to-prod.yaml](.github/workflows/deploy-to-prod.yaml) workflow deploys the agent to the production Agent Runtime (`finops-admin-prd`), extracts the production ID, and deploys the BFF container to Production Cloud Run.
 
 For details on network variables, service accounts, and Terraform variable propagation, refer to the [Deployment README](deployment/README.md).
+
+### Accessing the Environments
+
+IAP is enabled. Access the deployments via their respective custom domain URLs:
+* **Staging / Dev Endpoint**: [https://smart-finops-dev.just2good.co.uk/](https://smart-finops-dev.just2good.co.uk/)
+* **Production Endpoint**: [https://smart-finops.just2good.co.uk/](https://smart-finops.just2good.co.uk/)
+
 
 ## IAM Permissions & Validation
 

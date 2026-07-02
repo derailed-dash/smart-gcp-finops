@@ -28,6 +28,17 @@ There are distinct operational differences in how updates are delivered to each 
    - **Workflow**: [.github/workflows/deploy-to-prod.yaml](../.github/workflows/deploy-to-prod.yaml)
    - **Target**: Deploys the same verified container image to the Cloud Run service in the **Prod / CICD** project (`finops-admin-prd`) utilizing the production service account and prod configuration parameters.
 
+> [!IMPORTANT]
+> **Terraform Infrastructure Changes are MANUAL**: 
+> The GitHub Actions CI/CD workflows only handle application-level deployments (building containers, registering Reasoning Engines, and updating Cloud Run configurations). They **do not** run `terraform plan` or `terraform apply` automatically on pull requests or merges. 
+> 
+> If you modify files under `deployment/terraform/`, you **must** run:
+> ```bash
+> make tf-plan
+> make tf-apply
+> ```
+> manually from your terminal to synchronise GCP infrastructure before merging or deploying your code changes.
+
 
 ## Developer Environment Setup
 
@@ -71,7 +82,7 @@ For local development and container runtime, configuration is driven by variable
 | `GOOGLE_CLOUD_REGION` | Infrastructure Region | The default region where Cloud Run and other regional services are deployed (e.g., `europe-west1`). |
 | `GOOGLE_CLOUD_LOCATION` | GenAI / Vertex AI | The Vertex AI API endpoint location.Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
 | `GOOGLE_CLOUD_BILLING_ACCOUNT` | Billing Scope | The target GCP Billing Account ID being audited (formatted as `XXXXXX-XXXXXX-XXXXXX`). |
-| `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g., `europe-west4`). |
+| `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g. `europe-west4`). |
 | `GOOGLE_CLOUD_BILLING_PROJECT` | Billing Project | The ID of the project hosting the BigQuery billing export dataset (for query execution and data viewing). |
 | `BILLING_EXPORT_DATASET` | Billing Dataset | The name of the BigQuery dataset where Google Cloud billing logs are exported. |
 | `SERVICE_SA` | Security / Identity | Prefix name of the custom application service account (e.g., `smart-gcp-finops-app`). |
@@ -178,8 +189,10 @@ The agent and infrastructure are configured using variables in `deployment/terra
 | `google_cloud_location` | The location for Vertex AI API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
 | `model` | The primary model used for reasoning (default: `gemini-3.5-flash`). |
 | `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.1-flash-lite`). |
-| `staging_min_instances` / `prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
-| `staging_max_instances` / `prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
+| `cloud_run_staging_min_instances` / `cloud_run_prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
+| `cloud_run_staging_max_instances` / `cloud_run_prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
+| `agent_runtime_staging_min_instances` / `agent_runtime_prod_min_instances` | Minimum scaling count for Vertex AI Agent Runtime (e.g., `0`). |
+| `agent_runtime_staging_max_instances` / `agent_runtime_prod_max_instances` | Maximum scaling count for Vertex AI Agent Runtime (e.g., `1` for dev, `10` for prod). |
 
 These variables are defined in `deployment/terraform/vars/env.tfvars` and are automatically propagated to:
 
@@ -196,6 +209,37 @@ To support the FinOps cross-referencing logic, specific IAM roles are configured
     - **With Organization**: If `google_cloud_organization_id` is supplied, grants `roles/cloudasset.viewer` at the Organization level via `google_organization_iam_member`. This provides efficient visibility across the entire estate.
     - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`.
 3.  **BigQuery Cost Analysis**: Grants `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the centralized Billing Project via `google_project_iam_member`.
+
+## Environment Variable Configuration & Lifecycle
+
+The configuration parameters for FinSavant flow through a structured lifecycle to ensure security, automation, and consistency between local development and cloud environments.
+
+### 1. The Configuration Flow
+
+![Environment Variable Propagation Flow](docs/images/env_variable_lifecycle.png)
+
+### 2. Local Development (.env)
+For local development, variables are read from a local `.env` file situated under `app/` and `bff/`. These are ignored by Git. A template `.env.example` is provided as a starting point.
+
+### 3. Staging and Production Configuration Mapping
+
+| Terraform Variable (`env.tfvars.enc`) | GitHub Actions Variable (`vars.*`) | Container & Runtime Environment Variable | Target System | Description |
+|--------------------------------------|-----------------------------------|------------------------------------------|---------------|-------------|
+| `project_name` | `vars.CONTAINER_NAME` | N/A | Build Pipeline | Base name for services and containers. |
+| `google_cloud_region` | `vars.REGION` | `GOOGLE_CLOUD_REGION` | BFF & Agent | Google Cloud deployment region. |
+| `google_cloud_location` | `vars.GOOGLE_CLOUD_LOCATION` | `GOOGLE_CLOUD_LOCATION` | BFF & Agent | Vertex AI endpoint location (generally `global`). |
+| `google_cloud_billing_project` | `vars.GOOGLE_CLOUD_BILLING_PROJECT` | `GOOGLE_CLOUD_BILLING_PROJECT` | BFF & Agent | Project hosting BigQuery billing export. |
+| `billing_export_dataset` | `vars.BILLING_EXPORT_DATASET` | `BILLING_EXPORT_DATASET` | BFF & Agent | Dataset name containing billing tables. |
+| `billing_account_id` | `vars.GOOGLE_CLOUD_BILLING_ACCOUNT` | `GOOGLE_CLOUD_BILLING_ACCOUNT` | BFF & Agent | Billing account ID to analyse. |
+| `google_cloud_organization_id` | `vars.GOOGLE_CLOUD_ORGANIZATION` | `GOOGLE_CLOUD_ORGANIZATION` | BFF & Agent | Numeric ID of the GCP Organisation. |
+| `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Vertex AI connectivity. |
+| `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.5-flash`). |
+| `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.1-flash-lite`). |
+| `cloud_run_staging_min_instances` | `vars.CLOUD_RUN_STAGING_MIN_INSTANCES`| N/A | Cloud Run Deploy | Minimum containers for Staging BFF. |
+| `cloud_run_staging_max_instances` | `vars.CLOUD_RUN_STAGING_MAX_INSTANCES`| N/A | Cloud Run Deploy | Maximum containers for Staging BFF. |
+| `agent_runtime_staging_min_instances` | `vars.AGENT_RUNTIME_STAGING_MIN_INSTANCES`| N/A | Agent Runtime Deploy | Minimum containers for Staging Agent. |
+| `agent_runtime_staging_max_instances` | `vars.AGENT_RUNTIME_STAGING_MAX_INSTANCES`| N/A | Agent Runtime Deploy | Maximum containers for Staging Agent. |
+
 
 ## Infrastructure Discovery Scoping
 
@@ -234,7 +278,11 @@ The Terraform state for this project is stored remotely in a **Google Cloud Stor
 
 ## Custom Domain Mapping
 
-The system supports mapping custom subdomains to Cloud Run via Terraform. The environment mappings are provided in your `env.tfvars` securely:
+The system supports mapping custom subdomains to Cloud Run via Terraform. The environment mappings are:
+* **Staging / Dev Endpoint**: [https://smart-finops-dev.just2good.co.uk/](https://smart-finops-dev.just2good.co.uk/)
+* **Production Endpoint**: [https://smart-finops.just2good.co.uk/](https://smart-finops.just2good.co.uk/)
+
+The configuration is specified in your `env.tfvars`:
 - `prod_app_domain_name` for the production endpoint
 - `staging_app_domain_name` for the staging endpoint
 
@@ -305,7 +353,10 @@ To prevent Terraform from trying to strip or revert the deployment-metadata and 
 
 ## Deployment Commands
 
-Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Reasoning Engine), and deploying the container BFF proxy (Cloud Run).
+Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Agent Runtime), and deploying the container BFF proxy (Cloud Run).
+
+> [!IMPORTANT]
+> **Deployment Sequence Dependency**: Every time you update and redeploy the backend agent logic via `make deploy-agent-runtime`, a new `reasoningEngine` instance ID is created on Google Cloud. You **must** immediately redeploy the Cloud Run service (`make deploy-cloud-run`) afterwards so the front-end/BFF is updated to route user traffic to the new agent instance.
 
 ### 1. Provision Base Infrastructure (Terraform)
 
@@ -320,23 +371,23 @@ terraform apply tfplan
 
 ### 2. Deploy Agent Logic to Vertex AI Agent Runtime
 
-Next, compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Reasoning Engine using the CLI:
+Compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Agent Runtime (Reasoning Engine):
 
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles dependencies using `uv` to `app/app_utils/.requirements.txt`, packages the `app` source files, and deploys it to the regional Reasoning Engine shell.
-*   **Result**: Upon successful completion, the CLI writes a `deployment_metadata.json` file to the root of your project containing the newly deployed `remote_agent_runtime_id` (e.g. `projects/PROJECT_NUMBER/locations/europe-west1/reasoningEngines/ENGINE_ID`).
+*   **What this does**: It compiles staging dependencies to `app/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
+*   **Result**: A new `reasoningEngine` resource instance is created on Vertex AI.
 
 ### 3. Deploy the Cloud Run BFF and Frontend
 
-Finally, deploy the lightweight frontend container. The deployment script reads the runtime ID from `deployment_metadata.json` and injects it as the `AGENT_RUNTIME_ID` environment variable.
+Deploy the unified frontend and BFF container. This target automatically fetches the latest deployed agent runtime ID and binds it.
 
 ```bash
-# Build the unified container (React assets + FastAPI) and deploy to Cloud Run
 make deploy-cloud-run
 ```
-*   **How it routes**: When the container spins up on Cloud Run, it checks if `AGENT_RUNTIME_ID` is set. If present, FastAPI automatically acts as a BFF proxy, routing user queries to the remote reasoning engine instead of running the agent locally inside the container.
+*   **How it resolves the ID**: During execution, the Makefile runs a helper Python script (`scripts/get-agent-runtime-id.py`) which queries Vertex AI for the most recently deployed reasoning engine matching your backend service name (`smart-gcp-finops-backend`).
+*   **How it routes**: The Makefile captures this newly retrieved ID and injects it as the `AGENT_RUNTIME_ID` environment variable in the Cloud Run deployment parameters. When the container boots, the FastAPI BFF detects this variable and automatically acts as a proxy, streaming chat sessions directly to the remote reasoning engine instead of using a local container runner.
 
 ## CI/CD Pipeline Flow
 
@@ -362,64 +413,114 @@ gcloud asset search-all-iam-policies \
 > Make sure your active project is set to a project where the `cloudasset.googleapis.com` API is enabled (e.g. `$GOOGLE_CLOUD_PROJECT`). Otherwise, `gcloud` will fail with an API-not-enabled error. You can set the quota project via:
 > `gcloud config set billing/quota_project "$GOOGLE_CLOUD_PROJECT"`
 
-### 2. Granting Missing Roles
+#### 2. Granting Missing Roles
 
-If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level:
+If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level.
 
 *   **Organization level** (required for organization-wide searches):
-    ```bash
-    gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer"
-    ```
+    *   **For Developer Account**:
+        ```bash
+        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
+            --member="user:$LOCAL_DEVELOPER_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
 *   **Folder level** (if scope is restricted to a folder):
-    ```bash
-    gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer"
-    ```
+    *   **For Developer Account**:
+        ```bash
+        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
+            --member="user:$LOCAL_DEVELOPER_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer"
+        ```
 *   **Project level** (if scope is restricted to a project):
-    ```bash
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudasset.viewer" \
-        --condition=None
-    ```
-
-*(Note: Replace `user:$LOCAL_DEVELOPER_EMAIL` with `serviceAccount:$SERVICE_SA_EMAIL` to grant permissions to the application service account).*
-
-### 3. Bulk Binding Standalone (Orphaned) Projects
-
-If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you can retrieve and bind permissions to them in bulk:
-
-*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
-    ```bash
-    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-      echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
-      gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-          --member="user:$LOCAL_DEVELOPER_EMAIL" \
-          --role="roles/cloudasset.viewer" \
-          --condition=None
-    done
-    ```
-
-*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
-    ```bash
-    for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-      PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
-      PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
-      
-      if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
-        echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
-        gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    *   **For Developer Account**:
+        ```bash
+        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
             --member="user:$LOCAL_DEVELOPER_EMAIL" \
             --role="roles/cloudasset.viewer" \
             --condition=None
-      fi
-    done
-    ```
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+            --member="serviceAccount:$SERVICE_SA_EMAIL" \
+            --role="roles/cloudasset.viewer" \
+            --condition=None
+        ```
 
+### 3. Bulk Binding Standalone (Orphaned) Projects
+
+If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you must retrieve and bind permissions to them in bulk:
+
+> [!IMPORTANT]
+> **Developer vs. Service Account Access**: You must run the bulk-binding commands for **both** your local developer user (for local testing via `make playground`) and the application service account (for deployed environments on Cloud Run). Failing to bind permissions for the service account will result in `403 Forbidden` errors in your staging and production logs.
+
+*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
+    *   **For Developer Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
+          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+              --member="user:$LOCAL_DEVELOPER_EMAIL" \
+              --role="roles/cloudasset.viewer" \
+              --condition=None
+        done
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
+          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+              --member="serviceAccount:$SERVICE_SA_EMAIL" \
+              --role="roles/cloudasset.viewer" \
+              --condition=None
+        done
+        ```
+
+*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
+    *   **For Developer Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
+          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
+          
+          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
+            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+                --member="user:$LOCAL_DEVELOPER_EMAIL" \
+                --role="roles/cloudasset.viewer" \
+                --condition=None
+          fi
+        done
+        ```
+    *   **For Application Service Account**:
+        ```bash
+        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
+          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
+          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
+          
+          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
+            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+                --member="serviceAccount:$SERVICE_SA_EMAIL" \
+                --role="roles/cloudasset.viewer" \
+                --condition=None
+          fi
+        done
+        ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
+
 
 

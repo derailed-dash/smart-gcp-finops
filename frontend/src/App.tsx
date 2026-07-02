@@ -51,7 +51,7 @@ const formatSpikeDate = (dateStr: string): string => {
       try {
         const dateObj = new Date(year, month - 1, day)
         return formatFriendlyDate(dateObj)
-      } catch (e) {
+      } catch {
         return dateStr
       }
     }
@@ -67,7 +67,7 @@ const formatSpikeDate = (dateStr: string): string => {
       try {
         const dateObj = new Date(currentYear, month - 1, day)
         return formatFriendlyDate(dateObj)
-      } catch (e) {
+      } catch {
         return dateStr
       }
     }
@@ -229,7 +229,7 @@ export default function App() {
         const [year, month, day] = dateStr.trim().split('-').map(Number);
         const dateObj = new Date(year, month - 1, day);
         return dateObj.toLocaleDateString(navigator.language, { day: '2-digit', month: '2-digit' }).replace(/[.-]/g, '/');
-      } catch (e) {
+      } catch {
         return dateStr;
       }
     }
@@ -246,7 +246,7 @@ export default function App() {
           const formatted = dateObj.toLocaleDateString(navigator.language, { day: '2-digit', month: '2-digit' });
           return formatted.replace(/[.-]/g, '/');
         }
-      } catch (e) {
+      } catch {
         return dateStr;
       }
     }

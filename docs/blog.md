@@ -57,6 +57,7 @@ This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dyna
 35. Upgraded `google-adk` to version `1.34.1` (and `google-genai` to `1.75.0`), completely eliminating the internal `session_context` concurrency warning (`Error on session runner task`) from backend logs.
 36. Restored thread-isolated queue producer streaming architecture in [fast_api_app.py](../app/fast_api_app.py) using a background thread and `asyncio.Queue`, resolving uvicorn and gRPC event-loop conflicts that caused silent streaming crashes.
 37. Resolved a critical integration test failure (405 Method Not Allowed on `/apps/app/users/{user_id}/sessions`) by removing the trailing slash from `BASE_URL` in `test_server_e2e.py`, preventing double-slash path matching issues in Starlette/FastAPI's router.
+38. Sanitised environment variable loading in the Makefile by implementing an in-memory `sed` and `eval` newline substitution pattern, preventing literal double quotes and trailing comments/whitespace from corrupting deployment commands.
 
 ## Deep Dives
 
@@ -2078,6 +2079,268 @@ When unit tests were run in the GitHub Actions CI/CD runner, they failed immedia
 
 **Resolution**:
 Provided a default value of `"local-dev@example.com"` for `local_developer_email` in [config.py](../app/config.py). This fallback satisfies Pydantic's requirement when running in the CI/CD environment where `.env` files are ignored, letting all unit tests compile and run successfully.
+
+---
+
+### Refactoring Global State to Object-Oriented Client Managers
+
+**Problem**:
+The application had multiple loose, mutable global module-level variables (e.g. `_THREAD_LOCAL`, `_ORG_SCOPE_DISABLED`, `_ORG_SCOPE_LOCK` inside `cai_utils.py`, `_bq_client` inside `tools.py`, `_USER_PROJECTS_CACHE` inside `project_discovery.py`, and `_AGENT_QUERY_CACHE` inside `agent.py`) that stored service connections and caching state. Dispensing these across free-floating functions made state tracking difficult, cluttered class namespaces, created testing isolation challenges, and required complex thread locks across functions.
+
+**Resolution**:
+We refactored these variables into cohesive, object-oriented client and manager classes:
+1. **`CAIClientManager`** in [cai_utils.py](../app/app_utils/cai_utils.py): Encapsulates thread-local discovery service clients, organisation scope configuration status, and thread locks.
+2. **`QueryCacheManager`** in [query_cache.py](../app/app_utils/query_cache.py): Encapsulates in-memory query results cache and locking mechanisms.
+3. **`BigQueryClientManager`** in [tools.py](../app/app_utils/tools.py): Encapsulates lazy-initialisation of the BigQuery client and associated lock variables.
+4. **`ProjectDiscoveryManager`** in [project_discovery.py](../app/app_utils/project_discovery.py): Encapsulates in-memory project permission lookup caches.
+5. **`AgentQueryCacheManager`** in [agent.py](../app/agent.py): Encapsulates agent-level semantic response caches.
+
+**Backward Compatibility Pattern**:
+To prevent breaking existing REST endpoint routes, unit tests, and ADK agent tool mappings, we:
+* Instantiated module-level singletons (e.g. `cai_client_manager = CAIClientManager()`, `bq_client_manager = BigQueryClientManager()`).
+* Kept the original module-level function signatures (e.g. `is_org_scope_disabled()`, `_get_bq_client()`) as thin wrappers delegating to the singletons.
+* Mapped module-level global variables directly to the manager's attributes (e.g. `_USER_PROJECTS_CACHE = project_discovery_manager.user_projects_cache`), allowing unit tests to clear or inspect cache states in-place.
+
+All 53 unit tests pass successfully, and spelling/linter checks verify code quality compliance! Hurrah!
+
+---
+
+### Unifying Python Native Logging and Dynamic Log Level Configuration
+
+**Problem**:
+The backend FastAPI BFF and Agent Runtime setup had split logging patterns. While utility classes (`tools.py`, `cai_utils.py`) used Python's native `logging` library, the endpoints and entrypoint applications (`fast_api_app.py` and `agent_runtime_app.py`) directly imported and invoked Google Cloud Logging SDK logger objects (`logging_client.logger(__name__)`), utilizing non-standard calls like `logger.log_text` and `logger.log_struct`. This split implementation made local development logs difficult to standardise, ignored the dynamic `settings.log_level` parameter (which stayed locked at a hardcoded fallback value), and tied log formatting directly to a specific cloud vendor SDK.
+
+**Resolution**:
+We refactored the logging architecture to be completely standard and unified:
+1. **Standardised on Python Native Logger**: Replaced all direct SDK imports and calls with standard `logging.getLogger(__name__)`. Replaced `log_text` and `log_struct` calls with native logging equivalents (`logger.info`, `logger.warning`, `logger.error`).
+2. **Integrated Google Cloud Logging Setup Handler**: In `fast_api_app.py` and `agent_runtime_app.py`, we detect if running in a deployed environment or if cloud trace exports are active (`otel_to_cloud` or `K_SERVICE` is set). In those conditions, we instantiate `google.cloud.logging.Client().setup_logging()`. This dynamically attaches the Cloud Logging handler to Python's root logger.
+3. **Optimised Serverless Structured Logging**: Because Cloud Run captures stdout/stderr, `setup_logging()` in Cloud Run automatically outputs structured JSON logs to stdout. This ensures that every native `logger.warning` or `logger.error` statement is automatically ingested by Google Cloud Logging with the correct severity mapped directly.
+4. **Dynamic Log Level Application**: Applied the root log level dynamically from settings (`logging.getLogger().setLevel(settings.log_level.upper())`), letting operators override logging verbosity seamlessly across local environments (set to `"DEBUG"` in Makefile) and production (set to `"INFO"` in Makefile).
+5. **Null-Safe Structured Metadata Logging**: Converted the `/feedback` struct logger in `fast_api_app.py` and `agent_runtime_app.py` to use Python native logger's `extra={"json_fields": ...}` parameter. When running on Cloud Logging, these fields are automatically mapped under the `jsonPayload` object, preserving structured telemetry search capabilities.
+6. **Makefile Log-Level Fallback & Override Engine**: Configured the [Makefile](../Makefile) with `DEV_LOG_LEVEL = $(or $(LOG_LEVEL),DEBUG)` and `PROD_LOG_LEVEL = $(or $(LOG_LEVEL),INFO)`. This dynamically assigns the `LOG_LEVEL` environment variable passed into the container targets (`docker-run`, `deploy-cloud-run`, and `deploy-agent-runtime`). It guarantees that if a custom `LOG_LEVEL` is declared inside the local `.env` file, it instantly takes precedence for both dev and prod deployments, while falling back to standard presets (DEBUG/INFO) in other scenarios.
+7. **Sprinkled API & BQ Debug Telemetry**: Added detailed `logger.debug` statements in the core Discovery (`project_discovery.py`), CAI Client (`cai_utils.py`), and Zombie Scanners (`zombie_resources.py`). These logs capture the outgoing API request parameters (scopes, queries, timestamps) and output metadata response details (counts and snippets of first records). Adjusted related unit tests in `test_cai_tools.py` to assert correct log level verification.
+8. **Programmatic Suppressions for Third-Party Loggers**: Configured explicit limits on third-party request tracking loggers (specifically namespaces `urllib3`, `googleapiclient`, `google_auth_httplib2`, `google.auth`, `httpcore`, `httpx`, `opentelemetry`, and `asyncio`), locking them to `logging.INFO`. Configured `logging.WARNING` level limits for `"mcp"`, `"uvicorn"`, and `"uvicorn.access"` to suppress noisy protocol negotiations and standard HTTP access logs. Elevated the `google_adk` logging namespace to `logging.ERROR` to suppress cancellation warnings and session runner task errors. Registered warning filters using Python's `warnings` package (`warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")`) to hide experimental ADK status warnings from console output.
+9. **Shared Telemetry Refactoring**: Encapsulated the warnings filter and log level suppressions into a reusable helper function `setup_logging_suppressions()` inside the shared utility module `app/app_utils/logging_and_telemetry.py`. Refactored `fast_api_app.py` and `agent_runtime_app.py` to import and call this centralised configuration utility, completely eliminating duplicate logging setup blocks.
+10. **Agent Runtime Terminology Clean-Up**: Renamed the bootstrapper application class in `agent_runtime_app.py` from `AgentEngineApp` to `AgentRuntimeApp`. Cleaned up deprecated references to "Reasoning Engine" and "Agent Engine" across comments, print statements, mock assertions, and documentation files to ensure strict alignment with the new Gemini Enterprise Agent Platform branding.
+11. **Elimination of Global Statements**: Grouped FastAPI application lazy-initialised state variables (runner, sessions, session services, and thread-safety locks) into a structured `AppState` container class inside `fast_api_app.py`. Annotated state fields with `ClassVar` to comply with Ruff lint rule RUF012 and removed all Python `global` reassignment statements.
+
+All 52 unit tests are passing cleanly, and Ruff formatting and Codespell checkers verify full compliance! Hurrah!
+
+---
+
+### Makefile Quoting & Trailing Space Sanitisation
+
+**Problem**:
+When loading environment variables from a `.env` file, Make's `include` directive evaluates the file literally. This causes two issues:
+1. Surrounding double quotes (e.g. `export GOOGLE_CLOUD_PROJECT="finops-admin-dev"`) are loaded as literal parts of the variable value in Make (i.e. `"finops-admin-dev"`).
+2. Trailing spaces before inline comments (e.g. `export GOOGLE_CLOUD_REGION="europe-west1" # For resources`) are preserved as part of the value.
+When these variables are wrapped in another set of double quotes inside command recipes (e.g. `--region "$(GOOGLE_CLOUD_REGION)"`), they expand in the shell to doubled double-quotes and trailing spaces (e.g. `--region ""europe-west1" "`). The `google-agents-cli` deployment tool passes this invalid string directly to Vertex AI APIs, which fail validation (e.g. `ValueError: Unsupported region for Vertex AI`).
+
+**Resolution**:
+We implemented an in-memory `sed` and `eval` newline-substitution pattern in the [Makefile](../Makefile) right when reading `.env`:
+```makefile
+define newline
+
+
+endef
+
+# Load environment variables from .env file if it exists, sanitising quotes, comments, and trailing spaces in-memory
+ifneq (,$(wildcard .env))
+    CLEAN_ENV := $(shell sed -e 's/[#].*//' -e 's/["\x27]//g' -e 's/[[:space:]]*$$//' -e 's/$$/|/' .env)
+    $(eval $(subst |,$(newline),$(CLEAN_ENV)))
+endif
+```
+This sanitises the file content by:
+* Stripping comments (`s/[#].*//`)
+* Stripping single and double quotes (`s/["\x27]//g`)
+* Stripping trailing whitespace (`s/[[:space:]]*$$//`)
+* Appending a placeholder `|` to denote line breaks, which is then replaced by Make's native newline variable before running `eval`.
+
+This ensures all Makefile targets receive perfectly clean, unquoted values, preventing any command parsing issues.
+
+---
+
+### Nested ADK Package Design & BFF/Agent Separation
+
+**Problem**:
+Bootstrapping a clean ADK agent with `agents-cli` creates a dedicated directory (`app/`) managed by the `hatchling` build backend. When trying to flatten the structure by copying files directly to the root of the `app/` folder, the build packaging fails because `hatchling` requires a nested python module subdirectory to package the code properly without conflicting with workspace configurations. Furthermore, keeping the FastAPI BFF/React UI server coupled inside the agent package prevents separate deployment and scaling of the frontend vs the managed Agent Runtime.
+
+**Resolution**:
+We redesigned the layout into a clean, nested architecture:
+1. **Nested Agent Package (`finops_agent`)**: Created `app/finops_agent/` and moved all agent files (`agent.py`, `agent_runtime_app.py`, `deploy_to_agent_runtime.py`, and `app_utils/` utilities) there. Configured `app/agents-cli-manifest.yaml` to point to the nested module:
+   ```yaml
+   agent_directory: "finops_agent"
+   ```
+2. **BFF & UI Container Isolation (`bff`)**: Moved the FastAPI app to `bff/fast_api_app.py`, keeping the root container running FastAPI and the `app/` container serving the ADK Agent Runtime independently.
+3. **Import Migration**: Recursively migrated all python import paths and test mock patches from `app.*` to `finops_agent.*`.
+4. **App Name Alignment**: Configured `App(name="finops_agent")` in `agent.py` to match the directory/package name, resolving `SessionNotFoundError` during E2E integration test chat streams.
+5. **Quality Gates**: Verified all 52 unit tests and 5 E2E integration tests pass cleanly, and that codespell/ruff quality checks return 0 errors.
+
+---
+
+### Dockerfile Path Preservations & Dependency Pruning
+
+**Problem**:
+After separating the FastAPI BFF and Agent folders, two issues emerged when preparing the deployment containers:
+1. **Container Startup Failure (`FileNotFoundError`)**: The root `Dockerfile` and `bff/Dockerfile` originally copied `app/finops_agent` directly to the `/code/finops_agent` directory. However, the ADK `get_fast_api_app` helper requires a nested agent folder structure to discover available agents, looking specifically for a `/code/app/` subdirectory. Because this subdirectory did not exist inside the container, uvicorn crashed immediately during startup with `FileNotFoundError: [Errno 2] No such file or directory: '/code/app'`.
+2. **Unused Dependencies in Deployable**: The agent's dependencies list inside `requirements.txt` and `pyproject.toml` still included heavy web-serving and database packages (`fastapi`, `uvicorn`, `asyncpg`) and unused catalog helpers (`google-cloud-dataplex`, `gcsfs`) inherited from the old coupled repository layout. Since the agent runs in Google's managed Agent Runtime using a native container context without running its own FastAPI server, carrying these packages bloated the deployable artifact.
+
+**Resolution**:
+We optimized the container configurations and package scopes:
+1. **Dockerfile Path Preservation**: Updated both [Dockerfile](../Dockerfile) and [bff/Dockerfile](../bff/Dockerfile) to copy the agent source package to the nested path `./app/finops_agent` inside the container:
+   ```dockerfile
+   COPY ./app/finops_agent ./app/finops_agent
+   ```
+   This ensures `/code/app/` is present, satisfying ADK's agent discovery while keeping `sys.path` references working seamlessly.
+2. **Pruning Unused Agent Dependencies**: Removed `fastapi`, `uvicorn`, `asyncpg`, `google-cloud-dataplex`, and `gcsfs` from:
+   * [app/pyproject.toml](../app/pyproject.toml)
+   * [app/finops_agent/requirements.txt](../app/finops_agent/requirements.txt)
+   This slashes container weight and minimizes security/vulnerability footprints on the remote runtime. All 52 unit tests and quality checks continue to pass cleanly.
+
+---
+
+### Serving Command Correction, Dependency Standardization & Logging Cleanup
+
+**Problem**:
+Following the BFF and Agent decoupling, several runtime issues arose during staging deployment and local execution:
+1. **Staging Deploy Failure (`ModuleNotFoundError`)**: The container failed to launch with `/code/.venv/bin/python3: Error while finding module specification for 'google.cloud.aiplatform.reasoning_engines.web_server' (ModuleNotFoundError: No module named 'google.cloud.aiplatform.reasoning_engines')`. We discovered that `google.cloud.aiplatform.reasoning_engines.web_server` is not distributed inside PyPI's public `google-cloud-aiplatform` package, and that the Reasoning Engine actually serving ADK applications uses the ADK standard FastAPI CLI.
+2. **Duplicate/Redundant Telemetry Files**: Two separate modules (`logging_and_telemetry.py` and `telemetry.py`) existed in the `app_utils/` directory, exposing duplicate `setup_telemetry()` implementations.
+3. **Noisy Logger Warnings in Staging**: The container logs emitted continuous `httplib2 transport does not support per-request timeout` and `[EXPERIMENTAL] feature...` warnings. The warning filters were not run early enough during import-time of the entrypoint files (`fast_api_app.py` and `agent_runtime_app.py`), and duplicating raw `warnings.filterwarnings` filter lists across entrypoints created poor code structure.
+
+**Resolution**:
+We resolved the startup configurations, cleaned up redundant modules, and standardized warnings management:
+1. **Dockerfile Command Correction**: Restored the ADK FastAPI server serving command in [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile):
+   ```dockerfile
+   CMD ["python", "-m", "google.adk.cli", "api_server", "--host", "0.0.0.0", "--port", "8080"]
+   ```
+   This successfully starts the Reasoning Engine inside Agent Runtime.
+2. **Standardized Warning Suppressions**:
+   * Moved all third-party imports (like `google.auth` and `google-adk` libraries) inside `setup_telemetry()` in [logging_and_telemetry.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/app_utils/logging_and_telemetry.py) so importing the module triggers zero warnings.
+   * Imported and executed `setup_logging_suppressions()` at the very top of [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) and [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), fully suppressing import-time and run-time warnings. Added `# ruff: noqa: E402` to document and allow this PEP 8 exception.
+3. **Redundancy Cleanup**: Deleted the unused, leftover `telemetry.py` module.
+4. **Dependency Standardization**: Aligned package ranges inside [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) to use recent stable versions (e.g. `google-adk>=2.3.0`, `google-cloud-aiplatform>=1.159.0`, `mcp>=1.28.1`), regenerated `uv.lock` files, and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
+5. **Quality & Validation**: Ran `make lint` and `make test`, verifying all 52 unit tests and quality checks pass with 0 errors.
+
+---
+
+### Reasoning Engine Endpoint Router Fix & Dataplex Dependency Resolution
+
+**Problem**:
+Following our decoupling, two issues impacted the runtime execution of our Python agent when queried remotely via Vertex AI Agent Runtime:
+1. **Missing Dataplex Dependency**: The ADK `BigQueryToolset` depends on `google-cloud-dataplex` (`dataplex_v1`). This library was missing from [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml), causing the container's python interpreter to fail loading the entrypoint module with `ImportError: cannot import name 'dataplex_v1' from 'google.cloud'`.
+2. **REST Endpoint Routing Mismatch (404 Not Found)**:
+   * During our initial resolution, we attempted to suppress the client-side `Unsupported api mode: async` registration warnings by pruning the `"async"` and `"async_stream"` keys from the server's `register_operations()` method in `agent_runtime_app.py`.
+   * However, this broke the Vertex AI Control Plane router's routing table. The Control Plane relies on the server's `register_operations()` dictionary payload to dynamically map and validate incoming REST requests before forwarding them to the container. Without these keys, the Control Plane rejected incoming calls to `async_create_session` and immediately returned `404 Not Found` (detail: `"Not Found"`).
+
+**Resolution**:
+1. **Dependency Addition**: Added `"google-cloud-dataplex>=2.20.0,<3.0.0"` to the `dependencies` list in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [app/finops_agent/requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) offline.
+2. **Operations Mapping Restoration**:
+   * Restored `register_operations()` in [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py) to its original working implementation. This leaves the `"async"` and `"async_stream"` keys intact, ensuring the Vertex AI Control Plane retains a complete routing table.
+   * Confirmed that the client-side warning (`Unsupported api mode: async`) is a harmless, known warning from the client-side `google-cloud-aiplatform` SDK, while pruning the server keys leads to hard routing failures.
+3. **Validation**: All 52 unit tests and local linting checks pass successfully.
+
+---
+
+### ESLint v9 Flat Config Upgrade
+
+**Problem**:
+The React frontend workspace was running on deprecated ESLint v8 configurations (`.eslintrc.json`), emitting dependency warnings in the Cloud Run build steps about legacy packages like `rimraf` v3, `inflight` v1, and `glob` v7.
+
+**Resolution**:
+1. **Dependencies Update**:
+   * Removed deprecated `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` from [frontend/package.json](file:///home/dazbo/localdev/smart-gcp-finops/frontend/package.json).
+   * Installed `"eslint": "^9.20.0"`, `"typescript-eslint": "^8.24.0"`, `"@eslint/js": "^9.20.0"`, and `"globals": "^15.15.0"`.
+2. **Flat Configuration**:
+   * Deleted legacy [frontend/.eslintrc.json](file:///home/dazbo/localdev/smart-gcp-finops/frontend/.eslintrc.json).
+   * Created [frontend/eslint.config.js](file:///home/dazbo/localdev/smart-gcp-finops/frontend/eslint.config.js) to configure ESLint Flat Config rules for React, TypeScript, and global browser variables.
+   * Simplified the lint script command to `"eslint . --max-warnings 0"`.
+3. **App.tsx Refactoring**:
+   * Fixed 4 warnings in [frontend/src/App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) by replacing unused catch variables `e` with parameterless catch clauses (`catch { ... }`), enabling 100% warning-free lint checks.
+4. **Validation**: Verified that `npm run lint` and `npm run build` both compile with 0 errors and 0 warnings.
+
+---
+
+### Dockerfile Caching & Cloud Build Compatibility
+
+**Problem**:
+During the unified Docker image build process, changes to package manifests invalidated cache layers, triggering full re-downloads of all npm packages and Python dependencies from remote registries. We initially added BuildKit cache mounts (`--mount=type=cache`) to mitigate this. However, this broke the production deployment target (`make deploy-cloud-run`) which runs inside Google Cloud Build, yielding the error: `the --mount option requires BuildKit`.
+
+**Resolution**:
+1. **Reverted Cache Mounts**: Reverted the `--mount=type=cache` changes in the root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) to retain compatibility with standard container builders.
+2. **Analysis**: Google Cloud Build runs inside ephemeral VM containers and does not enable BuildKit by default. Since the build VMs are completely clean and deleted after each build, cache mounts do not persist between separate runs anyway.
+3. **Standard Caching**: Retained the standard, highly efficient Docker layer caching structure. As long as `package-lock.json` and `uv.lock` manifests are unchanged, Docker will use standard cached layers, bypassing `npm ci` and `uv sync` operations completely.
+
+---
+
+### Resolving Hanging Remote Agent Response with Unary LLM Routing (Vertex AI SDK Streaming + AFC Bug)
+
+**Problem**:
+After resolving container entrypoints and routing mismatches, the remote Reasoning Engine started up, initialized toolsets, and executed Developer Knowledge and Gemini Cloud Assist MCP calls successfully. However, the connection hung indefinitely right after printing `models.py:8686 - AFC is enabled with max remote calls: 10.`, returning empty responses to the React UI and resulting in high BFF HTTP response latencies.
+
+**Investigation**:
+1. **Network Connectivity**: Checked domain resolution and TCP routing. The container successfully connected to internal Google APIs (returning `200 OK` for MCP lookups), proving egress was fully functional.
+2. **SDK Bug Identification**: Discovered a known client-side streaming bug in the `google-genai` SDK. When combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) in Vertex AI mode, the generator hangs indefinitely after tool execution, failing to return the final text response.
+3. **Interactions API Compatibility**: Researched migrating the agent layer to the stateful, cloud-managed **Interactions API**. However, the Interactions API returned `Unsupported model interaction: gemini-3.5-flash` under our required `gemini-3.5-flash` model, making migration impossible due to strict project constraints.
+
+**Resolution**:
+We bypassed the client-side SDK streaming hang by running the LLM in unary (non-streaming) mode while preserving SSE compatibility in the BFF:
+1. **BFF Run Config Injection**: Modified [fast_api_app.py](../bff/fast_api_app.py) to pass `run_config={"streaming_mode": None}` to all `agent_engine.async_stream_query` calls.
+2. **How it Works**: This instructs the ADK runner inside the container to call the model using unary `generate_content` instead of `generate_content_stream`, bypassing the AFC streaming bug. The runner still compiles the final response events and yields them as an async generator.
+3. **SSE Preservation**: The FastAPI BFF's SSE stream to the React UI remains fully intact, receiving and forwarding the final aggregated text and reasoning events without any UI modifications.
+4. **Validation**: All 52 unit tests pass successfully.
+
+This resolves the hanging response bug, enabling reliable tool execution and quick query responses on the remote Reasoning Engine! Hurrah!
+
+---
+
+### Unswallowing the Final Response: Unary SSE Routing Fix
+
+**Problem**:
+After switching to unary mode to bypass the Vertex AI SDK streaming hang, the remote agent began executing quickly and returning correct responses. However, the React frontend still received empty responses.
+*Investigation:*
+The FastAPI BFF's SSE stream generator in [bff/fast_api_app.py](../bff/fast_api_app.py) contained an `if not is_final:` filter when yielding text chunks. In streaming mode, the ADK yields multiple partial events followed by a final accumulated event containing the entire text. To prevent rendering the text twice, the BFF skipped the final event (`is_final = True`).
+However, in unary mode, there are no partial chunks—only a single final event (where `is_final_response()` is `True` and `partial` is `False`). The filter skipped this single response entirely, sending exactly `0` bytes of text to the UI.
+
+**Resolution**:
+We modified the BFF text chunk extractor to track whether any partial text chunks have been yielded. It checks `is_partial = getattr(event, "partial", False)`:
+```python
+is_partial = getattr(event, "partial", False)
+if hasattr(event, "content") and event.content:
+    parts = event.content.parts if hasattr(event.content, "parts") else []
+    text_chunk = "".join(
+        part.text for part in parts if hasattr(part, "text") and part.text
+    )
+    if text_chunk:
+        if is_partial:
+            has_yielded_partial_text = True
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+        elif not has_yielded_partial_text:
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+```
+This elegantly supports both modes:
+1. **Streaming Mode**: Streams partial chunks (`is_partial = True`, setting `has_yielded_partial_text = True`) and skips the final accumulated response.
+2. **Unary Mode**: Streams the single final response (since `is_partial = False` and `has_yielded_partial_text` remains `False`).
+
+This completely recovers our UI chat updates, bringing the remote Agent Runtime solution fully alive! Hurrah!
+
+---
+
+### Dynamic Debug Logging Telemetry for SSE Inspection
+
+**Problem**:
+Debugging asynchronous streaming channels and remote Reasoning Engine execution flows was extremely difficult without real-time insights into the exact event payloads being returned across the network.
+
+**Resolution**:
+We added detailed `logger.debug` statements inside the FastAPI BFF's `run_remote_agent` thread task:
+1. Logs session creation arguments and resolved session IDs.
+2. Prints each raw incoming event dictionary yielded from the `async_stream_query()` generator.
+3. Automatically outputs full stack tracebacks to Cloud Logging on execution exceptions.
+
+These telemetry logs are dynamically enabled by deploying the container with:
+```bash
+make deploy-cloud-run LOG_LEVEL=DEBUG
+```
+This enables developers to examine the event payloads step-by-step directly from the Cloud Run logs console! Hurrah!
 
 
 

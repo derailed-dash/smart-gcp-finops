@@ -1,8 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.app_utils.cai_utils import (
+from finops_agent.app_utils.cai_utils import (
     clear_services_cache,
     enrich_with_cai_metadata,
     get_asset_history,
@@ -16,7 +15,7 @@ def setup_teardown():
     clear_services_cache()
 
 
-@patch("app.app_utils.cai_utils.discovery.build")
+@patch("finops_agent.app_utils.cai_utils.discovery.build")
 def test_enrich_with_cai_metadata(mock_build):
     mock_service = MagicMock()
     mock_build.return_value = mock_service
@@ -51,7 +50,7 @@ def test_enrich_with_cai_metadata(mock_build):
     assert "cai_metadata" not in enriched[1] or enriched[1]["cai_metadata"] is None
 
 
-@patch("app.app_utils.cai_utils.discovery.build")
+@patch("finops_agent.app_utils.cai_utils.discovery.build")
 def test_get_asset_history(mock_build):
     mock_service = MagicMock()
     mock_build.return_value = mock_service
@@ -76,13 +75,10 @@ def test_get_asset_history(mock_build):
     )
 
     assert len(history) == 1
-    assert (
-        history[0]["asset"]["name"]
-        == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
-    )
+    assert history[0]["asset"]["name"] == "//compute.googleapis.com/projects/p1/zones/z1/disks/d1"
 
 
-@patch("app.app_utils.cai_utils.discovery.build")
+@patch("finops_agent.app_utils.cai_utils.discovery.build")
 def test_enrich_with_cai_metadata_chunking(mock_build):
     """Verify that large resource lists are chunked correctly."""
     mock_service = MagicMock()
@@ -105,13 +101,9 @@ def test_enrich_with_cai_metadata_chunking(mock_build):
     assert mock_service.v1().searchAllResources.call_count == 2
 
     # Check the query string for the first chunk (20 items)
-    first_call_query = (
-        mock_service.v1().searchAllResources.call_args_list[0].kwargs["query"]
-    )
+    first_call_query = mock_service.v1().searchAllResources.call_args_list[0].kwargs["query"]
     assert len(first_call_query.split(" OR ")) == 20
 
     # Check the query string for the second chunk (5 items)
-    second_call_query = (
-        mock_service.v1().searchAllResources.call_args_list[1].kwargs["query"]
-    )
+    second_call_query = mock_service.v1().searchAllResources.call_args_list[1].kwargs["query"]
     assert len(second_call_query.split(" OR ")) == 5

@@ -33,8 +33,11 @@ WORKDIR /code
 COPY ./pyproject.toml ./README.md ./uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy the backend application code
-COPY ./app ./app
+# Copy the BFF application code
+COPY ./bff ./bff
+
+# Copy the agent package (since BFF imports from it, e.g. for local fallback)
+COPY ./app/finops_agent ./app/finops_agent
 
 # Copy the built frontend static assets from Stage 1
 COPY --from=frontend-builder /app/frontend/dist /code/frontend/dist
@@ -57,4 +60,4 @@ ENV PATH="/code/.venv/bin:$PATH"
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "bff.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
