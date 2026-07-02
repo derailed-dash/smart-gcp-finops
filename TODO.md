@@ -59,10 +59,11 @@
   - [x] Verify local BFF and Agent work together
   - [x] Verify unified container build still works
   - [x] Update documentation to reflect clean separation
-  - [ ] Deploy/enhance to Agent Runtime once validated.
+  - [x] Deploy/enhance to Agent Runtime once validated.
+  - [ ] Update Terraform and CI/CD to ensure all is working.
 [ ] Convert arch diagrams to renders
 [ ] Optimise Docker image
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
-[ ] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
+[x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise
