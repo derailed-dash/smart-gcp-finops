@@ -17,6 +17,7 @@ dependencies = [
     "opentelemetry-exporter-gcp-monitoring>=0.38b0",
     "opentelemetry-resourcedetector-gcp>=1.5.0",
     "google-cloud-logging>=3.16.0,<4.0.0",
+    "google-cloud-dataplex>=2.20.0,<3.0.0",
     "google-cloud-aiplatform[evaluation,agent-engines]>=1.159.0",
     "gcsfs>=2026.6.0",
     "pydantic-settings",

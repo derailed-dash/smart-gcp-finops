@@ -2220,3 +2220,23 @@ We resolved the startup configurations, cleaned up redundant modules, and standa
 3. **Redundancy Cleanup**: Deleted the unused, leftover `telemetry.py` module.
 4. **Dependency Standardization**: Aligned package ranges inside [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) to use recent stable versions (e.g. `google-adk>=2.3.0`, `google-cloud-aiplatform>=1.159.0`, `mcp>=1.28.1`), regenerated `uv.lock` files, and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
 5. **Quality & Validation**: Ran `make lint` and `make test`, verifying all 52 unit tests and quality checks pass with 0 errors.
+
+---
+
+### Reasoning Engine Endpoint Router Fix & Dataplex Dependency Resolution
+
+**Problem**:
+Following our decoupling, two issues impacted the runtime execution of our Python agent when queried remotely via Vertex AI Agent Runtime:
+1. **Missing Dataplex Dependency**: The ADK `BigQueryToolset` depends on `google-cloud-dataplex` (`dataplex_v1`). This library was missing from [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml), causing the container's python interpreter to fail loading the entrypoint module with `ImportError: cannot import name 'dataplex_v1' from 'google.cloud'`.
+2. **REST Endpoint Routing Mismatch (404 Not Found)**:
+   * During our initial resolution, we attempted to suppress the client-side `Unsupported api mode: async` registration warnings by pruning the `"async"` and `"async_stream"` keys from the server's `register_operations()` method in `agent_runtime_app.py`.
+   * However, this broke the Vertex AI Control Plane router's routing table. The Control Plane relies on the server's `register_operations()` dictionary payload to dynamically map and validate incoming REST requests before forwarding them to the container. Without these keys, the Control Plane rejected incoming calls to `async_create_session` and immediately returned `404 Not Found` (detail: `"Not Found"`).
+
+**Resolution**:
+1. **Dependency Addition**: Added `"google-cloud-dataplex>=2.20.0,<3.0.0"` to the `dependencies` list in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [app/finops_agent/requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) offline.
+2. **Operations Mapping Restoration**:
+   * Restored `register_operations()` in [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py) to its original working implementation. This leaves the `"async"` and `"async_stream"` keys intact, ensuring the Vertex AI Control Plane retains a complete routing table.
+   * Confirmed that the client-side warning (`Unsupported api mode: async`) is a harmless, known warning from the client-side `google-cloud-aiplatform` SDK, while pruning the server keys leads to hard routing failures.
+3. **Validation**: All 52 unit tests and local linting checks pass successfully.
+
+

@@ -69,12 +69,25 @@ def setup_telemetry() -> str | None:
     return bucket
 
 
+class IgnoreHarmlessVertexWarningsFilter(logging.Filter):
+    """Filters out harmless, expected warning logs from Vertex AI Reasoning Engine SDK registration."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "Unsupported api mode" in message or "Failed to register API methods" in message:
+            return False
+        return True
+
+
 def setup_logging_suppressions() -> None:
     """Configures Python logging levels and warning filters to suppress noisy third-party outputs."""
     warnings.filterwarnings("ignore", message=".*EXPERIMENTAL.*")
     warnings.filterwarnings(
         "ignore", message=".*httplib2 transport does not support per-request timeout.*"
     )
+
+    # Filter out harmless API mode mismatch warnings from root logger
+    logging.getLogger().addFilter(IgnoreHarmlessVertexWarningsFilter())
 
     logging.getLogger("urllib3").setLevel(logging.INFO)
     logging.getLogger("googleapiclient").setLevel(logging.INFO)
