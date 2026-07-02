@@ -1,9 +1,8 @@
+from finops_agent.agent import root_agent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-
-from app.agent import root_agent
 
 
 def test_cai_tools_integration():

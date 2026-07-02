@@ -2158,3 +2158,44 @@ This sanitises the file content by:
 
 This ensures all Makefile targets receive perfectly clean, unquoted values, preventing any command parsing issues.
 
+---
+
+### Nested ADK Package Design & BFF/Agent Separation
+
+**Problem**:
+Bootstrapping a clean ADK agent with `agents-cli` creates a dedicated directory (`app/`) managed by the `hatchling` build backend. When trying to flatten the structure by copying files directly to the root of the `app/` folder, the build packaging fails because `hatchling` requires a nested python module subdirectory to package the code properly without conflicting with workspace configurations. Furthermore, keeping the FastAPI BFF/React UI server coupled inside the agent package prevents separate deployment and scaling of the frontend vs the managed Agent Runtime.
+
+**Resolution**:
+We redesigned the layout into a clean, nested architecture:
+1. **Nested Agent Package (`finops_agent`)**: Created `app/finops_agent/` and moved all agent files (`agent.py`, `agent_runtime_app.py`, `deploy_to_agent_runtime.py`, and `app_utils/` utilities) there. Configured `app/agents-cli-manifest.yaml` to point to the nested module:
+   ```yaml
+   agent_directory: "finops_agent"
+   ```
+2. **BFF & UI Container Isolation (`bff`)**: Moved the FastAPI app to `bff/fast_api_app.py`, keeping the root container running FastAPI and the `app/` container serving the ADK Agent Runtime independently.
+3. **Import Migration**: Recursively migrated all python import paths and test mock patches from `app.*` to `finops_agent.*`.
+4. **App Name Alignment**: Configured `App(name="finops_agent")` in `agent.py` to match the directory/package name, resolving `SessionNotFoundError` during E2E integration test chat streams.
+5. **Quality Gates**: Verified all 52 unit tests and 5 E2E integration tests pass cleanly, and that codespell/ruff quality checks return 0 errors.
+
+---
+
+### Dockerfile Path Preservations & Dependency Pruning
+
+**Problem**:
+After separating the FastAPI BFF and Agent folders, two issues emerged when preparing the deployment containers:
+1. **Container Startup Failure (`FileNotFoundError`)**: The root `Dockerfile` and `bff/Dockerfile` originally copied `app/finops_agent` directly to the `/code/finops_agent` directory. However, the ADK `get_fast_api_app` helper requires a nested agent folder structure to discover available agents, looking specifically for a `/code/app/` subdirectory. Because this subdirectory did not exist inside the container, uvicorn crashed immediately during startup with `FileNotFoundError: [Errno 2] No such file or directory: '/code/app'`.
+2. **Unused Dependencies in Deployable**: The agent's dependencies list inside `requirements.txt` and `pyproject.toml` still included heavy web-serving and database packages (`fastapi`, `uvicorn`, `asyncpg`) and unused catalog helpers (`google-cloud-dataplex`, `gcsfs`) inherited from the old coupled repository layout. Since the agent runs in Google's managed Agent Runtime using a native container context without running its own FastAPI server, carrying these packages bloated the deployable artifact.
+
+**Resolution**:
+We optimized the container configurations and package scopes:
+1. **Dockerfile Path Preservation**: Updated both [Dockerfile](../Dockerfile) and [bff/Dockerfile](../bff/Dockerfile) to copy the agent source package to the nested path `./app/finops_agent` inside the container:
+   ```dockerfile
+   COPY ./app/finops_agent ./app/finops_agent
+   ```
+   This ensures `/code/app/` is present, satisfying ADK's agent discovery while keeping `sys.path` references working seamlessly.
+2. **Pruning Unused Agent Dependencies**: Removed `fastapi`, `uvicorn`, `asyncpg`, `google-cloud-dataplex`, and `gcsfs` from:
+   * [app/pyproject.toml](../app/pyproject.toml)
+   * [app/finops_agent/requirements.txt](../app/finops_agent/requirements.txt)
+   This slashes container weight and minimizes security/vulnerability footprints on the remote runtime. All 52 unit tests and quality checks continue to pass cleanly.
+
+
+

@@ -2,13 +2,12 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import call, patch
 
 import pytest
-
-from app.app_utils.cai_tools import (
+from finops_agent.app_utils.cai_tools import (
     clear_cai_caches,
     get_cai_history_for_resource,
     get_cai_metadata_for_resources,
 )
-from app.config import settings
+from finops_agent.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -18,8 +17,8 @@ def clean_cai_caches():
     clear_cai_caches()
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.enrich_with_cai_metadata")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.enrich_with_cai_metadata")
 def test_get_cai_metadata_for_resources_grouping(mock_enrich, mock_list_projects):
     # Store old setting
     old_org = settings.google_cloud_organization
@@ -60,8 +59,8 @@ def test_get_cai_metadata_for_resources_grouping(mock_enrich, mock_list_projects
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.enrich_with_cai_metadata")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.enrich_with_cai_metadata")
 def test_get_cai_metadata_for_resources_org_scope(mock_enrich, mock_list_projects):
     # Store old setting
     old_org = settings.google_cloud_organization
@@ -94,8 +93,8 @@ def test_get_cai_metadata_for_resources_org_scope(mock_enrich, mock_list_project
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource(mock_history, mock_list_projects):
     old_org = settings.google_cloud_organization
     settings.google_cloud_organization = None
@@ -127,8 +126,8 @@ def test_get_cai_history_for_resource(mock_history, mock_list_projects):
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource_older_than_35_days(
     mock_history, mock_list_projects
 ):
@@ -151,8 +150,8 @@ def test_get_cai_history_for_resource_older_than_35_days(
     assert 34 <= delta.days <= 36
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.enrich_with_cai_metadata")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.enrich_with_cai_metadata")
 def test_get_cai_metadata_for_resources_hybrid(mock_enrich, mock_list_projects):
     # Store old setting
     old_org = settings.google_cloud_organization
@@ -215,8 +214,8 @@ def test_get_cai_metadata_for_resources_hybrid(mock_enrich, mock_list_projects):
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource_project_first_success(
     mock_history, mock_list_projects
 ):
@@ -242,8 +241,8 @@ def test_get_cai_history_for_resource_project_first_success(
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource_with_org_fallback(
     mock_history, mock_list_projects
 ):
@@ -281,9 +280,9 @@ def test_get_cai_history_for_resource_with_org_fallback(
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.is_org_scope_disabled")
-@patch("app.app_utils.cai_tools.list_billing_projects")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.is_org_scope_disabled")
+@patch("finops_agent.app_utils.cai_tools.list_billing_projects")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource_org_disabled(
     mock_history, mock_list_projects, mock_is_org_disabled
 ):
@@ -318,8 +317,8 @@ def test_get_cai_history_for_resource_org_disabled(
         settings.google_cloud_organization = old_org
 
 
-@patch("app.app_utils.cai_tools.logger")
-@patch("app.app_utils.cai_tools.get_asset_history")
+@patch("finops_agent.app_utils.cai_tools.logger")
+@patch("finops_agent.app_utils.cai_tools.get_asset_history")
 def test_get_cai_history_for_resource_caching_and_logging(mock_history, mock_logger):
     mock_history.return_value = [{"asset": {"name": "d1"}}]
     dynamic_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()

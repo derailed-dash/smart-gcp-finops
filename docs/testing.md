@@ -259,6 +259,12 @@ To verify that the unified frontend and backend container builds correctly and s
     make run
     ```
     This securely passes your local Google Application Default Credentials (ADC) and FinOps variables, spinning up uvicorn inside the container on port `8080`.
+    
+    *   **Local Fallback Mode (Default)**: By default, the container runs the agent locally inside the container's Python process using your local ADC.
+    *   **Remote Proxy Mode**: To test the container acting as a Backend-for-Frontend (BFF) proxy that calls your deployed Agent Runtime instance in GCP, run:
+        ```bash
+        make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)
+        ```
 
 3.  **Access and Verify**:
     *   Open your browser and navigate to `http://localhost:8080`.

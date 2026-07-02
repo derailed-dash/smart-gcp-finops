@@ -1,6 +1,6 @@
 import vertexai
 
-from app.config import settings
+from finops_agent.config import settings
 
 # Verify required settings are populated
 if not settings.google_cloud_project or not settings.google_cloud_region:
@@ -20,10 +20,10 @@ remote_agent = client.agent_engines.create(
     config={
         "display_name": "FinSavant",
         "description": "Deploying FinSavant Agent to Agent Runtime.",
-        "source_packages": ["app"],
-        "entrypoint_module": "app.agent",
+        "source_packages": ["finops_agent"],
+        "entrypoint_module": "finops_agent.agent",
         "entrypoint_object": "root_agent",
-        "requirements_file": "app/requirements.txt",
+        "requirements_file": "finops_agent/requirements.txt",
         "class_methods": [
             {
                 "name": "ask",

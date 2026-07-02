@@ -12,10 +12,8 @@ from typing import Any
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-from app.app_utils.credentials import get_credentials
+from finops_agent.app_utils.credentials import get_credentials
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 
@@ -62,8 +60,7 @@ class CAIClientManager:
             self.org_scope_disabled = False
 
     def enrich_with_cai_metadata(self, cost_records: list[dict], scope: str) -> list[dict]:
-        """
-        Enriches cost records with CAI metadata by looking up the resource_name in CAI.
+        """Enriches cost records with CAI metadata by looking up the resource_name in CAI.
 
         Args:
             cost_records: List of dictionaries representing cost records. Must contain a 'resource_name' key.
@@ -75,7 +72,6 @@ class CAIClientManager:
         if not cost_records:
             return cost_records
 
-        # Extract unique resource names from the cost records
         all_resource_names = list(
             {
                 record.get("resource_name")
@@ -129,7 +125,6 @@ class CAIClientManager:
                     f"Unexpected error during CAI metadata chunk search in scope {scope}: {e}"
                 )
 
-        # Enrich the original records
         enriched_records = []
         for record in cost_records:
             enriched_record = record.copy()
@@ -143,8 +138,7 @@ class CAIClientManager:
     def get_asset_history(
         self, resource_name: str, scope: str, start_time: str, end_time: str | None = None
     ) -> list[dict]:
-        """
-        Retrieves the historical changes for a specific CAI resource.
+        """Retrieves the historical changes for a specific CAI resource.
 
         Args:
             resource_name: The full CAI name of the resource.
@@ -234,4 +228,3 @@ def get_asset_history(
 ) -> list[dict]:
     """Retrieves the historical changes for a specific CAI resource."""
     return cai_client_manager.get_asset_history(resource_name, scope, start_time, end_time)
-

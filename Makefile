@@ -20,6 +20,10 @@ MIN_INSTANCES ?= 0
 MEMORY ?= "2Gi"
 OTEL_TO_CLOUD ?= true
 AGENT_RUNTIME_ID ?= $(shell uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend" 2>/dev/null || echo "")
+# Determines whether the local unified container runs the agent locally (default, empty)
+# or proxies queries to a remote Agent Runtime deployment.
+# To test remote proxy mode locally: make docker-run DOCKER_AGENT_RUNTIME_ID=$$(AGENT_RUNTIME_ID)
+DOCKER_AGENT_RUNTIME_ID ?=
 
 # Default log levels for development and production if not already defined (e.g. in .env)
 DEV_LOG_LEVEL = $(or $(LOG_LEVEL),DEBUG)
@@ -49,11 +53,11 @@ playground:
 # Launch local development server with hot-reload
 # Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
 local-backend:
-	uv run uvicorn app.fast_api_app:app --host localhost --port $(or $(PORT),8000) --reload
+	PYTHONPATH=app uv run uvicorn bff.fast_api_app:app --host localhost --port $(or $(PORT),8000) --reload
 
 # Run the Backend BFF Server (FastAPI + ADK Agent)
 run-backend:
-	uv run python -m app.fast_api_app
+	PYTHONPATH=app uv run python -m bff.fast_api_app
 
 # Launch the Vite Dev Server for the React UI
 run-frontend:
@@ -74,6 +78,8 @@ run: docker-run
 
 # Run the unified container locally, securely mounting local Google Application Default Credentials (ADC)
 # and mapping all custom GCP FinOps environment variables.
+# By default, runs in local fallback mode. To proxy to the remote runtime:
+#   make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)
 docker-run:
 	docker run --rm -p 8080:8080 \
 		-e GOOGLE_CLOUD_PROJECT="$(GOOGLE_CLOUD_PROJECT)" \
@@ -89,7 +95,7 @@ docker-run:
 		-e GOOGLE_CLOUD_ORGANIZATION="$(GOOGLE_CLOUD_ORGANIZATION)" \
 		-e LOGS_BUCKET_NAME="$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs" \
 		-e LOG_LEVEL="$(DEV_LOG_LEVEL)" \
-		-e AGENT_RUNTIME_ID="$(AGENT_RUNTIME_ID)" \
+		-e AGENT_RUNTIME_ID="$(DOCKER_AGENT_RUNTIME_ID)" \
 		-e LOCAL_DEVELOPER_EMAIL="$(LOCAL_DEVELOPER_EMAIL)" \
 		-e COMMIT_SHA="$(shell git rev-parse HEAD 2>/dev/null || echo '')" \
 		-e GOOGLE_APPLICATION_CREDENTIALS="/code/application_default_credentials.json" \
@@ -146,7 +152,7 @@ get-agent-runtime-id:
 	@uv run python scripts/get-agent-runtime-id.py "$(GOOGLE_CLOUD_PROJECT)" "$(GOOGLE_CLOUD_REGION)" "$(SERVICE_NAME)-backend"
 
 export-requirements:
-	uv pip compile pyproject.toml -o app/requirements.txt
+	uv pip compile pyproject.toml -o app/finops_agent/requirements.txt
 
 # ==============================================================================
 # Testing & Code Quality

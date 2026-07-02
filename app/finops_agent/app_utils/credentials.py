@@ -10,13 +10,10 @@ from google.auth import default
 from google.auth.credentials import Credentials
 
 # Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 
 def get_credentials() -> Credentials:
-    """Loads default credentials.
-    """
+    """Loads default credentials."""
     credentials, _ = default()
     return credentials
-

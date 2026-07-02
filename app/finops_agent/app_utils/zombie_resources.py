@@ -6,15 +6,10 @@ How: Uses the Cloud Asset API's searchAllResources method.
 
 import logging
 
-from app.app_utils.cai_utils import get_service
+from finops_agent.app_utils.cai_utils import get_service
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
-# CAI searchAllResources supports filtering by assetTypes via a separate parameter.
-# The `users` field is not supported in searchAllResources query for these types in CAI API directly.
-# We will query for the state and then filter the results programmatically if needed.
 QUERIES = {
     "UNATTACHED_DISKS": {
         "assetTypes": ["compute.googleapis.com/Disk"],
@@ -28,8 +23,7 @@ QUERIES = {
 
 
 def search_zombie_resources(scope: str, category: str) -> list[dict]:
-    """
-    Searches for zombie resources in the given scope.
+    """Searches for zombie resources in the given scope.
 
     Args:
         scope: The scope of the search, e.g., 'projects/12345', 'folders/123', 'organizations/123'.
@@ -64,8 +58,6 @@ def search_zombie_resources(scope: str, category: str) -> list[dict]:
             raw_results = response.get("results", [])
             logger.debug("Raw searchAllResources returned %d asset results.", len(raw_results))
 
-            # CAI doesn't support the `-users:*` query directly for all resource types.
-            # We fetch READY disks / RESERVED IPs and then filter out those that have 'users'
             for item in raw_results:
                 # Only append if 'users' is missing or empty (meaning it's unattached/idle)
                 if not item.get("additionalAttributes", {}).get("users"):

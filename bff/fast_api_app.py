@@ -5,27 +5,40 @@ How: Sets up FastAPI endpoints, handles IAP user authentication headers, resolve
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
-from typing import Any, ClassVar
+import sys
+from collections.abc import AsyncIterator
+from typing import ClassVar
+
+# Ensure workspace root and app/ directory are in sys.path so finops_agent resolves
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
 
 import google.auth
 import google.cloud.logging
+from a2a.server.tasks import InMemoryTaskStore  # type: ignore
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from google.adk.cli.fast_api import get_fast_api_app
-
-from app.app_utils.context import ALLOWED_PROJECTS_VAR
-from app.app_utils.logging_and_telemetry import (
+from finops_agent.app_utils import services
+from finops_agent.app_utils.a2a import attach_a2a_routes
+from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
+from finops_agent.app_utils.logging_and_telemetry import (
     setup_logging_suppressions,
     setup_telemetry,
 )
-from app.app_utils.project_discovery import get_user_accessible_projects
-from app.app_utils.typing import Feedback
-from app.config import settings
+from finops_agent.app_utils.project_discovery import get_user_accessible_projects
+from finops_agent.app_utils.typing import Feedback
+from google.adk.cli.fast_api import get_fast_api_app
+from google.adk.runners import Runner
 
+from finops_agent.config import settings
+
+load_dotenv()
 setup_telemetry()
 _, project_id = google.auth.default()
 
@@ -34,22 +47,25 @@ otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
     os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
 )
 
+log_level = os.getenv("LOG_LEVEL", settings.log_level).upper()
+
 if otel_to_cloud:
     try:
         logging_client = google.cloud.logging.Client()
         logging_client.setup_logging()
     except Exception:
         # Fallback to local basic configuration if Cloud Logging client fails
-        logging.basicConfig(level=settings.log_level.upper())
+        logging.basicConfig(level=log_level)
 else:
-    logging.basicConfig(level=settings.log_level.upper())
+    logging.basicConfig(level=log_level)
 
-# Ensure root log level is explicitly configured based on settings
-logging.getLogger().setLevel(settings.log_level.upper())
+logging.getLogger().setLevel(log_level)
+
 setup_logging_suppressions()
-
 logger = logging.getLogger(__name__)
-_background_tasks = set()
+
+background_tasks = set()
+
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",")
     if os.getenv("ALLOW_ORIGINS")
@@ -63,44 +79,12 @@ allow_origins = (
 
 # Artifact bucket for ADK (created by Terraform, passed via env var)
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-
-AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# In-memory session configuration - no persistent storage
-session_service_uri = None
-
-artifact_service_uri = f"gs://{logs_bucket_name}" if logs_bucket_name else None
-
-# Enable OpenTelemetry Cloud exporting in Cloud Run (prod) or if explicitly requested locally
-otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (
-    os.getenv("OTEL_TO_CLOUD", "false").lower() == "true"
-)
-
-app: FastAPI = get_fast_api_app(
-    agents_dir=AGENT_DIR,
-    web=False,
-    artifact_service_uri=artifact_service_uri,
-    allow_origins=allow_origins,
-    session_service_uri=session_service_uri,
-    otel_to_cloud=otel_to_cloud,
-)
-app.title = "smart-gcp-finops"
-app.description = "API for interacting with the Agent smart-gcp-finops"
+AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 
 class AppState:
     """Encapsulates persistent, lazy-initialised application state."""
-    global_session_service = None
-    global_runner = None
-    global_sessions: ClassVar[dict[str, Any]] = {}
     remote_session_id = None
-    _init_lock: ClassVar[asyncio.Lock | None] = None
     _remote_session_lock: ClassVar[asyncio.Lock | None] = None
-
-    @classmethod
-    def get_init_lock(cls) -> asyncio.Lock:
-        """Returns the lazy-initialised event-loop-safe Lock for global initialization."""
-        if cls._init_lock is None:
-            cls._init_lock = asyncio.Lock()
-        return cls._init_lock
 
     @classmethod
     def get_remote_session_lock(cls) -> asyncio.Lock:
@@ -119,33 +103,44 @@ def _get_user_email(request: Request) -> str:
         return user_email.split("mailto:")[-1]
     elif user_email:
         return user_email
-    from app.config import settings
+    from finops_agent.config import settings
     return settings.local_developer_email
 
 
-async def get_global_runner_and_session(user_email: str = "default_user"):
-    """Initialises and returns a persistent global Runner and Session to preserve conversation memory."""
-    async with AppState.get_init_lock():
-        if AppState.global_runner is None:
-            from google.adk.runners import Runner
-            from google.adk.sessions import InMemorySessionService
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from finops_agent.agent import app as adk_app
+    from finops_agent.agent import root_agent
 
-            from app.agent import root_agent
+    runner = Runner(
+        app=adk_app,
+        session_service=services.get_session_service(),
+        artifact_service=services.get_artifact_service(),
+        auto_create_session=True,
+    )
+    app.state.runner = runner
+    app.state.agent_app_name = adk_app.name
+    await attach_a2a_routes(
+        app,
+        agent=root_agent,
+        runner=runner,
+        task_store=InMemoryTaskStore(),
+        rpc_path=f"/a2a/{adk_app.name}",
+    )
+    yield
 
-            AppState.global_session_service = InMemorySessionService()
-            AppState.global_runner = Runner(
-                agent=root_agent,
-                session_service=AppState.global_session_service,
-                app_name="smart-gcp-finops",
-            )
 
-        if user_email not in AppState.global_sessions:
-            session = AppState.global_session_service.create_session_sync(
-                user_id=user_email, session_id=user_email, app_name="smart-gcp-finops"
-            )
-            AppState.global_sessions[user_email] = session
-
-        return AppState.global_runner, AppState.global_sessions[user_email]
+app: FastAPI = get_fast_api_app(
+    agents_dir=AGENT_DIR,
+    web=False,
+    artifact_service_uri=services.ARTIFACT_SERVICE_URI,
+    allow_origins=allow_origins,
+    session_service_uri=services.SESSION_SERVICE_URI,
+    otel_to_cloud=otel_to_cloud,
+    lifespan=lifespan,
+)
+app.title = "smart-gcp-finops-bff"
+app.description = "BFF API for interacting with the FinOps Agent"
 
 
 @app.get("/api/status")
@@ -165,7 +160,7 @@ def get_dashboard(
     clientMonthDays: int | None = None,
 ) -> dict:
     """Returns actual real-time executive dashboard metrics from BQ and CAI."""
-    from app.app_utils.dashboard_data import get_actual_dashboard_metrics
+    from finops_agent.app_utils.dashboard_data import get_actual_dashboard_metrics
 
     try:
         user_email = _get_user_email(request)
@@ -204,8 +199,7 @@ async def chat_stream(request: Request):
     ALLOWED_PROJECTS_VAR.set(allowed_projects)
 
     agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
-    if not agent_runtime_id:
-        runner, session = await get_global_runner_and_session(user_email)
+    runner = request.app.state.runner
 
     async def event_generator():
         # Set the context variable in the generator context
@@ -244,7 +238,7 @@ async def chat_stream(request: Request):
                 for event in runner.run(
                     new_message=message_content,
                     user_id=user_email,
-                    session_id=session.id,
+                    session_id=user_email,
                     run_config=RunConfig(streaming_mode=StreamingMode.SSE),
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
@@ -293,7 +287,7 @@ async def chat_stream(request: Request):
                     async with AppState.get_remote_session_lock():
                         AppState.remote_session_id = None
                     async for event_dict in agent_engine.async_stream_query(
-                        message=message, user_id="default_user"
+                        message=message, user_id=user_email
                     ):
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
@@ -304,11 +298,10 @@ async def chat_stream(request: Request):
 
         if agent_runtime_id:
             task = asyncio.create_task(run_remote_agent())
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
         else:
             import threading
-
             threading.Thread(target=run_agent_in_thread, daemon=True).start()
 
         seen_function_calls = set()
@@ -321,7 +314,7 @@ async def chat_stream(request: Request):
                 break
 
             try:
-                # Non-blocking wait for next event from the queue (timeouts do not cancel the generator)
+                # Non-blocking wait for next event from the queue
                 event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
             except TimeoutError:
                 seconds_passed += 1
@@ -430,14 +423,7 @@ async def chat_stream(request: Request):
 
 @app.post("/feedback")
 def collect_feedback(feedback: Feedback) -> dict[str, str]:
-    """Collect and log feedback.
-
-    Args:
-        feedback: The feedback data to log
-
-    Returns:
-        Success message
-    """
+    """Collect and log feedback."""
     logger.info(
         "Feedback received: %s",
         feedback.model_dump(),
@@ -486,5 +472,4 @@ if os.path.exists(FRONTEND_DIST):
 # Main execution
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

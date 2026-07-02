@@ -117,7 +117,7 @@ make install && make playground
 | `make test`          | Run unit and integration tests (`pytest`)                         |
 | `make build`         | Shortcut to build the unified production container image locally    |
 | `make docker-build`  | Build the unified production container image (React + FastAPI) locally |
-| `make docker-run`    | Run the built container locally (runs agent locally unless `AGENT_RUNTIME_ID` is set) |
+| `make docker-run`    | Run the built container locally (runs agent locally by default; set `DOCKER_AGENT_RUNTIME_ID` to proxy) |
 | `make run`           | Shortcut for `make docker-run` to run the container locally        |
 | `make tf-plan`       | Initialise Terraform and plan infrastructure deployment           |
 | `make tf-apply`      | Initialise Terraform and apply deployment configuration           |
@@ -165,8 +165,11 @@ Alternatively, you can run the entire unified container (which bundles both the 
 # Build the unified container image locally
 make docker-build
 
-# Run the container locally (runs the agent locally unless AGENT_RUNTIME_ID is configured)
+# Run the container locally in fallback mode (executes agent locally in-container)
 make docker-run
+
+# Run the container locally in remote proxy mode (connects to remote Agent Runtime):
+make docker-run DOCKER_AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)
 ```
 This launches the application on `http://localhost:8000`, running exactly as it would on Cloud Run.
 

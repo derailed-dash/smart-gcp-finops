@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from app.app_utils.dashboard_data import (
+from finops_agent.app_utils.dashboard_data import (
     classify_project,
     estimate_zombie_cost,
     get_actual_dashboard_metrics,
@@ -42,9 +42,9 @@ def test_estimate_zombie_cost():
     assert estimate_zombie_cost({}, "IDLE_IPS") == 15.0
 
 
-@patch("app.app_utils.dashboard_data.list_zombie_resources")
-@patch("app.app_utils.dashboard_data.bigquery.Client")
-@patch("app.app_utils.dashboard_data.default")
+@patch("finops_agent.app_utils.dashboard_data.list_zombie_resources")
+@patch("finops_agent.app_utils.dashboard_data.bigquery.Client")
+@patch("finops_agent.app_utils.dashboard_data.default")
 def test_get_actual_dashboard_metrics(
     mock_default, mock_bq_client_class, mock_list_zombies
 ):
@@ -143,9 +143,9 @@ def test_get_actual_dashboard_metrics(
     assert metrics_custom["forecast"] == 2000.0
 
 
-@patch("app.app_utils.dashboard_data.list_zombie_resources")
-@patch("app.app_utils.dashboard_data.bigquery.Client")
-@patch("app.app_utils.dashboard_data.default")
+@patch("finops_agent.app_utils.dashboard_data.list_zombie_resources")
+@patch("finops_agent.app_utils.dashboard_data.bigquery.Client")
+@patch("finops_agent.app_utils.dashboard_data.default")
 def test_get_actual_dashboard_metrics_with_allowed_projects(
     mock_default, mock_bq_client_class, mock_list_zombies
 ):

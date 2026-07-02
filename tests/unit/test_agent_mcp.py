@@ -1,8 +1,7 @@
 import pytest
+from finops_agent.agent import root_agent
 from google.adk.integrations.bigquery import BigQueryToolset
 from google.adk.tools.mcp_tool import McpToolset
-
-from app.agent import root_agent
 
 
 def test_agent_has_mcp_toolsets():

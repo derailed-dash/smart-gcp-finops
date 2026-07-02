@@ -15,25 +15,21 @@ from functools import partial
 
 from google.adk.tools import ToolContext
 
-from app.app_utils.cai_utils import (
+from finops_agent.app_utils.cai_utils import (
     enrich_with_cai_metadata,
     get_asset_history,
     is_org_scope_disabled,
 )
-from app.app_utils.project_discovery import list_billing_projects
-from app.config import settings
+from finops_agent.app_utils.project_discovery import list_billing_projects
+from finops_agent.config import settings
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Thread-safe in-memory cache for CAI metadata
-# Format: {sorted_tuple_of_resource_names: (expiry_timestamp, list_of_metadata)}
 _METADATA_CACHE: dict[tuple[str, ...], tuple[float, list[dict]]] = {}
 _METADATA_CACHE_LOCK = threading.Lock()
 
 # Thread-safe in-memory cache for CAI resource history
-# Format: {(resource_name, start_time, end_time): (expiry_timestamp, list_of_history)}
 _HISTORY_CACHE: dict[tuple[str, str, str | None], tuple[float, list[dict]]] = {}
 _HISTORY_CACHE_LOCK = threading.Lock()
 
@@ -111,11 +107,9 @@ def get_cai_metadata_for_resources(
         project_ids = list_billing_projects(billing_account_name)
         unmatched_records = [{"resource_name": name} for name in unmatched_names]
 
-        # Use a partial function to curry the fixed 'unmatched_records' argument
         enrich_func = partial(enrich_with_cai_metadata, unmatched_records)
 
         with ThreadPoolExecutor() as executor:
-            # Map the enrich function over the project scopes that need checking
             scopes_to_check = [
                 f"projects/{pid}"
                 for pid in project_ids
@@ -159,11 +153,7 @@ def get_cai_history_for_resource(
         list[dict]: A list of historical asset states showing configuration changes over time.
     """
 
-    # Enforce CAI 35-day history limit
     try:
-        # Standardize the timestamp format to match what Google API expects (RFC 3339)
-        # ADK/LLMs sometimes output "Z" which Google's Python client doesn't always parse cleanly
-        # or they omit the +00:00 timezone indicator entirely.
         if "Z" in start_time:
             start_time = start_time.replace("Z", "+00:00")
         elif "+" not in start_time and "-" not in start_time.split("T")[-1]:
@@ -172,15 +162,13 @@ def get_cai_history_for_resource(
         start_dt = datetime.fromisoformat(start_time)
         min_allowed_dt = datetime.now(UTC) - timedelta(
             days=34, hours=23, minutes=50
-        )  # Slightly less than 35 days to be safe
+        )
 
         if start_dt < min_allowed_dt:
-            # Adjust to the minimum allowed time to prevent 400 Bad Request
             start_time = min_allowed_dt.isoformat()
     except Exception:
-        pass  # If parsing fails, pass it through to the API to handle
+        pass
 
-    # Ensure end_time is also properly formatted if provided
     if end_time:
         try:
             if "Z" in end_time:
@@ -212,14 +200,11 @@ def get_cai_history_for_resource(
 
     history_results = []
 
-    # 1. Try project-level lookup first if project can be extracted from resource name
     project_match = re.search(r"/projects/([^/]+)", resource_name)
     if project_match:
         scope = f"projects/{project_match.group(1)}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    # 2. Fall back to organization scope if no history was found (or project wasn't extracted)
-    # AND organization scope has not been disabled due to 403 errors
     if (
         not history_results
         and settings.google_cloud_organization
@@ -228,14 +213,12 @@ def get_cai_history_for_resource(
         scope = f"organizations/{settings.google_cloud_organization}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    # 3. Fallback to querying all billing projects if previous steps yielded nothing
     if not history_results:
         billing_account_name = (
             f"billingAccounts/{settings.google_cloud_billing_account}"
         )
         project_ids = list_billing_projects(billing_account_name)
 
-        # Avoid re-querying the project we already queried in step 1
         queried_projects = {project_match.group(1)} if project_match else set()
         for project_id in project_ids:
             if project_id in queried_projects:

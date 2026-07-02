@@ -48,6 +48,18 @@
   - [ ] Blog part 4
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
 [x] Remove env var redundancy in architecture walkthrough md
+[x] Bootstrap new ADK agent folder with agents-cli
+  - [x] Delete existing empty `app` directory to allow clean bootstrapping.
+  - [x] Run `agents-cli scaffold create app` as a prototype with `GEMINI.md` guidance.
+  - [x] Create `docs/agent-bootstrap.md` to track bootstrapping, migration, and deployment progress.
+  - [x] Implement up-front project discovery in `before_agent_callback` and save to ADK session state.
+  - [x] Adapt/re-implement business logic from `app-old` (zombie resources, CAI tools, BigQuery SQL caching) to retrieve scoping configuration from ADK state.
+  - [x] Run local smoke tests (`agents-cli run`) to verify agent and tool execution.
+  - [x] Clean separation of BFF and Agent with separate deployable Dockerfiles
+  - [x] Verify local BFF and Agent work together
+  - [x] Verify unified container build still works
+  - [x] Update documentation to reflect clean separation
+  - [ ] Deploy/enhance to Agent Runtime once validated.
 [ ] Convert arch diagrams to renders
 [ ] Optimise Docker image
 [ ] Perform ADK best practices review

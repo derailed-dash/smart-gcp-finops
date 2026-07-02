@@ -5,19 +5,16 @@ How: Implements a thread-safe dictionary with normalized SQL keys and expiration
 """
 
 import logging
+import re
 import threading
 import time
 from typing import Any
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
+
 
 def _normalise_sql(sql: str) -> str:
     """Normalises SQL formatting by compressing whitespace to standardise cache keys."""
-    import re
-
-    # Compress multiple whitespaces into a single space
     return re.sub(r"\s+", " ", sql).strip()
 
 
@@ -79,4 +76,3 @@ def execute_cached_query(client: Any, sql: str, ttl_seconds: int = 300) -> list[
 def clear_query_cache() -> None:
     """Clears all cached query results. Useful for testing and manual invalidation."""
     query_cache_manager.clear()
-

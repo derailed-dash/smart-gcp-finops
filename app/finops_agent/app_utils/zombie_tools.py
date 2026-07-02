@@ -5,20 +5,22 @@ How: Scans projects using CAI, checks unattached resources (disks/IPs), calculat
 """
 
 import logging
+import re
 import threading
 import time
 
 from google.adk.tools import ToolContext
 from google.cloud import bigquery
 
-from app.app_utils.credentials import get_credentials
-from app.app_utils.project_discovery import get_projects_in_org, list_billing_projects
-from app.app_utils.query_cache import execute_cached_query
-from app.app_utils.zombie_resources import search_zombie_resources
-from app.config import settings
+from finops_agent.app_utils.credentials import get_credentials
+from finops_agent.app_utils.project_discovery import (
+    get_projects_in_org,
+    list_billing_projects,
+)
+from finops_agent.app_utils.query_cache import execute_cached_query
+from finops_agent.app_utils.zombie_resources import search_zombie_resources
+from finops_agent.config import settings
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Global thread-safe cache for zombie resources category search
@@ -91,38 +93,62 @@ def list_zombie_resources(
         f"Cache miss for zombie resource search: {category} (project: {project_id}). Scanning assets..."
     )
 
-    # If project_id is specified, scan ONLY that project scope directly
+    # Resolve allowed projects for security scoping
+    allowed_projects = None
+    if tool_context and tool_context.state:
+        allowed_projects = tool_context.state.get("allowed_projects")
+
+    # Fallback to discovering projects if missing from state
+    if allowed_projects is None and tool_context and tool_context.user_id:
+        from finops_agent.app_utils.project_discovery import (
+            get_user_accessible_projects,
+        )
+        allowed_projects = list(get_user_accessible_projects(tool_context.user_id))
+        tool_context.state["allowed_projects"] = allowed_projects
+
+    # If project_id is specified, verify user has access to it
     if project_id:
+        if allowed_projects is not None and project_id not in allowed_projects:
+            logger.warning(f"Unauthorized check: user does not have access to project {project_id}")
+            return [{"error": f"Unauthorized. You do not have access to project '{project_id}'."}]
+
         scope = f"projects/{project_id}"
         results_list = search_zombie_resources(scope=scope, category=category)
         with _ZOMBIE_LOCK:
             _ZOMBIE_CACHE[cache_key] = (now + ZOMBIE_CACHE_TTL, results_list)
         return results_list
 
-    # Otherwise, proceed with organization-wide / billing footprint sweep
-    billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
+    # Otherwise, scan all allowed projects
+    if allowed_projects is not None and not allowed_projects:
+        logger.warning("Unauthorized check: user has access to 0 projects.")
+        return []
 
     all_zombies_map = {}
     projects_in_org = set()
 
-    # 1. Organization Scope: The most efficient global search
+    # 1. Organization Scope: Efficient global search (if organization is configured)
     if settings.google_cloud_organization:
         scope = f"organizations/{settings.google_cloud_organization}"
         for asset in search_zombie_resources(scope=scope, category=category):
-            all_zombies_map[asset["name"]] = asset
+            # Parse project ID from resource name (e.g. //compute.googleapis.com/projects/PROJECT_ID/...)
+            project_match = re.search(r"/projects/([^/]+)", asset.get("name", ""))
+            asset_project = project_match.group(1) if project_match else None
+            # Security filter: ensure asset belongs to allowed projects
+            if allowed_projects is None or (asset_project and asset_project in allowed_projects):
+                all_zombies_map[asset["name"]] = asset
 
-        # Identify projects within the organization to avoid redundant individual queries
         projects_in_org = get_projects_in_org(settings.google_cloud_organization)
 
-    # 2. Project Scope: Fallback/Supplement for projects outside the Org
-    # Query only projects that actually have recorded costs (cost > 0.1) in BigQuery
-    billing_projects = get_active_billing_projects()
-    if not billing_projects:
-        # Fall back to listing all billing projects if BigQuery is empty or failed
-        billing_projects = list_billing_projects(billing_account_name)
-
-    # Only query projects that were not covered by the organization search
-    projects_to_query = [p for p in billing_projects if p not in projects_in_org]
+    # 2. Project Scope fallback/scan for projects not covered by org search
+    # If allowed_projects list is available, use that as the base project list to scan
+    if allowed_projects is not None:
+        projects_to_query = [p for p in allowed_projects if p not in projects_in_org]
+    else:
+        billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
+        billing_projects = get_active_billing_projects()
+        if not billing_projects:
+            billing_projects = list_billing_projects(billing_account_name)
+        projects_to_query = [p for p in billing_projects if p not in projects_in_org]
 
     from concurrent.futures import ThreadPoolExecutor
 
@@ -144,7 +170,6 @@ def list_zombie_resources(
 
     results_list = list(all_zombies_map.values())
 
-    # Store results in the thread-safe cache
     with _ZOMBIE_LOCK:
         _ZOMBIE_CACHE[cache_key] = (now + ZOMBIE_CACHE_TTL, results_list)
 

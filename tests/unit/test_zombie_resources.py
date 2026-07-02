@@ -1,9 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.app_utils.cai_utils import clear_services_cache
-from app.app_utils.zombie_resources import search_zombie_resources
+from finops_agent.app_utils.cai_utils import clear_services_cache
+from finops_agent.app_utils.zombie_resources import search_zombie_resources
 
 
 @pytest.fixture(autouse=True)

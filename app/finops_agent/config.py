@@ -2,14 +2,6 @@
 Description: Application configuration settings.
 Why: Centralizes settings from environment variables for consistent configuration across the app.
 How: Uses `pydantic-settings` to load and validate environment variables.
-
-Configuration Sources:
-1. Environment Variables: In production (Cloud Run), settings are injected as environment variables.
-2. .env File: For local development, settings are loaded from a `.env` file in the project root.
-
-Usage:
-    from app.config import settings
-    print(settings.google_cloud_project)
 """
 
 import os
@@ -20,8 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Application settings model.
+    """Application settings model.
 
     Fields defined here are automatically populated from environment variables
     (case-insensitive) or the .env file.
@@ -30,8 +21,8 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def strip_outer_quotes(cls, data: Any) -> Any:
-        """
-        Strip outer quotes from string values to handle environment variables
+        """Strip outer quotes from string values to handle environment variables
+
         exported by Makefiles or other wrappers that preserve quotes.
         """
         if isinstance(data, dict):

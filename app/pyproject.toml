@@ -1,41 +1,37 @@
 [project]
-name = "smart-gcp-finops"
-version = "0.1.1"
+name = "app"
+version = "0.1.0"
 description = ""
-authors = [{ name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com" }]
+authors = [{ name = "Your Name", email = "your@email.com" }]
+
 dependencies = [
     "google-adk[a2a]>=2.1.0,<3.0.0",
     "mcp>=1.26.0",
     "google-api-python-client>=2.193.0",
-    "google-cloud-dataplex>=2.0.0,<3.0.0",
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.26.0,<2.0.0",
     "opentelemetry-exporter-gcp-logging>=0.38b0",
     "opentelemetry-exporter-gcp-monitoring>=0.38b0",
     "opentelemetry-resourcedetector-gcp>=1.5.0",
-    "gcsfs>=2024.11.0",
     "google-cloud-logging>=3.12.0,<4.0.0",
     "google-cloud-aiplatform[evaluation]>=1.130.0",
     "google-cloud-aiplatform[agent_engines,adk]",
-    "fastapi>=0.115.8,<1.0.0",
-    "uvicorn>=0.34.0,<1.0.0",
-    "asyncpg>=0.30.0,<1.0.0",
+    "pydantic-settings",
 ]
 requires-python = ">=3.12,<3.14"
 
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.0,<10.0.0",
-    "pytest-asyncio>=0.23.8,<2.0.0",
-    "pytest-cov>=5.0.0,<8.0.0",
-    "pytest-mock>=3.14.0,<4.0.0",
+    "pytest>=9.0.2,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
     "nest-asyncio>=1.6.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
-jupyter = ["jupyter>=1.0.0,<2.0.0"]
-eval = ["google-adk[eval]>=2.1.0,<3.0.0"]
+eval = [
+    "google-adk[eval]>=2.0.0,<3.0.0",
+    "google-cloud-aiplatform[evaluation]>=1.156.0",
+]
 lint = ["ruff>=0.4.6,<1.0.0", "ty>=0.0.1a0", "codespell>=2.2.0,<3.0.0"]
 
 [tool.ruff]
@@ -66,7 +62,7 @@ known-first-party = ["app", "frontend"]
 python-version = "3.12"
 
 [tool.ty.src]
-exclude = [".venv/**", "notebooks/**", "tests/**"]
+exclude = [".venv/**"]
 
 [tool.ty.rules]
 # Ignore common issues with third-party libraries and dynamic code patterns
@@ -81,17 +77,8 @@ deprecated = "ignore"
 
 [tool.codespell]
 ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb,**/package-lock.json"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json"
 
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-
-[tool.pytest.ini_options]
-pythonpath = [".", "app"]
-asyncio_default_fixture_loop_scope = "function"
-
-[tool.hatch.build.targets.wheel]
-packages = ["app/finops_agent", "frontend"]
+[tool.uv]
+package = false

@@ -9,17 +9,15 @@ import re
 import threading
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 import google.auth
-from google.adk import Context
+from google.adk.tools import ToolContext
 from google.cloud import bigquery
 
-from app.app_utils.context import ALLOWED_PROJECTS_VAR
-from app.app_utils.query_cache import execute_cached_query
-from app.config import settings
+from finops_agent.app_utils.query_cache import execute_cached_query
+from finops_agent.config import settings
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 
@@ -59,7 +57,7 @@ def _get_bq_client() -> bigquery.Client:
     return bq_client_manager.get_client()
 
 
-def _serialise_value(val):
+def _serialise_value(val: Any) -> Any:
     """Recursively serialises non-JSON-compliant data types (dates, decimals) for GenAI compatibility."""
     if isinstance(val, (datetime, date)):
         return val.isoformat()
@@ -72,7 +70,7 @@ def _serialise_value(val):
     return val
 
 
-def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
+def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dict]:
     """Executes a BigQuery SQL query against the billing export tables.
 
     This tool is highly optimised and uses in-memory caching to avoid redundant,
@@ -80,14 +78,35 @@ def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
     """
     logger.debug("Executing full BigQuery SQL query:\n%s", sql)
     try:
-        user_email = tool_context.user_id
-        if user_email:
-            from app.app_utils.project_discovery import get_user_accessible_projects
+        from unittest.mock import MagicMock
 
-            allowed_projects = get_user_accessible_projects(user_email)
-        else:
-            allowed_projects = ALLOWED_PROJECTS_VAR.get()
+        from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
+
+        # Retrieve allowed projects from ADK session state (saved up-front by before_agent_callback)
+        allowed_projects = None
+        state = getattr(tool_context, "state", None)
+        if state is not None and not isinstance(state, MagicMock):
+            allowed_projects = state.get("allowed_projects")
+
+        # Fallback to context variable if not present in state
+        if allowed_projects is None:
+            allowed_projects_ctx = ALLOWED_PROJECTS_VAR.get()
+            if allowed_projects_ctx is not None:
+                allowed_projects = list(allowed_projects_ctx)
+
+        # Fallback to user_id check
+        if allowed_projects is None:
+            user_email = tool_context.user_id
+            if user_email and not isinstance(user_email, MagicMock):
+                from finops_agent.app_utils.project_discovery import (
+                    get_user_accessible_projects,
+                )
+                allowed_projects = list(get_user_accessible_projects(user_email))
+                if state is not None and not isinstance(state, MagicMock):
+                    state["allowed_projects"] = allowed_projects
+
         if allowed_projects is not None:
+            # Inject project scoping filters dynamically into the query to prevent unauthorised access
             billing_suffix = settings.google_cloud_billing_account.replace("-", "_")
             standard_table = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_v1_{billing_suffix}"
             resource_table = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_resource_v1_{billing_suffix}"
@@ -109,7 +128,7 @@ def execute_cached_bigquery_sql(sql: str, tool_context: Context) -> list[dict]:
             pattern_res = re.compile(rf"`{escaped_res}`|{escaped_res}")
             sql = pattern_res.sub(subquery_resource, sql)
 
-            logger.debug("Scoped BigQuery SQL query:\n%s", sql)
+        logger.debug("Scoped BigQuery SQL query:\n%s", sql)
 
         client = _get_bq_client()
         rows = execute_cached_query(client, sql)

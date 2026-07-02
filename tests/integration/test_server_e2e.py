@@ -17,7 +17,6 @@ import logging
 import os
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -49,7 +48,7 @@ def start_server() -> subprocess.Popen[str]:
         sys.executable,
         "-m",
         "uvicorn",
-        "app.fast_api_app:app",
+        "bff.fast_api_app:app",
         "--host",
         "0.0.0.0",
         "--port",
@@ -57,22 +56,16 @@ def start_server() -> subprocess.Popen[str]:
     ]
     env = os.environ.copy()
     env["INTEGRATION_TEST"] = "TRUE"
+    env["PYTHONUNBUFFERED"] = "1"
+    log_file = open("uvicorn_e2e.log", "w", encoding="utf-8")
     process = subprocess.Popen(
         command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=log_file,
+        stderr=log_file,
         text=True,
         bufsize=1,
         env=env,
     )
-
-    # Start threads to log stdout and stderr in real-time
-    threading.Thread(
-        target=log_output, args=(process.stdout, logger.info), daemon=True
-    ).start()
-    threading.Thread(
-        target=log_output, args=(process.stderr, logger.error), daemon=True
-    ).start()
 
     return process
 
@@ -120,7 +113,7 @@ def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
     user_id = "test_user_123"
     session_data = {"state": {"preferred_language": "English", "visit_count": 1}}
 
-    session_url = f"{BASE_URL}/apps/app/users/{user_id}/sessions"
+    session_url = f"{BASE_URL}/apps/finops_agent/users/{user_id}/sessions"
     session_response = requests.post(
         session_url,
         headers=HEADERS,
@@ -133,7 +126,7 @@ def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
 
     # Then send chat message
     data = {
-        "app_name": "app",
+        "app_name": "finops_agent",
         "user_id": user_id,
         "session_id": session_id,
         "new_message": {

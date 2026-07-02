@@ -9,9 +9,13 @@ authentication header provider for BigQuery, and sets up the global ADK `App`.
 
 import logging
 import os
+import sys
 import threading
 import time
 from typing import Any
+
+# Ensure the parent directory is in sys.path so that 'import finops_agent' resolves correctly
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import google.auth
 from google.adk.agents import Agent
@@ -24,20 +28,18 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import Client, types
 
-from app.app_utils.cai_tools import (
+from finops_agent.app_utils.cai_tools import (
     get_cai_history_for_resource,
     get_cai_metadata_for_resources,
 )
-from app.app_utils.mcp_config import (
+from finops_agent.app_utils.mcp_config import (
     cloud_assist_mcp_toolset,
     dev_knowledge_mcp_toolset,
 )
-from app.app_utils.tools import execute_cached_bigquery_sql
-from app.app_utils.zombie_tools import list_zombie_resources
-from app.config import settings
+from finops_agent.app_utils.tools import execute_cached_bigquery_sql
+from finops_agent.app_utils.zombie_tools import list_zombie_resources
+from finops_agent.config import settings
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
 
 # Ensure critical environment variables are set for the underlying SDKs
@@ -69,12 +71,11 @@ genai_client = Client(
 )
 
 # Configure native BigQuery Toolset using Application Default Credentials (ADC)
-
 credentials, _ = google.auth.default()
 credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
 
-def bq_tool_filter(tool, ctx=None) -> bool:
+def bq_tool_filter(tool: Any, ctx: Any = None) -> bool:
     """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
     name = tool.name.lower()
     return "execute" not in name and "query" not in name
@@ -84,7 +85,6 @@ bigquery_toolset = BigQueryToolset(
     credentials_config=credentials_config,
     tool_filter=bq_tool_filter,
 )
-
 
 AGENT_INSTRUCTION = f"""You are a helpful FinOps AI assistant specialized in Google Cloud Platform (GCP) cost analysis.
 Your primary goal is to help users manage, understand, and optimize their cloud spend.
@@ -241,12 +241,26 @@ Ensure you substitute the fields in the JSON block with the REAL cost numbers, p
 """
 
 
-# Custom tools are imported from app.app_utils.tools
-
-
 async def reset_tool_call_counter(callback_context: CallbackContext, **kwargs) -> None:
     """Resets the tool call counter in session state at the start of each turn."""
     callback_context.state["_turn_tool_call_count"] = 0
+
+
+async def discover_projects_callback(callback_context: CallbackContext, **kwargs) -> None:
+    """Discovers allowed projects for the user up-front and caches them in session state."""
+    state = callback_context.state
+    if "allowed_projects" not in state:
+        user_email = callback_context.user_id
+        if user_email:
+            from finops_agent.app_utils.project_discovery import (
+                get_user_accessible_projects,
+            )
+            allowed_projects = get_user_accessible_projects(user_email)
+            state["allowed_projects"] = list(allowed_projects)
+            logger.info("Discovered projects for user %s and stored in state: %s", user_email, state["allowed_projects"])
+        else:
+            logger.warning("Unauthenticated request inside discover_projects_callback: missing user_id.")
+            state["allowed_projects"] = []
 
 
 def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
@@ -290,7 +304,6 @@ async def before_agent_cache_lookup(
     """Uses a fast model to verify semantic query equivalence, skipping main agent execution on a match."""
     ctx = callback_context
 
-    # 1. Extract the active user query text
     user_query = ""
     if ctx.session and hasattr(ctx.session, "events") and ctx.session.events:
         for event in reversed(ctx.session.events):
@@ -311,11 +324,9 @@ async def before_agent_cache_lookup(
     if not user_query:
         return
 
-    # 2. Extract active, non-expired cache keys
     now = time.time()
     active_keys = []
     with agent_query_cache_manager.cache_lock:
-        # Prune expired keys from memory
         expired_keys = [
             k for k, (expiry, _) in agent_query_cache_manager.query_cache.items() if now > expiry
         ]
@@ -327,7 +338,6 @@ async def before_agent_cache_lookup(
     if not active_keys:
         return
 
-    # 3. First attempt a fast local match check (case-insensitive and whitespace normalised)
     normalised_user = " ".join(user_query.strip().lower().split())
     local_match = None
     with agent_query_cache_manager.cache_lock:
@@ -348,12 +358,9 @@ async def before_agent_cache_lookup(
                 ctx.state["cached_agent_response"] = cached_text
                 return
 
-    # 4. Use the fast Gemini model to determine semantic equivalence
     try:
-        # Reuse global module-level Google GenAI client to save instantiation overhead
         client = genai_client
 
-        # We ask the model to evaluate semantic matches and return the exact matching key
         prompt = f"""You are a high-speed caching coordinator.
 Your task is to determine if the user query is semantically identical or shares the exact same meaning as any of the cached queries listed below.
 Minor differences in phrasing, word order, or punctuation should be matched. However, differences in timeframes (e.g., "last month" vs "last 90 days") or services should NOT be matched.
@@ -382,7 +389,6 @@ Cached Queries List:
                 matched_key,
             )
 
-            # Store the hit in the callback state context to signal bypass
             ctx.state["cached_agent_response"] = cached_text
         else:
             logger.debug(
@@ -406,7 +412,6 @@ async def before_model_bypass(
     if "cached_agent_response" in ctx.state:
         logger.debug("Bypassing ADK LLM call using cached agent response.")
 
-        # Build standard google-genai Content and LlmResponse
         part = types.Part(text=ctx.state["cached_agent_response"])
         content = types.Content(role="model", parts=[part])
 
@@ -419,11 +424,9 @@ async def after_agent_save_cache(
 ) -> types.Content | None:
     """Saves the final agent text response to the query cache for future turn-level caching."""
     ctx = callback_context
-    # If this turn was already a cache hit, do not double cache
     if "cached_agent_response" in ctx.state:
         return None
 
-    # Retrieve the user query
     user_query = ""
     if ctx.session and hasattr(ctx.session, "events") and ctx.session.events:
         for event in reversed(ctx.session.events):
@@ -444,7 +447,6 @@ async def after_agent_save_cache(
     if not user_query:
         return None
 
-    # Retrieve the final model response content from the session events history
     final_text = ""
     if ctx.session and hasattr(ctx.session, "events") and ctx.session.events:
         for event in reversed(ctx.session.events):
@@ -467,8 +469,7 @@ async def after_agent_save_cache(
 
 
 class ConfiguredGemini(Gemini):
-    """
-    A custom Gemini model wrapper that overrides default regional endpoint routing.
+    """A custom Gemini model wrapper that overrides default regional endpoint routing.
 
     Why subclass Gemini:
     The ADK Agent orchestration layer requires an ADK model wrapper (i.e. a subclass of
@@ -507,7 +508,7 @@ root_agent = Agent(
         get_cai_metadata_for_resources,
         get_cai_history_for_resource,
     ],
-    before_agent_callback=[reset_tool_call_counter, before_agent_cache_lookup],
+    before_agent_callback=[reset_tool_call_counter, discover_projects_callback, before_agent_cache_lookup],
     before_tool_callback=check_tool_call_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,
@@ -515,7 +516,7 @@ root_agent = Agent(
 
 app = App(
     root_agent=root_agent,
-    name="app",
+    name="finops_agent",
     context_cache_config=ContextCacheConfig(
         min_tokens=2048,  # Trigger caching for large prompts/histories on Vertex AI / Gemini
         ttl_seconds=600,  # Store the cache for up to 10 minutes

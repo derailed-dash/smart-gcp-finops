@@ -62,6 +62,26 @@ To facilitate seamless local development and robust managed execution, the syste
 
 ![FinSavant Component Architecture](./images/component_architecture.png)
 
+### Docker Containerization & Deployment Options
+
+To support clean isolation, local testing, and separate scaling in production, the workspace is structured with **three separate Dockerfiles**:
+
+1. **Unified Container ([Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) at root)**:
+   - **Purpose**: Combines both the compiled static React frontend assets and the FastAPI BFF backend into a single image.
+   - **Use Case**: Used for local container testing (`make docker-run`) and unified Cloud Run deployments where the frontend and backend scale together.
+   - **Build Mode**: Multi-stage build (Node.js stage for Vite compiler, Python stage for FastAPI).
+
+2. **Standalone FastAPI BFF Container ([bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile))**:
+   - **Purpose**: Packages only the FastAPI application and the compiled React frontend static assets.
+   - **Use Case**: Used when deploying/scaling the Backend-for-Frontend independently of the agent code. It relies on `google-genai` to call the remote Agent Runtime.
+   - **Dependencies**: Includes `fastapi`, `uvicorn`, and `google-genai` client packages.
+
+3. **Standalone Agent Runtime Container ([app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile))**:
+   - **Purpose**: Packages the core ADK agent code (`finops_agent`) and the `agent_runtime_app.py` bootstrapper.
+   - **Use Case**: Used when deploying the agent as a standalone container to Google Cloud Run/GKE to act as a custom Agent Runtime backend.
+   - **Dependencies**: Includes `google-adk`, `mcp`, and Google Cloud client libraries, with all web-serving and database dependencies (`fastapi`, `uvicorn`, `asyncpg`, etc.) completely pruned.
+
+
 ### Project Relationships & Cross-Project Interactions
 
 The FinSavant system relies on a multi-project GCP architecture to isolate operational environments, billing assets, and build pipelines. The relationships and interactions between these components are described below:

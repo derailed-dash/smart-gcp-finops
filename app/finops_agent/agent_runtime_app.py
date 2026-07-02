@@ -4,10 +4,13 @@ Why: Connects the locally defined root agent to the Gemini Enterprise Agent Runt
 How: Instantiates and initializes the ADK agent runtime and exports the Agent Runtime deployment configuration.
 """
 
-
 import logging
 import os
+import sys
 from typing import Any
+
+# Ensure the parent directory is in sys.path so that 'import finops_agent' resolves correctly
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import google.cloud.logging
 import vertexai
@@ -15,13 +18,13 @@ from dotenv import load_dotenv
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from app.agent import app as adk_app
-from app.app_utils.logging_and_telemetry import (
+from finops_agent.agent import app as adk_app
+from finops_agent.app_utils.logging_and_telemetry import (
     setup_logging_suppressions,
     setup_telemetry,
 )
-from app.app_utils.typing import Feedback
-from app.config import settings
+from finops_agent.app_utils.typing import Feedback
+from finops_agent.config import settings
 
 # Load environment variables from .env file at runtime (mainly for local runner fallback testing)
 load_dotenv()
@@ -68,11 +71,11 @@ class AgentRuntimeApp(AdkApp):
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        
+
         # Force-register standard query methods to bypass the cloud-side inspection bug
         standard_ops = ["query", "async_query", "stream_query", "async_stream_query", "register_feedback"]
         existing_ops = operations.get("", [])
-        
+
         # Merge existing operations with the standard required operations
         operations[""] = list(set(existing_ops + standard_ops))
         return operations

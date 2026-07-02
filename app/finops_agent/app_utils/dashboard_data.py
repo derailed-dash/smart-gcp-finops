@@ -13,9 +13,9 @@ from datetime import datetime, timedelta
 from google.auth import default
 from google.cloud import bigquery
 
-from app.app_utils.query_cache import execute_cached_query
-from app.app_utils.zombie_tools import list_zombie_resources
-from app.config import settings
+from finops_agent.app_utils.query_cache import execute_cached_query
+from finops_agent.app_utils.zombie_tools import list_zombie_resources
+from finops_agent.config import settings
 
 # Inherits effective log level from the root logger
 # configured in fast_api_app.py / agent_runtime_app.py
