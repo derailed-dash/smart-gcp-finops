@@ -28,6 +28,17 @@ There are distinct operational differences in how updates are delivered to each 
    - **Workflow**: [.github/workflows/deploy-to-prod.yaml](../.github/workflows/deploy-to-prod.yaml)
    - **Target**: Deploys the same verified container image to the Cloud Run service in the **Prod / CICD** project (`finops-admin-prd`) utilizing the production service account and prod configuration parameters.
 
+> [!IMPORTANT]
+> **Terraform Infrastructure Changes are MANUAL**: 
+> The GitHub Actions CI/CD workflows only handle application-level deployments (building containers, registering Reasoning Engines, and updating Cloud Run configurations). They **do not** run `terraform plan` or `terraform apply` automatically on pull requests or merges. 
+> 
+> If you modify files under `deployment/terraform/`, you **must** run:
+> ```bash
+> make tf-plan
+> make tf-apply
+> ```
+> manually from your terminal to synchronise GCP infrastructure before merging or deploying your code changes.
+
 
 ## Developer Environment Setup
 
@@ -178,8 +189,10 @@ The agent and infrastructure are configured using variables in `deployment/terra
 | `google_cloud_location` | The location for Vertex AI API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
 | `model` | The primary model used for reasoning (default: `gemini-3.5-flash`). |
 | `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.1-flash-lite`). |
-| `staging_min_instances` / `prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
-| `staging_max_instances` / `prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
+| `cloud_run_staging_min_instances` / `cloud_run_prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
+| `cloud_run_staging_max_instances` / `cloud_run_prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
+| `agent_runtime_staging_min_instances` / `agent_runtime_prod_min_instances` | Minimum scaling count for Vertex AI Agent Runtime (e.g., `0`). |
+| `agent_runtime_staging_max_instances` / `agent_runtime_prod_max_instances` | Maximum scaling count for Vertex AI Agent Runtime (e.g., `1` for dev, `10` for prod). |
 
 These variables are defined in `deployment/terraform/vars/env.tfvars` and are automatically propagated to:
 
@@ -196,6 +209,37 @@ To support the FinOps cross-referencing logic, specific IAM roles are configured
     - **With Organization**: If `google_cloud_organization_id` is supplied, grants `roles/cloudasset.viewer` at the Organization level via `google_organization_iam_member`. This provides efficient visibility across the entire estate.
     - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`.
 3.  **BigQuery Cost Analysis**: Grants `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the centralized Billing Project via `google_project_iam_member`.
+
+## Environment Variable Configuration & Lifecycle
+
+The configuration parameters for FinSavant flow through a structured lifecycle to ensure security, automation, and consistency between local development and cloud environments.
+
+### 1. The Configuration Flow
+
+![Environment Variable Propagation Flow](docs/images/env_variable_lifecycle.png)
+
+### 2. Local Development (.env)
+For local development, variables are read from a local `.env` file situated under `app/` and `bff/`. These are ignored by Git. A template `.env.example` is provided as a starting point.
+
+### 3. Staging and Production Configuration Mapping
+
+| Terraform Variable (`env.tfvars.enc`) | GitHub Actions Variable (`vars.*`) | Container & Runtime Environment Variable | Target System | Description |
+|--------------------------------------|-----------------------------------|------------------------------------------|---------------|-------------|
+| `project_name` | `vars.CONTAINER_NAME` | N/A | Build Pipeline | Base name for services and containers. |
+| `google_cloud_region` | `vars.REGION` | `GOOGLE_CLOUD_REGION` | BFF & Agent | Google Cloud deployment region. |
+| `google_cloud_location` | `vars.GOOGLE_CLOUD_LOCATION` | `GOOGLE_CLOUD_LOCATION` | BFF & Agent | Vertex AI endpoint location (generally `global`). |
+| `google_cloud_billing_project` | `vars.GOOGLE_CLOUD_BILLING_PROJECT` | `GOOGLE_CLOUD_BILLING_PROJECT` | BFF & Agent | Project hosting BigQuery billing export. |
+| `billing_export_dataset` | `vars.BILLING_EXPORT_DATASET` | `BILLING_EXPORT_DATASET` | BFF & Agent | Dataset name containing billing tables. |
+| `billing_account_id` | `vars.GOOGLE_CLOUD_BILLING_ACCOUNT` | `GOOGLE_CLOUD_BILLING_ACCOUNT` | BFF & Agent | Billing account ID to analyse. |
+| `google_cloud_organization_id` | `vars.GOOGLE_CLOUD_ORGANIZATION` | `GOOGLE_CLOUD_ORGANIZATION` | BFF & Agent | Numeric ID of the GCP Organisation. |
+| `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Vertex AI connectivity. |
+| `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.5-flash`). |
+| `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.1-flash-lite`). |
+| `cloud_run_staging_min_instances` | `vars.CLOUD_RUN_STAGING_MIN_INSTANCES`| N/A | Cloud Run Deploy | Minimum containers for Staging BFF. |
+| `cloud_run_staging_max_instances` | `vars.CLOUD_RUN_STAGING_MAX_INSTANCES`| N/A | Cloud Run Deploy | Maximum containers for Staging BFF. |
+| `agent_runtime_staging_min_instances` | `vars.AGENT_RUNTIME_STAGING_MIN_INSTANCES`| N/A | Agent Runtime Deploy | Minimum containers for Staging Agent. |
+| `agent_runtime_staging_max_instances` | `vars.AGENT_RUNTIME_STAGING_MAX_INSTANCES`| N/A | Agent Runtime Deploy | Maximum containers for Staging Agent. |
+
 
 ## Infrastructure Discovery Scoping
 

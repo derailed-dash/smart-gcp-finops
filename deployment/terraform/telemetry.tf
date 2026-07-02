@@ -18,7 +18,7 @@ resource "google_bigquery_dataset" "telemetry_dataset" {
   project       = each.value
   dataset_id    = replace("${var.project_name}_telemetry", "-", "_")
   friendly_name = "${var.project_name} Telemetry"
-  location      = var.region
+  location      = var.google_cloud_region
   description   = "Dataset for GenAI telemetry data stored in GCS"
   depends_on    = [resource.google_project_service.cicd_services, resource.google_project_service.deploy_project_services]
 }
@@ -27,7 +27,7 @@ resource "google_bigquery_dataset" "telemetry_dataset" {
 resource "google_bigquery_connection" "genai_telemetry_connection" {
   for_each      = local.deploy_project_ids
   project       = each.value
-  location      = var.region
+  location      = var.google_cloud_region
   connection_id = "${var.project_name}-genai-telemetry"
   friendly_name = "${var.project_name} GenAI Telemetry Connection"
 
@@ -77,7 +77,7 @@ resource "random_id" "bucket_suffix" {
 resource "google_logging_project_bucket_config" "genai_telemetry_bucket" {
   for_each         = local.deploy_project_ids
   project          = each.value
-  location         = var.region
+  location         = var.google_cloud_region
   bucket_id        = "${var.project_name}-genai-telemetry-${random_id.bucket_suffix.hex}"
   retention_days   = 3650 # 10 years retention (maximum allowed)
   enable_analytics = true # Required for linked datasets
@@ -92,7 +92,7 @@ resource "google_logging_project_sink" "genai_logs_to_bucket" {
   for_each    = local.deploy_project_ids
   name        = "${var.project_name}-genai-logs"
   project     = each.value
-  destination = "logging.googleapis.com/projects/${each.value}/locations/${var.region}/buckets/${google_logging_project_bucket_config.genai_telemetry_bucket[each.key].bucket_id}"
+  destination = "logging.googleapis.com/projects/${each.value}/locations/${var.google_cloud_region}/buckets/${google_logging_project_bucket_config.genai_telemetry_bucket[each.key].bucket_id}"
   filter      = "log_name=\"projects/${each.value}/logs/gen_ai.client.inference.operation.details\" AND (labels.\"gen_ai.input.messages_ref\" =~ \".*${var.project_name}.*\" OR labels.\"gen_ai.output.messages_ref\" =~ \".*${var.project_name}.*\")"
 
   unique_writer_identity = true
@@ -105,7 +105,7 @@ resource "google_logging_linked_dataset" "genai_logs_linked_dataset" {
   link_id     = replace("${var.project_name}_genai_telemetry_logs", "-", "_")
   bucket      = google_logging_project_bucket_config.genai_telemetry_bucket[each.key].bucket_id
   description = "Linked dataset for ${var.project_name} GenAI telemetry Cloud Logging bucket"
-  location    = var.region
+  location    = var.google_cloud_region
   parent      = "projects/${each.value}"
 
   depends_on = [
@@ -132,7 +132,7 @@ resource "google_logging_project_sink" "feedback_logs_to_bucket" {
   for_each    = local.deploy_project_ids
   name        = "${var.project_name}-feedback"
   project     = each.value
-  destination = "logging.googleapis.com/projects/${each.value}/locations/${var.region}/buckets/${google_logging_project_bucket_config.genai_telemetry_bucket[each.key].bucket_id}"
+  destination = "logging.googleapis.com/projects/${each.value}/locations/${var.google_cloud_region}/buckets/${google_logging_project_bucket_config.genai_telemetry_bucket[each.key].bucket_id}"
   filter      = var.feedback_logs_filter
 
   unique_writer_identity = true

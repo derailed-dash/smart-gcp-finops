@@ -153,7 +153,7 @@ get-agent-runtime-id:
 # Why: Vertex AI SDK requires a standard requirements.txt for Reasoning Engine packaging.
 # Note: Developers must NOT edit requirements.txt manually. Add dependencies to app/pyproject.toml and run this target.
 export-requirements:
-	uv pip compile pyproject.toml -o app/finops_agent/requirements.txt
+	uv pip compile app/pyproject.toml -o app/finops_agent/requirements.txt
 
 # ==============================================================================
 # Testing & Code Quality

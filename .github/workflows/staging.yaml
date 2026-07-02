@@ -57,27 +57,29 @@ jobs:
 
       - name: Export requirements for Agent Runtime
         run: |
-          uv pip compile pyproject.toml -o app/app_utils/.requirements.txt
+          uv pip compile app/pyproject.toml -o app/finops_agent/requirements.txt
 
       - name: Deploy to Agent Runtime (Staging)
         run: |
-          uvx google-agents-cli deploy \
+          cd app && uvx google-agents-cli deploy \
             --deployment-target agent_runtime \
             --no-confirm-project \
             --project ${{ vars.STAGING_PROJECT_ID }} \
             --region ${{ vars.REGION }} \
             --service-account ${{ vars.APP_SERVICE_ACCOUNT_STAGING }} \
             --service-name ${{ vars.CONTAINER_NAME }}-backend \
-            --update-env-vars GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }}
+            --min-instances ${{ vars.AGENT_RUNTIME_STAGING_MIN_INSTANCES }} \
+            --max-instances ${{ vars.AGENT_RUNTIME_STAGING_MAX_INSTANCES }} \
+            --update-env-vars GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }},OTEL_TO_CLOUD=true,LOG_LEVEL=INFO
 
       - name: Extract Agent Runtime ID
         run: |
-          if [ -f deployment_metadata.json ]; then
-            AGENT_RUNTIME_ID=$(jq -r '.remote_agent_runtime_id' deployment_metadata.json)
+          if [ -f app/deployment_metadata.json ]; then
+            AGENT_RUNTIME_ID=$(jq -r '.remote_agent_runtime_id' app/deployment_metadata.json)
             echo "AGENT_RUNTIME_ID=$AGENT_RUNTIME_ID" >> $GITHUB_ENV
             echo "Extracted Agent Runtime ID: $AGENT_RUNTIME_ID"
           else
-            echo "deployment_metadata.json not found!"
+            echo "app/deployment_metadata.json not found!"
             exit 1
           fi
 
@@ -88,8 +90,8 @@ jobs:
             --region ${{ vars.REGION }} \
             --project ${{ vars.STAGING_PROJECT_ID }} \
             --service-account ${{ vars.APP_SERVICE_ACCOUNT_STAGING }} \
-            --max-instances ${{ vars.STAGING_MAX_INSTANCES }} \
-            --min-instances ${{ vars.STAGING_MIN_INSTANCES }} \
+            --max-instances ${{ vars.CLOUD_RUN_STAGING_MAX_INSTANCES }} \
+            --min-instances ${{ vars.CLOUD_RUN_STAGING_MIN_INSTANCES }} \
             --cpu-boost \
             --no-allow-unauthenticated \
             --update-env-vars GOOGLE_CLOUD_PROJECT=${{ vars.STAGING_PROJECT_ID }},GOOGLE_CLOUD_REGION=${{ vars.REGION }},GOOGLE_CLOUD_LOCATION=${{ vars.GOOGLE_CLOUD_LOCATION }},GOOGLE_GENAI_USE_VERTEXAI=${{ vars.GOOGLE_GENAI_USE_VERTEXAI }},MODEL=${{ vars.MODEL }},FAST_MODEL=${{ vars.FAST_MODEL }},GOOGLE_CLOUD_ORGANIZATION=${{ vars.GOOGLE_CLOUD_ORGANIZATION }},LOGS_BUCKET_NAME=${{ vars.LOGS_BUCKET_NAME_STAGING }},GOOGLE_CLOUD_BILLING_ACCOUNT=${{ vars.GOOGLE_CLOUD_BILLING_ACCOUNT }},GOOGLE_CLOUD_BILLING_LOCATION=${{ vars.GOOGLE_CLOUD_BILLING_LOCATION }},GOOGLE_CLOUD_BILLING_PROJECT=${{ vars.GOOGLE_CLOUD_BILLING_PROJECT }},BILLING_EXPORT_DATASET=${{ vars.BILLING_EXPORT_DATASET }},COMMIT_SHA=${{ github.sha }},LOG_LEVEL=INFO,AGENT_RUNTIME_ID=${{ env.AGENT_RUNTIME_ID }} \

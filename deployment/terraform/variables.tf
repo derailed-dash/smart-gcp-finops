@@ -18,11 +18,6 @@ variable "cicd_runner_project_id" {
   description = "Google Cloud Project ID where CI/CD pipelines will execute."
 }
 
-variable "region" {
-  type        = string
-  description = "Google Cloud region for resource deployment."
-}
-
 variable "host_connection_name" {
   description = "Name of the host connection to create in Cloud Build"
   type        = string
@@ -71,7 +66,8 @@ variable "cicd_sa_deployment_required_roles" {
   default = [
     "roles/run.admin",
     "roles/iam.serviceAccountUser",
-    "roles/aiplatform.user",
+    "roles/aiplatform.admin",
+    "roles/agentregistry.admin",
     "roles/storage.admin"
   ]
 }
@@ -101,23 +97,43 @@ variable "staging_app_domain_name" {
   type        = string
 }
 
-variable "staging_min_instances" {
+variable "cloud_run_staging_min_instances" {
   description = "Minimum number of instances for the Staging Cloud Run environment"
   type        = number
 }
 
-variable "staging_max_instances" {
+variable "cloud_run_staging_max_instances" {
   description = "Maximum number of instances for the Staging Cloud Run environment"
   type        = number
 }
 
-variable "prod_min_instances" {
+variable "cloud_run_prod_min_instances" {
   description = "Minimum number of instances for the Production Cloud Run environment"
   type        = number
 }
 
-variable "prod_max_instances" {
+variable "cloud_run_prod_max_instances" {
   description = "Maximum number of instances for the Production Cloud Run environment"
+  type        = number
+}
+
+variable "agent_runtime_staging_min_instances" {
+  description = "Minimum number of instances for the Staging Agent Runtime environment"
+  type        = number
+}
+
+variable "agent_runtime_staging_max_instances" {
+  description = "Maximum number of instances for the Staging Agent Runtime environment"
+  type        = number
+}
+
+variable "agent_runtime_prod_min_instances" {
+  description = "Minimum number of instances for the Production Agent Runtime environment"
+  type        = number
+}
+
+variable "agent_runtime_prod_max_instances" {
+  description = "Maximum number of instances for the Production Agent Runtime environment"
   type        = number
 }
 
@@ -160,7 +176,7 @@ variable "google_genai_use_vertexai" {
 variable "google_cloud_location" {
   type        = string
   description = "The Google Cloud location (region) for Gemini model calls"
-  default     = "europe-west1"
+  default     = "global"
 }
 
 variable "model" {
@@ -171,5 +187,11 @@ variable "model" {
 variable "fast_model" {
   type        = string
   description = "The fast/lite Gemini model to use for semantic checks and routing"
+}
+
+variable "google_cloud_region" {
+  type        = string
+  description = "The Google Cloud region to use for model APIs"
+  default     = "europe-west1"
 }
 
