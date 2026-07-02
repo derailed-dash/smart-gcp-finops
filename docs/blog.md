@@ -2239,4 +2239,38 @@ Following our decoupling, two issues impacted the runtime execution of our Pytho
    * Confirmed that the client-side warning (`Unsupported api mode: async`) is a harmless, known warning from the client-side `google-cloud-aiplatform` SDK, while pruning the server keys leads to hard routing failures.
 3. **Validation**: All 52 unit tests and local linting checks pass successfully.
 
+---
+
+### ESLint v9 Flat Config Upgrade
+
+**Problem**:
+The React frontend workspace was running on deprecated ESLint v8 configurations (`.eslintrc.json`), emitting dependency warnings in the Cloud Run build steps about legacy packages like `rimraf` v3, `inflight` v1, and `glob` v7.
+
+**Resolution**:
+1. **Dependencies Update**:
+   * Removed deprecated `@typescript-eslint/eslint-plugin` and `@typescript-eslint/parser` from [frontend/package.json](file:///home/dazbo/localdev/smart-gcp-finops/frontend/package.json).
+   * Installed `"eslint": "^9.20.0"`, `"typescript-eslint": "^8.24.0"`, `"@eslint/js": "^9.20.0"`, and `"globals": "^15.15.0"`.
+2. **Flat Configuration**:
+   * Deleted legacy [frontend/.eslintrc.json](file:///home/dazbo/localdev/smart-gcp-finops/frontend/.eslintrc.json).
+   * Created [frontend/eslint.config.js](file:///home/dazbo/localdev/smart-gcp-finops/frontend/eslint.config.js) to configure ESLint Flat Config rules for React, TypeScript, and global browser variables.
+   * Simplified the lint script command to `"eslint . --max-warnings 0"`.
+3. **App.tsx Refactoring**:
+   * Fixed 4 warnings in [frontend/src/App.tsx](file:///home/dazbo/localdev/smart-gcp-finops/frontend/src/App.tsx) by replacing unused catch variables `e` with parameterless catch clauses (`catch { ... }`), enabling 100% warning-free lint checks.
+4. **Validation**: Verified that `npm run lint` and `npm run build` both compile with 0 errors and 0 warnings.
+
+---
+
+### Dockerfile Caching & Cloud Build Compatibility
+
+**Problem**:
+During the unified Docker image build process, changes to package manifests invalidated cache layers, triggering full re-downloads of all npm packages and Python dependencies from remote registries. We initially added BuildKit cache mounts (`--mount=type=cache`) to mitigate this. However, this broke the production deployment target (`make deploy-cloud-run`) which runs inside Google Cloud Build, yielding the error: `the --mount option requires BuildKit`.
+
+**Resolution**:
+1. **Reverted Cache Mounts**: Reverted the `--mount=type=cache` changes in the root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) to retain compatibility with standard container builders.
+2. **Analysis**: Google Cloud Build runs inside ephemeral VM containers and does not enable BuildKit by default. Since the build VMs are completely clean and deleted after each build, cache mounts do not persist between separate runs anyway.
+3. **Standard Caching**: Retained the standard, highly efficient Docker layer caching structure. As long as `package-lock.json` and `uv.lock` manifests are unchanged, Docker will use standard cached layers, bypassing `npm ci` and `uv sync` operations completely.
+
+
+
+
 

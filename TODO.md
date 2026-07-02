@@ -62,7 +62,7 @@
   - [x] Deploy/enhance to Agent Runtime once validated.
   - [ ] Update Terraform and CI/CD to ensure all is working.
 [ ] Convert arch diagrams to renders
-[ ] Optimise Docker image
+[ ] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
 [x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
