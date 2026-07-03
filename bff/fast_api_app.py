@@ -40,6 +40,7 @@ from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 load_dotenv()
 setup_telemetry()
@@ -180,6 +181,7 @@ app: FastAPI = get_fast_api_app(
 app.title = "smart-gcp-finops-bff"
 app.description = "BFF API for interacting with the FinOps Agent"
 app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
