@@ -2342,6 +2342,24 @@ make deploy-cloud-run LOG_LEVEL=DEBUG
 ```
 This enables developers to examine the event payloads step-by-step directly from the Cloud Run logs console! Hurrah!
 
+---
+
+### Implementing API Rate Limiting for Financial and Quota Protection
+
+**Problem**:
+In a public-facing, data-heavy GenAI system like FinSavant, there was no protection against Denial of Wallet (DoW) attacks or API quota exhaustion. A user (or a frontend infinite loop) could send unlimited queries to `/api/chat/stream` or `/api/dashboard`, generating massive costs on Gemini and BigQuery billing queries. Furthermore, since the FastAPI BFF uses thread pools to serve background agent streams, concurrent streaming requests could starve the application event loop.
+
+**Resolution**:
+We implemented user-level rate limiting in the FastAPI BFF using `slowapi` (built on the `limits` library):
+1. **IAP User Identification**: Configured the rate limiter key generator to extract the authenticated user's email from the `X-Goog-Authenticated-User-Email` header, falling back to local credentials in dev.
+2. **Endpoint Decorators**:
+   * Restricted `/api/dashboard` to **10 requests per minute** and **100 per day** (`@limiter.limit("10/minute; 100/day")`).
+   * Restricted `/api/chat/stream` to **5 requests per minute** and **100 per day** (`@limiter.limit("5/minute; 100/day")`).
+3. **Environment Parity**: Since our Cloud Run setup is optimized to scale to a maximum of 1 instance, a fast local in-memory token-bucket limiter is completely accurate and requires no external Redis instance.
+4. **Validation & Testing**: Added the `test_rate_limiting_dashboard` test in `tests/unit/test_fast_api_app.py` to assert that 11 consecutive requests correctly return a `429 Too Many Requests` status code with the expected `"Rate limit exceeded"` detail.
+
+This protects the billing and quota footprint of the application. Hurrah!
+
 
 
 

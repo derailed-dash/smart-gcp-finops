@@ -38,6 +38,8 @@ from finops_agent.app_utils.typing import Feedback
 from finops_agent.config import settings
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 setup_telemetry()
@@ -113,6 +115,14 @@ def _get_user_email(request: Request) -> str:
             return settings.local_developer_email
 
 
+def get_iap_user_key(request: Request) -> str:
+    """Returns the IAP user email to key rate limits."""
+    return _get_user_email(request)
+
+
+limiter = Limiter(key_func=get_iap_user_key)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manages the startup and shutdown lifecycle of the FastAPI application.
@@ -152,6 +162,8 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "smart-gcp-finops-bff"
 app.description = "BFF API for interacting with the FinOps Agent"
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/api/status")
@@ -165,6 +177,7 @@ def get_status() -> dict:
 
 
 @app.get("/api/dashboard")
+@limiter.limit("10/minute; 100/day")
 def get_dashboard(
     request: Request,
     clientDay: int | None = None,
@@ -197,6 +210,7 @@ def get_dashboard(
 
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
+@limiter.limit("5/minute; 100/day")
 async def chat_stream(request: Request):
     """Streams the ADK agent chat responses to the frontend using Server-Sent Events (SSE).
 

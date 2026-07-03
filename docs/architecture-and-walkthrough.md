@@ -24,12 +24,13 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Keep-Alive Heartbeat SSE** | I Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
 | **Vite 6 Tooling & Sandboxing** | Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
 | **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/finops_agent/app_utils/`. Rationale: Keeps the core `app/finops_agent/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
-| **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on Vertex AI/Gemini. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
+| **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
 | **Semantic Caching** | I Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
 | **CI/CD Variable Sync** | I Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
-| **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Vertex AI agent management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
+| **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Gemini Enterprise Agent Platform management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
 | **Object-Oriented State Managers** | Refactored mutable global module-level variables (caching and client states) into thread-safe object-oriented singleton managers. Rationale: Improves thread safety under concurrent requests, makes testing isolation straightforward, and structures state management logically. |
 | **Standard Native Logging** | Standardised all logging on Python's native `logging` library instead of direct vendor SDK client logging. Rationale: Integrates seamlessly with standard python tools, dynamically routes logs to Cloud Logging in production, and suppresses noisy third-party frameworks. |
+| **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
 
 
 ## Solution Architecture
@@ -97,18 +98,18 @@ This set manages the web container deployed to Cloud Run, which hosts the static
     ```
 
 #### 2. The Agent Deployment Set (ADK Agent & Agent Runtime)
-This set manages the Reasoning Engine container deployed to Vertex AI Agent Runtime, which executes the cognitive loops and calls tools.
+This set manages the Agent container deployed to Gemini Enterprise Agent Runtime, which executes the cognitive loops and calls tools.
 *   **Dependencies**: Governed by [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and `app/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
 *   **Build Target**: Governed by [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
 *   **Configuration**: Initialized locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
-*   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Vertex AI Agent Runtime:
+*   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Gemini Enterprise Agent Runtime:
     ```bash
     make deploy-agent-runtime
     ```
 
 #### 3. Automatic Requirements Compilation (`requirements.txt`)
 In the `app/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) file. 
-*   **Purpose**: The Vertex AI SDK requires a standard `requirements.txt` file inside the agent source directory during Reasoning Engine registration/serialization to map package dependencies.
+*   **Purpose**: The Gemini Enterprise Agent Platform requires a standard `requirements.txt` file inside the agent source directory during Agent registration/serialization to map package dependencies.
 *   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `app/pyproject.toml` and run the compilation target to generate it automatically:
     ```bash
     make export-requirements
@@ -163,6 +164,15 @@ graph TD
 - **Cross-Project BigQuery Cost Analysis**: Neither staging nor production copies billing data into their own projects. Instead, both the staging Service Account (`smart-gcp-finops-app@finops-admin-dev...`) and the production Service Account (`smart-gcp-finops-app@finops-admin-prd...`) are granted `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the Central Billing Project. The ADK agent uses the native `BigQueryToolset` with Application Default Credentials (ADC) to interact with BigQuery directly, with query execution quota routed through the quota project by passing the central billing project in the client credentials, so query processing quotas and costs are billed to the central project.
 - **Billing Account Discovery**: The Service Accounts are granted `roles/billing.viewer` at the **GCP Billing Account** level to dynamically discover which projects are currently linked to the billing footprint.
 - **Cloud Asset Inventory Inspection**: The Service Accounts are granted `roles/cloudasset.viewer` at either the Organization level (for global asset inspection) or project level (to audit resource statuses and trace historical cost-spike changes).
+
+#### 3. API Rate Limiting & Denial of Wallet (DoW) Protection
+
+To prevent financial spikes (accumulating large BigQuery scan costs or excessive Gemini API usage) and protect the system from quota exhaustion, the FastAPI BFF enforces user-level rate limiting using the `slowapi` library.
+* **Authentication Keying:** Limits are keyed by the authenticated user's email address extracted from the IAP headers (`X-Goog-Authenticated-User-Email`), falling back to local credentials in dev.
+* **Endpoint Quotas:**
+  * **Dashboard Endpoint (`/api/dashboard`):** Limited to **10 requests per minute** and **100 per day**.
+  * **Chat Stream Endpoint (`/api/chat/stream`):** Limited to **5 requests per minute** and **100 per day** to protect the backend background thread pool from execution starvation.
+* **Single-Instance Accuracy:** Because our Cloud Run setup is configured to run a maximum of 1 instance to control costs, a local in-memory token-bucket storage backend is fully accurate and requires no external Redis / Memorystore setup.
 
 ## Agent Implementation Details
 
@@ -276,9 +286,6 @@ This architecture guarantees that the backend is fully **frontend-agnostic**:
 ### Fallback & Execution Mode Visual Indicator
 To ensure full operational visibility for developers and operators, the React UI includes a visual execution indicator badge located in the main header of the chat panel. 
 * **State Check**: On initialisation, the React client queries the thin BFF status endpoint (`GET /api/status`).
-* **Visual Representation**:
-  * **In-Container Fallback (`mode: "local"`)**: Renders a glassmorphic amber pill badge labelled **`IN-CONTAINER FALLBACK`** (`#F59E0B`), indicating the agent is executing locally inside the BFF container using local Application Default Credentials (ADC).
-  * **Vertex Runtime (`mode: "remote"`)**: Renders a glowing neon-green badge labelled **`VERTEX RUNTIME`** (`#00F59B`), indicating the BFF is proxying queries to the managed **Gemini Enterprise Agent Runtime**. Hovering over this badge displays the active Agent Runtime resource name.
 
 ---
 

@@ -79,15 +79,15 @@ All tests pass successfully under the new architecture:
 
 ## 8. Dataplex Dependency and Remote API 404 Routing Resolution (2026-07-02)
 
-- **Issue 1 (Import Error):** The remote Reasoning Engine container crashed at startup with:
+- **Issue 1 (Import Error):** The remote Agent Runtime container crashed at startup with:
   ```text
   ImportError: cannot import name 'dataplex_v1' from 'google.cloud'
   ```
   *Why:* ADK's `BigQueryToolset` depends internally on the `google-cloud-dataplex` package. When we pruned dependencies to optimize container sizes, we accidentally omitted Dataplex.
   *Resolution:* Added `google-cloud-dataplex` to the dependencies in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
 
-- **Issue 2 (404 Mapped Routing):** Remote calls to the container returned HTTP `404 Not Found` (detail: `"Not Found"`) from the Vertex AI Control Plane.
-  *Why:* To suppress warning logs, we had pruned the `"async"` and `"async_stream"` keys from `register_operations()` in `agent_runtime_app.py`. However, the Vertex control plane uses these keys to construct its routing tables; removing them broke the routing paths.
+- **Issue 2 (404 Mapped Routing):** Remote calls to the container returned HTTP `404 Not Found` (detail: `"Not Found"`) from the Agent Platform Control Plane.
+  *Why:* To suppress warning logs, we had pruned the `"async"` and `"async_stream"` keys from `register_operations()` in `agent_runtime_app.py`. However, the Agent Platform control plane uses these keys to construct its routing tables; removing them broke the routing paths.
   *Resolution:* Restored the original keys in `register_operations()`, confirming that the client-side warning is harmless, whereas removing the keys breaks execution.
 
 ## 9. Bypassing SDK Streaming Hang with Unary Mode (2026-07-02)
@@ -96,8 +96,8 @@ All tests pass successfully under the new architecture:
   ```text
   models.py:8686 - AFC is enabled with max remote calls: 10.
   ```
-  *Why:* The `google-genai` SDK version 2.x contains a known client-side bug where combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) on Vertex AI results in a deadlocked thread that hangs and fails to return the final text response.
-  *Resolution:* Bypassed the streaming bug by instructing the ADK runner inside the Reasoning Engine container to execute in unary (non-streaming) mode by injecting `run_config={"streaming_mode": None}`:
+  *Why:* The `google-genai` SDK version 2.x contains a known client-side bug where combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) on the Gemini Enterprise Agent Platform results in a deadlocked thread that hangs and fails to return the final text response.
+  *Resolution:* Bypassed the streaming bug by instructing the ADK runner inside the Agent Runtime container to execute in unary (non-streaming) mode by injecting `run_config={"streaming_mode": None}`:
   ```python
   async for event_dict in agent_engine.async_stream_query(
       message=augmented_message,

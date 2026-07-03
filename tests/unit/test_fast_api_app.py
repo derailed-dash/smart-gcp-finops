@@ -143,3 +143,25 @@ def test_get_status_endpoint():
         data = response.json()
         assert data["mode"] == "remote"
         assert data["agent_runtime_id"] == "projects/123/locations/us-central1/reasoningEngines/456"
+
+
+@patch("finops_agent.app_utils.dashboard_data.get_actual_dashboard_metrics")
+def test_rate_limiting_dashboard(mock_get_metrics):
+    """Verify that calling the dashboard endpoint exceeds the rate limit after 10 requests."""
+    from bff.fast_api_app import limiter
+
+    limiter.reset()
+    mock_get_metrics.return_value = {}
+
+    # Call it 10 times (limit is 10/minute)
+    for _ in range(10):
+        response = client.get("/api/dashboard")
+        assert response.status_code == 200
+
+    # The 11th call should fail with a 429
+    response_blocked = client.get("/api/dashboard")
+    assert response_blocked.status_code == 429
+    assert "rate limit exceeded" in response_blocked.json()["error"].lower()
+
+    # Clean up by resetting limiter
+    limiter.reset()
