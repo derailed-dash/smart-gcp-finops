@@ -31,3 +31,4 @@ jobs:
           model: 'gemini-3.5-flash'
           add-files: 'true'
           context-lines: '30'
+          prompt: 'Review the code changes and provide all feedback and comments exclusively in English (UK).'
