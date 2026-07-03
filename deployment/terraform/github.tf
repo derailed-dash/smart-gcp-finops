@@ -274,54 +274,6 @@ resource "github_actions_variable" "agent_runtime_prod_max_instances" {
   depends_on    = [github_repository.repo]
 }
 
-resource "github_actions_variable" "google_cloud_project" {
-  repository    = var.repository_name
-  variable_name = "GOOGLE_CLOUD_PROJECT"
-  value         = var.cicd_runner_project_id
-  depends_on    = [github_repository.repo]
-}
-
-resource "github_actions_variable" "service_account_email" {
-  repository    = var.repository_name
-  variable_name = "SERVICE_ACCOUNT_EMAIL"
-  value         = google_service_account.cicd_runner_sa.email
-  depends_on    = [github_repository.repo]
-}
-
-resource "github_actions_variable" "gcp_wif_provider" {
-  repository    = var.repository_name
-  variable_name = "GCP_WIF_PROVIDER"
-  value         = "projects/${data.google_project.cicd_project.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github_pool.workload_identity_pool_id}/providers/${google_iam_workload_identity_pool_provider.github_provider.workload_identity_pool_provider_id}"
-  depends_on    = [github_repository.repo, data.github_repository.existing_repo]
-}
-
-resource "github_actions_variable" "gemini_model" {
-  repository    = var.repository_name
-  variable_name = "GEMINI_MODEL"
-  value         = var.model
-  depends_on    = [github_repository.repo]
-}
-
-resource "github_actions_variable" "google_genai_use_gca" {
-  repository    = var.repository_name
-  variable_name = "GOOGLE_GENAI_USE_GCA"
-  value         = "false"
-  depends_on    = [github_repository.repo]
-}
-
-resource "github_actions_variable" "gemini_cli_version" {
-  repository    = var.repository_name
-  variable_name = "GEMINI_CLI_VERSION"
-  value         = "latest"
-  depends_on    = [github_repository.repo]
-}
-
-resource "github_actions_variable" "upload_artifacts" {
-  repository    = var.repository_name
-  variable_name = "UPLOAD_ARTIFACTS"
-  value         = "true"
-  depends_on    = [github_repository.repo]
-}
 
 resource "github_repository_environment" "production_environment" {
   repository  = var.repository_name
