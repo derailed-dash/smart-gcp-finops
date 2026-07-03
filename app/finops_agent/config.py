@@ -69,5 +69,10 @@ class Settings(BaseSettings):
     fast_model: str = "gemini-3.1-flash-lite"
     local_developer_email: str = "local-dev@example.com"
 
+    # Rate Limiting Configuration
+    dashboard_rate_limit: str = "10/minute; 100/day"
+    chat_rate_limit: str = "5/minute; 100/day"
+    feedback_rate_limit: str = "20/minute; 500/day"
+
 
 settings = Settings()

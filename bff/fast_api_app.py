@@ -141,6 +141,9 @@ def get_iap_user_key(request: Request) -> str:
     return "127.0.0.1"
 
 
+# Note: Local in-memory token-bucket storage backend assumes we are running a maximum
+# of 1 Cloud Run instance (denial of wallet protection). If scaled horizontally
+# to multiple instances in production, we must transition to a shared Redis / Memorystore backend.
 limiter = Limiter(key_func=get_iap_user_key)
 
 
@@ -199,7 +202,7 @@ def get_status() -> dict:
 
 
 @app.get("/api/dashboard")
-@limiter.limit("10/minute; 100/day")
+@limiter.limit(settings.dashboard_rate_limit)
 def get_dashboard(
     request: Request,
     clientDay: int | None = None,
@@ -232,7 +235,7 @@ def get_dashboard(
 
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
-@limiter.limit("5/minute; 100/day")
+@limiter.limit(settings.chat_rate_limit)
 async def chat_stream(request: Request):
     """Streams the ADK agent chat responses to the frontend using Server-Sent Events (SSE).
 
@@ -479,7 +482,8 @@ async def chat_stream(request: Request):
 
 
 @app.post("/feedback")
-def collect_feedback(feedback: Feedback) -> dict[str, str]:
+@limiter.limit(settings.feedback_rate_limit)
+def collect_feedback(request: Request, feedback: Feedback) -> dict[str, str]:
     """Collects and logs user feedback for agent responses.
 
     This endpoint is triggered when a user interacts with the feedback controls
