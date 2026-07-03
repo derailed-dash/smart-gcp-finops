@@ -116,8 +116,16 @@ def _get_user_email(request: Request) -> str:
 
 
 def get_iap_user_key(request: Request) -> str:
-    """Returns the IAP user email to key rate limits."""
-    return _get_user_email(request)
+    """Returns the IAP user email to key rate limits.
+
+    Falls back to the client's remote IP address if the email is missing or empty.
+    """
+    email = _get_user_email(request)
+    if email:
+        return email
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
 
 
 limiter = Limiter(key_func=get_iap_user_key)

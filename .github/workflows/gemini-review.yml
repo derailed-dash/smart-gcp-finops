@@ -29,3 +29,5 @@ jobs:
         with:
           gemini-key: ${{ secrets.GEMINI_API_KEY }}
           model: 'gemini-3.5-flash'
+          add-files: 'true'
+          context-lines: '30'
