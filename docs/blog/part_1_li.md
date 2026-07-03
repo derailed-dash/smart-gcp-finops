@@ -20,7 +20,7 @@ Deploying to Agent Runtime was a proper journey. I fought Hatchling packaging qu
 Upcoming in the series: 
 - Part 2 - Dev setup, agent coding, and deployment
 - Part 3 - React and A2UI
-- Part 4 - Terraform & CD/CD
+- Part 4 - Terraform & CI/CD
 - Part 5 - Evaluation & tuning
 
 FinSavant scales across organisations and projects. It's not fully enterprise-ready yet, but getting there. It's open source — collaboration welcome!

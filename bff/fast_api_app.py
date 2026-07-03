@@ -133,6 +133,9 @@ def get_iap_user_key(request: Request) -> str:
 
     if email:
         return email
+    x_forwarded_for = request.headers.get("x-forwarded-for")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
     if request.client and request.client.host:
         return request.client.host
     return "127.0.0.1"
