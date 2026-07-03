@@ -153,15 +153,16 @@ def test_rate_limiting_dashboard(mock_get_metrics):
     limiter.reset()
     mock_get_metrics.return_value = {}
 
-    # Call it 10 times (limit is 10/minute)
-    for _ in range(10):
-        response = client.get("/api/dashboard")
-        assert response.status_code == 200
+    try:
+        # Call it 10 times (limit is 10/minute)
+        for _ in range(10):
+            response = client.get("/api/dashboard")
+            assert response.status_code == 200
 
-    # The 11th call should fail with a 429
-    response_blocked = client.get("/api/dashboard")
-    assert response_blocked.status_code == 429
-    assert "rate limit exceeded" in response_blocked.json()["error"].lower()
-
-    # Clean up by resetting limiter
-    limiter.reset()
+        # The 11th call should fail with a 429
+        response_blocked = client.get("/api/dashboard")
+        assert response_blocked.status_code == 429
+        assert "rate limit exceeded" in response_blocked.json()["error"].lower()
+    finally:
+        # Clean up by resetting limiter
+        limiter.reset()

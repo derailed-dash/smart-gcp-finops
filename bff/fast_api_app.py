@@ -120,7 +120,16 @@ def get_iap_user_key(request: Request) -> str:
 
     Falls back to the client's remote IP address if the email is missing or empty.
     """
-    email = _get_user_email(request)
+    user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
+    email = ""
+    match user_email.split(":", 1):
+        case ["accounts.google.com", val]:
+            email = val
+        case ["mailto", val]:
+            email = val
+        case [val] if val:
+            email = val
+
     if email:
         return email
     if request.client and request.client.host:
