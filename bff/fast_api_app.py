@@ -38,6 +38,9 @@ from finops_agent.app_utils.typing import Feedback
 from finops_agent.config import settings
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 load_dotenv()
 setup_telemetry()
@@ -113,6 +116,37 @@ def _get_user_email(request: Request) -> str:
             return settings.local_developer_email
 
 
+def get_iap_user_key(request: Request) -> str:
+    """Returns the IAP user email to key rate limits.
+
+    Falls back to the client's remote IP address if the email is missing or empty.
+    """
+    user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
+    email = ""
+    match user_email.split(":", 1):
+        case ["accounts.google.com", val]:
+            email = val
+        case ["mailto", val]:
+            email = val
+        case [val] if val:
+            email = val
+
+    if email:
+        return email
+    x_forwarded_for = request.headers.get("x-forwarded-for")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
+
+
+# Note: Local in-memory token-bucket storage backend assumes we are running a maximum
+# of 1 Cloud Run instance (denial of wallet protection). If scaled horizontally
+# to multiple instances in production, we must transition to a shared Redis / Memorystore backend.
+limiter = Limiter(key_func=get_iap_user_key)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manages the startup and shutdown lifecycle of the FastAPI application.
@@ -152,6 +186,9 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "smart-gcp-finops-bff"
 app.description = "BFF API for interacting with the FinOps Agent"
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/api/status")
@@ -165,6 +202,7 @@ def get_status() -> dict:
 
 
 @app.get("/api/dashboard")
+@limiter.limit(settings.dashboard_rate_limit)
 def get_dashboard(
     request: Request,
     clientDay: int | None = None,
@@ -197,6 +235,7 @@ def get_dashboard(
 
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
+@limiter.limit(settings.chat_rate_limit)
 async def chat_stream(request: Request):
     """Streams the ADK agent chat responses to the frontend using Server-Sent Events (SSE).
 
@@ -443,7 +482,8 @@ async def chat_stream(request: Request):
 
 
 @app.post("/feedback")
-def collect_feedback(feedback: Feedback) -> dict[str, str]:
+@limiter.limit(settings.feedback_rate_limit)
+def collect_feedback(request: Request, feedback: Feedback) -> dict[str, str]:
     """Collects and logs user feedback for agent responses.
 
     This endpoint is triggered when a user interacts with the feedback controls

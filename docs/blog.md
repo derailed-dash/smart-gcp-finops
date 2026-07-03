@@ -2342,6 +2342,43 @@ make deploy-cloud-run LOG_LEVEL=DEBUG
 ```
 This enables developers to examine the event payloads step-by-step directly from the Cloud Run logs console! Hurrah!
 
+---
+
+### Implementing API Rate Limiting for Financial and Quota Protection
+
+**Problem**:
+In a public-facing, data-heavy GenAI system like FinSavant, there was no protection against Denial of Wallet (DoW) attacks or API quota exhaustion. A user (or a frontend infinite loop) could send unlimited queries to `/api/chat/stream` or `/api/dashboard`, generating massive costs on Gemini and BigQuery billing queries. Furthermore, since the FastAPI BFF uses thread pools to serve background agent streams, concurrent streaming requests could starve the application event loop.
+
+**Resolution**:
+We implemented user-level rate limiting in the FastAPI BFF using `slowapi` (built on the `limits` library):
+1. **IAP User Identification**: Configured the rate limiter key generator to extract the authenticated user's email from the `X-Goog-Authenticated-User-Email` header, falling back to local credentials in dev.
+2. **Endpoint Decorators**:
+   * Restricted `/api/dashboard` to **10 requests per minute** and **100 per day** (`@limiter.limit("10/minute; 100/day")`).
+   * Restricted `/api/chat/stream` to **5 requests per minute** and **100 per day** (`@limiter.limit("5/minute; 100/day")`).
+3. **Environment Parity**: Since our Cloud Run setup is optimized to scale to a maximum of 1 instance, a fast local in-memory token-bucket limiter is completely accurate and requires no external Redis instance.
+4. **Validation & Testing**: Added the `test_rate_limiting_dashboard` test in `tests/unit/test_fast_api_app.py` to assert that 11 consecutive requests correctly return a `429 Too Many Requests` status code with the expected `"Rate limit exceeded"` detail.
+
+This protects the billing and quota footprint of the application. Hurrah!
+
+---
+
+### Migrating to Marketplace Code Review and Rate Limiting Hardening
+
+**Problem**:
+The official Google `run-gemini-cli` GitHub Action was deprecated, causing PR pipelines to fail. Furthermore, the rate-limiting fallback in our BFF was shadowing IP addresses due to developer email fallbacks, and limits were hardcoded in decorators rather than centrally configurable.
+
+**Resolution**:
+1. **GitHub Actions Migration**: Deplaced all deprecated Gemini CLI workflows with a streamlined integration of Sergey Shnaidman's `sshnaidm/gemini-code-review-action@v2` on the `gemini-3.5-flash` model. Configured it with `add-files: 'true'` and `context-lines: '30'` to feed full file changes and context to Gemini for rich, detailed code reviews, and mapped the review prompt to enforce English (UK) output.
+2. **Terraform Clean-up**: Pruned 7 obsolete actions variables in `deployment/terraform/github.tf` that were only used by the deprecated CLI workflows.
+3. **BFF Rate Limiter Hardening**:
+   * **`SlowAPIMiddleware` Registration**: Registered the `SlowAPIMiddleware` on the FastAPI instance to ensure consistent request tracking and correct header injection (`X-RateLimit-*`, `Retry-After`).
+   * **Proxy-Aware Fallback**: Configured `get_iap_user_key` to check the `X-Forwarded-For` header first to resolve the actual client remote IP address when deployed behind Cloud Run's GCLB load balancers, avoiding global throttling on the proxy IP.
+   * **Configurable Limits**: Moved rate limit configuration to `Settings` in `app/finops_agent/config.py` (`dashboard_rate_limit`, `chat_rate_limit`, `feedback_rate_limit`) to allow on-the-fly operators tuning without redeploying.
+   * **Feedback Protection**: Protected the `/feedback` route under a rate limit (`20/minute; 500/day`) to prevent event log spamming.
+
+The pipeline is now fully green, and rate limiting is robust and configurable. Hurrah!
+
+
 
 
 

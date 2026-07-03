@@ -60,9 +60,12 @@
   - [x] Verify unified container build still works
   - [x] Update documentation to reflect clean separation
   - [x] Deploy/enhance to Agent Runtime once validated.
-  - [ ] Update Terraform and CI/CD to ensure all is working.
+  - [x] Update Terraform and CI/CD to ensure all is working.
+[x] Fix Vertex branding in UI
+[x] Implement API rate limiting
 [ ] Convert arch diagrams to renders
 [ ] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
+[ ] Ensure best-practices query is always aligned to deployed services and costs; not generic
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
 [x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).

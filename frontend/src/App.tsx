@@ -615,7 +615,7 @@ export default function App() {
           const val = rawRecentSpikes[0][k];
           return typeof val === 'number' || (!isNaN(parseFloat(val)) && isFinite(parseFloat(val)));
         })
-      : ['Cloud Run', 'Gemini API', 'Vertex AI'])
+      : ['Cloud Run', 'Gemini API', 'Agent Runtime'])
 
   // Fill in missing chronological dates to ensure a continuous daily visual spread (e.g. 30 bars for 30 days)
   const recentSpikes = useMemo(() => {
@@ -899,10 +899,10 @@ export default function App() {
                 boxShadow: agentStatus.mode === 'remote' ? '0 0 8px rgba(0, 245, 155, 0.05)' : '0 0 8px rgba(245, 158, 11, 0.05)',
                 marginLeft: '4px'
               }}
-              title={agentStatus.mode === 'remote' ? `Connected to Remote Vertex Agent Runtime:\n${agentStatus.agent_runtime_id}` : "Running agent locally in container fallback"}
+              title={agentStatus.mode === 'remote' ? `Connected to Remote Agent Runtime (GEAP):\n${agentStatus.agent_runtime_id}` : "Running agent locally in container fallback"}
               >
                 <Cpu size={10} />
-                <span>{agentStatus.mode === 'remote' ? 'VERTEX RUNTIME' : 'IN-CONTAINER FALLBACK'}</span>
+                <span>{agentStatus.mode === 'remote' ? 'GEMINI ENTERPRISE AGENT RUNTIME' : 'IN-CONTAINER FALLBACK'}</span>
               </div>
             </div>
             <div style={{ 
