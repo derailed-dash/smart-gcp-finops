@@ -907,6 +907,19 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-access-context-manager"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/38/99786d542d1c1efb9fc6f70179efac4dc23b8d5d8d0b1d12ec90b98e436b/google_cloud_access_context_manager-0.6.0.tar.gz", hash = "sha256:760267fba1f8be8636e2a8d7c302027f310260fff8051c46b8b09b97d5468ee0", size = 46556, upload-time = "2026-06-03T14:52:27.444Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/13/47719751cc2864939baea3a0c8e23351706392f1efd05c55dfc4cd6e4a34/google_cloud_access_context_manager-0.6.0-py3-none-any.whl", hash = "sha256:e1e62fe16fa3b1520afddf7023df9c261adbec7eb744f0a1be75306516e93d4f", size = 58822, upload-time = "2026-06-03T14:51:38.823Z" },
+]
+
+[[package]]
 name = "google-cloud-aiplatform"
 version = "1.159.0"
 source = { registry = "https://pypi.org/simple" }
@@ -969,6 +982,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bc/02/800897064ca6f1a26835cdf23939c4b93e38a30f3fb5c7cec7c01ae2edc2/google_cloud_appengine_logging-1.9.0.tar.gz", hash = "sha256:ff397f0bbc1485f979ab45767c38e0f676c9598c97c384f7412216e6ea22f805", size = 17963, upload-time = "2026-03-30T22:51:33.556Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/4a/304d42664ab2afbe7be39559c9eb3f81dd06e7ac9284f9f36f726f15939d/google_cloud_appengine_logging-1.9.0-py3-none-any.whl", hash = "sha256:bbf3a7e4dc171678f7f481259d1f68c3ae7d337530f1f2361f8a0b214dbcfe36", size = 18333, upload-time = "2026-03-30T22:49:39.045Z" },
+]
+
+[[package]]
+name = "google-cloud-asset"
+version = "3.30.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "google-cloud-access-context-manager" },
+    { name = "google-cloud-org-policy" },
+    { name = "google-cloud-os-config" },
+    { name = "grpc-google-iam-v1" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c3/49/9b4105bf2363748618bdf74fdfaf2066e35db2900737eb623fdd03ce88d8/google_cloud_asset-3.30.1.tar.gz", hash = "sha256:a0f0249bfcbc44ef7f8980b621424de7cfe29588d2dac90cb58cccc810d053cc", size = 316572, upload-time = "2025-05-08T20:45:55.526Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/69/93134bd9f355abbb8f7341b9781d4d74d956e35b0c0f1702b838d2b0c498/google_cloud_asset-3.30.1-py3-none-any.whl", hash = "sha256:a2692d0aa250cfd6697ec1114cd0e36cab0d60fccc36f6d79b600d50522f6c25", size = 307578, upload-time = "2025-05-08T20:45:53.037Z" },
 ]
 
 [[package]]
@@ -1084,6 +1116,38 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/eb/3f/7bc306ebb006114f58fb9143aec91e1b014a11577350d8bbd6bbc38389f9/google_cloud_monitoring-2.30.0.tar.gz", hash = "sha256:a9530aa9aa246c490810dfa7be32d67e8340d19108acc99cbc02d1ed494fba76", size = 407108, upload-time = "2026-03-26T22:17:10.365Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ad/c8/666c21c470b9d6fd62ac9ee74dc265419975228f9b16f8ad72ec22e8d98b/google_cloud_monitoring-2.30.0-py3-none-any.whl", hash = "sha256:2729f3b88a4798b7757b1d9d31b6cb562bb3544e8173765e4e5cd44d8685b1ed", size = 391367, upload-time = "2026-03-26T22:15:04.088Z" },
+]
+
+[[package]]
+name = "google-cloud-org-policy"
+version = "1.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/96/27af7da2d7d0e28ce9a0dd58b7db3947866a64dfe2f9060ec8daa6b088bd/google_cloud_org_policy-1.18.0.tar.gz", hash = "sha256:41e330cfc833863d10a6b5f5ffaa2a12d0fe2f08fa03d619faaad744ae8d922b", size = 100255, upload-time = "2026-06-22T23:22:05.195Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/00/3a585409ea6be01ccd0b56adc1798e74c25da7e2a4dbb7c2a2f62856a4c0/google_cloud_org_policy-1.18.0-py3-none-any.whl", hash = "sha256:c0fc063963b48eafff711bca96aa9a08c1598635d92ddf2a4c0178614981ce8c", size = 85915, upload-time = "2026-06-22T23:19:57.699Z" },
+]
+
+[[package]]
+name = "google-cloud-os-config"
+version = "1.25.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/fa/c8ff1761d766fa14274af8dd90621839b087d4c19bd8b7f6489245b43272/google_cloud_os_config-1.25.0.tar.gz", hash = "sha256:2e02717d6a0dabe8f6ebf7b9b37eb28b5f70e3358bd7caf0cddbcf843b303da1", size = 304715, upload-time = "2026-06-22T23:22:06.24Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/ba/b017ffb5aa22e8f796790f27dd7e0bf19d037b037b9f489b3bbe31e718ad/google_cloud_os_config-1.25.0-py3-none-any.whl", hash = "sha256:1b6f5f1da1f80f5796ca6098428324b2f32275e21b29ac08aa127e614c8dcb89", size = 266119, upload-time = "2026-06-22T23:19:59.15Z" },
 ]
 
 [[package]]
@@ -3353,6 +3417,7 @@ dependencies = [
     { name = "google-adk", extra = ["a2a"] },
     { name = "google-api-python-client" },
     { name = "google-cloud-aiplatform", extra = ["agent-engines", "evaluation"] },
+    { name = "google-cloud-asset" },
     { name = "google-cloud-dataplex" },
     { name = "google-cloud-logging" },
     { name = "mcp" },
@@ -3397,6 +3462,7 @@ requires-dist = [
     { name = "google-adk", extras = ["eval"], marker = "extra == 'eval'", specifier = ">=2.1.0,<3.0.0" },
     { name = "google-api-python-client", specifier = ">=2.198.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation", "agent-engines"], specifier = ">=1.159.0" },
+    { name = "google-cloud-asset", specifier = ">=3.26.0,<4.0.0" },
     { name = "google-cloud-dataplex", specifier = ">=2.20.0,<3.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.16.0,<4.0.0" },
     { name = "jupyter", marker = "extra == 'jupyter'", specifier = ">=1.0.0,<2.0.0" },

@@ -26,6 +26,41 @@ from dotenv import load_dotenv
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from vertexai.agent_engines.templates.adk import AdkApp
 
+# Monkeypatch AdkApp.set_up globally to ensure that all dynamically
+# created AdkApp instances (including those created inside google.adk.cli.fast_api)
+# have auto_create_session=True enabled on their runners. This prevents
+# SessionNotFoundError when the Console Playground queries the runtime directly.
+_original_set_up = AdkApp.set_up
+
+
+def _patched_set_up(self) -> None:
+    _original_set_up(self)
+    if runner := self._tmpl_attrs.get("runner"):
+        runner.auto_create_session = True
+    if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+        in_memory_runner.auto_create_session = True
+
+
+AdkApp.set_up = _patched_set_up
+
+from google.adk.runners import Runner
+
+# Monkeypatch Runner.__init__ globally to force auto_create_session = True on all
+# ADK Runner instances. This ensures that even when the Uvicorn ASGI server
+# (inside google/adk/cli/fast_api.py) builds runners on the fly via get_runner_async(),
+# they will always automatically create missing/expired sessions instead of raising
+# SessionNotFoundError.
+_original_runner_init = Runner.__init__
+
+
+def _patched_runner_init(self, *args, **kwargs) -> None:
+    kwargs["auto_create_session"] = True
+    _original_runner_init(self, *args, **kwargs)
+
+
+Runner.__init__ = _patched_runner_init
+
+
 from finops_agent.agent import app as adk_app
 from finops_agent.app_utils.typing import Feedback
 from finops_agent.config import settings
@@ -40,6 +75,14 @@ class AgentRuntimeApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
+
+        # Enable automatic session creation in the underlying ADK runners.
+        # This prevents SessionNotFoundError if the console Playground or client
+        # sends queries using expired or invalid session IDs (e.g. after container scale-down).
+        if runner := self._tmpl_attrs.get("runner"):
+            runner.auto_create_session = True
+        if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+            in_memory_runner.auto_create_session = True
 
         # Configure logging using standard Python library and cloud-logging backend
         otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (

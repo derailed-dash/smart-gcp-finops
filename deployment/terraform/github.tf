@@ -158,63 +158,63 @@ resource "github_actions_variable" "artifact_registry_repo_name" {
 resource "github_actions_variable" "google_cloud_billing_project" {
   repository    = var.repository_name
   variable_name = "GOOGLE_CLOUD_BILLING_PROJECT"
-  value         = var.google_cloud_billing_project
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_PROJECT", var.google_cloud_billing_project)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "billing_export_dataset" {
   repository    = var.repository_name
   variable_name = "BILLING_EXPORT_DATASET"
-  value         = var.billing_export_dataset
+  value         = lookup(local.env_map, "BILLING_EXPORT_DATASET", var.billing_export_dataset)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "google_cloud_billing_account" {
   repository    = var.repository_name
   variable_name = "GOOGLE_CLOUD_BILLING_ACCOUNT"
-  value         = var.billing_account_id
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_ACCOUNT", var.billing_account_id)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "google_cloud_billing_location" {
   repository    = var.repository_name
   variable_name = "GOOGLE_CLOUD_BILLING_LOCATION"
-  value         = var.billing_export_location
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_LOCATION", var.billing_export_location)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "google_genai_use_vertexai" {
   repository    = var.repository_name
   variable_name = "GOOGLE_GENAI_USE_VERTEXAI"
-  value         = tostring(var.google_genai_use_vertexai)
+  value         = lookup(local.env_map, "GOOGLE_GENAI_USE_VERTEXAI", tostring(var.google_genai_use_vertexai))
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "google_cloud_location" {
   repository    = var.repository_name
   variable_name = "GOOGLE_CLOUD_LOCATION"
-  value         = var.google_cloud_location
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_LOCATION", var.google_cloud_location)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "model" {
   repository    = var.repository_name
   variable_name = "MODEL"
-  value         = var.model
+  value         = lookup(local.env_map, "MODEL", var.model)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "fast_model" {
   repository    = var.repository_name
   variable_name = "FAST_MODEL"
-  value         = var.fast_model
+  value         = lookup(local.env_map, "FAST_MODEL", var.fast_model)
   depends_on    = [github_repository.repo]
 }
 
 resource "github_actions_variable" "google_cloud_organization" {
   repository    = var.repository_name
   variable_name = "GOOGLE_CLOUD_ORGANIZATION"
-  value         = var.google_cloud_organization_id
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_ORGANIZATION", var.google_cloud_organization_id)
   depends_on    = [github_repository.repo]
 }
 
@@ -271,6 +271,34 @@ resource "github_actions_variable" "agent_runtime_prod_max_instances" {
   repository    = var.repository_name
   variable_name = "AGENT_RUNTIME_PROD_MAX_INSTANCES"
   value         = tostring(var.agent_runtime_prod_max_instances)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "otel_to_cloud" {
+  repository    = var.repository_name
+  variable_name = "OTEL_TO_CLOUD"
+  value         = lookup(local.env_map, "OTEL_TO_CLOUD", tostring(var.otel_to_cloud))
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "google_cloud_agent_engine_enable_telemetry" {
+  repository    = var.repository_name
+  variable_name = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"
+  value         = lookup(local.env_map, "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", tostring(var.google_cloud_agent_engine_enable_telemetry))
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "otel_semconv_stability_opt_in" {
+  repository    = var.repository_name
+  variable_name = "OTEL_SEMCONV_STABILITY_OPT_IN"
+  value         = lookup(local.env_map, "OTEL_SEMCONV_STABILITY_OPT_IN", var.otel_semconv_stability_opt_in)
+  depends_on    = [github_repository.repo]
+}
+
+resource "github_actions_variable" "otel_instrumentation_genai_capture_message_content" {
+  repository    = var.repository_name
+  variable_name = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+  value         = lookup(local.env_map, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", var.otel_instrumentation_genai_capture_message_content)
   depends_on    = [github_repository.repo]
 }
 

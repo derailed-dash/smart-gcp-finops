@@ -69,17 +69,17 @@ To support clean isolation, local testing, and separate scaling in production, t
 
 1. **Unified Container ([Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) at root)**:
    - **Purpose**: Combines both the compiled static React frontend assets and the FastAPI BFF backend into a single image.
-   - **Use Case**: Used for local container testing (`make docker-run`) and unified Cloud Run deployments where the frontend and backend scale together.
+   - **Use Case**: Used for local container testing (`make docker-run`) where the frontend, BFF, and agent execution run together in-container.
    - **Build Mode**: Multi-stage build (Node.js stage for Vite compiler, Python stage for FastAPI).
 
 2. **Standalone FastAPI BFF Container ([bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile))**:
    - **Purpose**: Packages only the FastAPI application and the compiled React frontend static assets.
-   - **Use Case**: Used when deploying/scaling the Backend-for-Frontend independently of the agent code. It relies on `google-genai` to call the remote Agent Runtime.
+   - **Use Case**: Deployed to Google Cloud Run in production and staging. It routes queries to the remote Agent Runtime in Gemini Enterprise.
    - **Dependencies**: Includes `fastapi`, `uvicorn`, and `google-genai` client packages.
 
 3. **Standalone Agent Runtime Container ([app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile))**:
    - **Purpose**: Packages the core ADK agent code (`finops_agent`) and the `agent_runtime_app.py` bootstrapper.
-   - **Use Case**: Used when deploying the agent as a standalone container to Google Cloud Run/GKE to act as a custom Agent Runtime backend.
+   - **Use Case**: Deployed to Gemini Enterprise Agent Runtime to execute the cognitive loops and run tools.
    - **Dependencies**: Includes `google-adk`, `mcp`, and Google Cloud client libraries, with all web-serving and database dependencies (`fastapi`, `uvicorn`, `asyncpg`, etc.) completely pruned.
 
 
@@ -90,9 +90,11 @@ To manage the decoupled lifecycle of the UI/BFF and the Agent, the project maint
 #### 1. The Root Deployment Set (FastAPI BFF & React UI)
 This set manages the web container deployed to Cloud Run, which hosts the static frontend assets and exposes the endpoints to the user client.
 *   **Dependencies**: Governed by the root [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and root `uv.lock`. This includes web frameworks (`fastapi`, `uvicorn`), database drivers (`asyncpg`), and the client SDK (`google-genai`) to communicate with the remote agent.
-*   **Build Target**: Governed by the root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile). This is a multi-stage Docker build that compiles the React application using Node.js/Vite and mounts the static dist output directly inside the FastAPI Python runtime.
-*   **Configuration**: Initialized locally via `.env` and secured in the repository using the `.env.enc` git-crypt file.
-*   **Deploy Command**: Triggers building the unified image and pushing it to Artifact Registry via Cloud Build, then deploying to Cloud Run:
+*   **Build Target**: Governed by [bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile) for Cloud Run deployment. This is a multi-stage Docker build that compiles the React application using Node.js/Vite and mounts the static dist output directly inside the FastAPI Python runtime.
+    - *Note on Cloud Build:* Because the build context must remain the repository root (`.`) to copy sibling packages like `finops_agent`, but the target Dockerfile is nested at `bff/Dockerfile`, we use a custom Cloud Build configuration file ([cloudbuild-bff.yaml](file:///home/dazbo/localdev/smart-gcp-finops/deployment/cloudbuild-bff.yaml)) to run the build. The default `gcloud builds submit --tag` shortcut is limited to building a file named `Dockerfile` at the root of the upload directory and does not support specifying custom Dockerfile paths.
+    - The root [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) remains in place for building local unified containers.
+*   **Configuration**: Initialised locally via `.env` and secured in the repository using the `.env.enc` git-crypt file.
+*   **Deploy Command**: Triggers building the standalone BFF+UI image using `deployment/cloudbuild-bff.yaml` and pushing it to Artifact Registry via Cloud Build, then deploying to Cloud Run:
     ```bash
     make deploy-cloud-run
     ```
@@ -101,7 +103,7 @@ This set manages the web container deployed to Cloud Run, which hosts the static
 This set manages the Agent container deployed to Gemini Enterprise Agent Runtime, which executes the cognitive loops and calls tools.
 *   **Dependencies**: Governed by [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and `app/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
 *   **Build Target**: Governed by [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
-*   **Configuration**: Initialized locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
+*   **Configuration**: Initialised locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
 *   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Gemini Enterprise Agent Runtime:
     ```bash
     make deploy-agent-runtime

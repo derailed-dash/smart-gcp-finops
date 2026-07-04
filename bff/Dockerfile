@@ -1,5 +1,18 @@
 # syntax=docker/dockerfile:1
 
+# ==============================================================================
+# Standalone Backend-for-Frontend (BFF) & React UI Dockerfile
+#
+# Purpose: Packages the FastAPI BFF service along with the compiled React static 
+#          frontend assets.
+#
+# Scope: Designed for deployment to Google Cloud Run in production/staging. When
+#        deployed with AGENT_RUNTIME_ID set, this service routes agent queries
+#        remotely to the standalone Agent Runtime container. It copies the
+#        `app/finops_agent` directory to resolve utility imports (such as logging
+#        and telemetry configurations) but does not execute the cognitive loops.
+# ==============================================================================
+
 # ==========================================
 # Stage 1: Build the React static frontend
 # ==========================================

@@ -430,6 +430,7 @@ dependencies = [
     { name = "google-adk", extra = ["a2a"] },
     { name = "google-api-python-client" },
     { name = "google-cloud-aiplatform", extra = ["agent-engines", "evaluation"] },
+    { name = "google-cloud-asset" },
     { name = "google-cloud-dataplex" },
     { name = "google-cloud-logging" },
     { name = "mcp" },
@@ -467,6 +468,7 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.198.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation"], marker = "extra == 'eval'", specifier = ">=1.156.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation", "agent-engines"], specifier = ">=1.159.0" },
+    { name = "google-cloud-asset", specifier = ">=3.26.0,<4.0.0" },
     { name = "google-cloud-dataplex", specifier = ">=2.20.0,<3.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.16.0,<4.0.0" },
     { name = "mcp", specifier = ">=1.28.0" },
@@ -715,6 +717,19 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-access-context-manager"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/38/99786d542d1c1efb9fc6f70179efac4dc23b8d5d8d0b1d12ec90b98e436b/google_cloud_access_context_manager-0.6.0.tar.gz", hash = "sha256:760267fba1f8be8636e2a8d7c302027f310260fff8051c46b8b09b97d5468ee0", size = 46556, upload-time = "2026-06-03T14:52:27.444Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/13/47719751cc2864939baea3a0c8e23351706392f1efd05c55dfc4cd6e4a34/google_cloud_access_context_manager-0.6.0-py3-none-any.whl", hash = "sha256:e1e62fe16fa3b1520afddf7023df9c261adbec7eb744f0a1be75306516e93d4f", size = 58822, upload-time = "2026-06-03T14:51:38.823Z" },
+]
+
+[[package]]
 name = "google-cloud-aiplatform"
 version = "1.159.0"
 source = { registry = "https://pypi.org/simple" }
@@ -777,6 +792,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7f/b9/fcafc8d2dc68975a65cdff74807547cff9b2a7b00e738d3f5ff0bd112867/google_cloud_appengine_logging-1.10.0.tar.gz", hash = "sha256:b5563e76010a36e6adf1cc489620c29ee4fb3b986b006d237e9a061eb0f0abb7", size = 17744, upload-time = "2026-06-03T14:52:40.298Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/b3/4eeb9f59c4e7e07e1f08704b6508249eea5760878810014e636026300416/google_cloud_appengine_logging-1.10.0-py3-none-any.whl", hash = "sha256:193675caaf062c41688a3e2c744b73614db82408bc7fb060353b6878d7134492", size = 18143, upload-time = "2026-06-03T14:51:55.174Z" },
+]
+
+[[package]]
+name = "google-cloud-asset"
+version = "3.30.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "google-cloud-access-context-manager" },
+    { name = "google-cloud-org-policy" },
+    { name = "google-cloud-os-config" },
+    { name = "grpc-google-iam-v1" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c3/49/9b4105bf2363748618bdf74fdfaf2066e35db2900737eb623fdd03ce88d8/google_cloud_asset-3.30.1.tar.gz", hash = "sha256:a0f0249bfcbc44ef7f8980b621424de7cfe29588d2dac90cb58cccc810d053cc", size = 316572, upload-time = "2025-05-08T20:45:55.526Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/69/93134bd9f355abbb8f7341b9781d4d74d956e35b0c0f1702b838d2b0c498/google_cloud_asset-3.30.1-py3-none-any.whl", hash = "sha256:a2692d0aa250cfd6697ec1114cd0e36cab0d60fccc36f6d79b600d50522f6c25", size = 307578, upload-time = "2025-05-08T20:45:53.037Z" },
 ]
 
 [[package]]
@@ -892,6 +926,38 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/84/9d/9522e169db3887e7f354bb9aa544a6e26c435ce19337e32432598db18c6f/google_cloud_monitoring-2.31.0.tar.gz", hash = "sha256:b4c9d3528c8643d4eb4b9d688cbb3c5914bc5f69b314ff7c5e1b47bdc073a9ae", size = 404747, upload-time = "2026-06-03T15:28:24.938Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/30/aa6635296da9c1c14d2e64f64e1cacd4f4debf8ab7e646c0559545f0f70d/google_cloud_monitoring-2.31.0-py3-none-any.whl", hash = "sha256:64f3d56ead48f0a0674f650cb2828c47b936582a02a27c55f2836681a86281c3", size = 391010, upload-time = "2026-06-03T15:27:39.536Z" },
+]
+
+[[package]]
+name = "google-cloud-org-policy"
+version = "1.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/96/27af7da2d7d0e28ce9a0dd58b7db3947866a64dfe2f9060ec8daa6b088bd/google_cloud_org_policy-1.18.0.tar.gz", hash = "sha256:41e330cfc833863d10a6b5f5ffaa2a12d0fe2f08fa03d619faaad744ae8d922b", size = 100255, upload-time = "2026-06-22T23:22:05.195Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/00/3a585409ea6be01ccd0b56adc1798e74c25da7e2a4dbb7c2a2f62856a4c0/google_cloud_org_policy-1.18.0-py3-none-any.whl", hash = "sha256:c0fc063963b48eafff711bca96aa9a08c1598635d92ddf2a4c0178614981ce8c", size = 85915, upload-time = "2026-06-22T23:19:57.699Z" },
+]
+
+[[package]]
+name = "google-cloud-os-config"
+version = "1.25.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/fa/c8ff1761d766fa14274af8dd90621839b087d4c19bd8b7f6489245b43272/google_cloud_os_config-1.25.0.tar.gz", hash = "sha256:2e02717d6a0dabe8f6ebf7b9b37eb28b5f70e3358bd7caf0cddbcf843b303da1", size = 304715, upload-time = "2026-06-22T23:22:06.24Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/ba/b017ffb5aa22e8f796790f27dd7e0bf19d037b037b9f489b3bbe31e718ad/google_cloud_os_config-1.25.0-py3-none-any.whl", hash = "sha256:1b6f5f1da1f80f5796ca6098428324b2f32275e21b29ac08aa127e614c8dcb89", size = 266119, upload-time = "2026-06-22T23:19:59.15Z" },
 ]
 
 [[package]]

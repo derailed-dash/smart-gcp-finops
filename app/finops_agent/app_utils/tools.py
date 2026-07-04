@@ -145,4 +145,4 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
         return result
     except Exception as e:
         logger.error(f"Error in execute_cached_bigquery_sql tool: {e}", exc_info=True)
-        return [{"error": str(e)}]
+        raise e

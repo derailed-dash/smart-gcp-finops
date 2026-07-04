@@ -1,0 +1,24 @@
+# ==============================================================================
+# Cloud Build Configuration for Standalone BFF & UI Container
+#
+# Why: The default `gcloud builds submit SOURCE --tag TAG` shortcut is restricted
+#      to building a file named `Dockerfile` at the root of the uploaded context.
+#      Because we need the build context to be the repository root (`.`) to copy
+#      sibling directories (e.g. `./bff`, `./app/finops_agent`), but the target 
+#      Dockerfile is nested (`bff/Dockerfile`), we use this custom configuration 
+#      to invoke docker with `-f bff/Dockerfile` explicitly.
+# ==============================================================================
+
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+    - 'build'
+    - '-t'
+    - '$_IMAGE_TAG'
+    - '-f'
+    - 'bff/Dockerfile'
+    - '--build-arg'
+    - 'COMMIT_SHA=$_COMMIT_SHA'
+    - '.'
+images:
+- '$_IMAGE_TAG'

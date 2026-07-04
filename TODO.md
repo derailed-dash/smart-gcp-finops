@@ -64,7 +64,7 @@
 [x] Fix Vertex branding in UI
 [x] Implement API rate limiting
 [ ] Convert arch diagrams to renders
-[ ] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
+[x] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
 [ ] Ensure best-practices query is always aligned to deployed services and costs; not generic
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.

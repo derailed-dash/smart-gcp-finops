@@ -2336,11 +2336,72 @@ We added detailed `logger.debug` statements inside the FastAPI BFF's `run_remote
 2. Prints each raw incoming event dictionary yielded from the `async_stream_query()` generator.
 3. Automatically outputs full stack tracebacks to Cloud Logging on execution exceptions.
 
-These telemetry logs are dynamically enabled by deploying the container with:
-```bash
-make deploy-cloud-run LOG_LEVEL=DEBUG
-```
-This enables developers to examine the event payloads step-by-step directly from the Cloud Run logs console! Hurrah!
+- **Usage:** Developers can deploy with debug logging enabled by specifying `LOG_LEVEL` in the deployment targets:
+  ```bash
+  make deploy-cloud-run LOG_LEVEL=DEBUG
+  ```
+
+---
+
+### UI/BFF and Agent Runtime Separation on Cloud Run
+
+**Problem**:
+In production, the unified container was deployed to Cloud Run, meaning it packaged the entire agent cognitive loops, tool configurations, and dependencies. To optimize resource footprint, avoid loading heavy packages, and achieve clean runtime isolation, we wanted to build and deploy a dedicated standalone Backend-for-Frontend (BFF) and React UI container to Cloud Run.
+However:
+1. **gcloud builds submit limitation**: The default `gcloud builds submit --tag TAG .` command is a shortcut that is hardcoded to look for a file named `Dockerfile` at the root of the uploaded directory. It does not support specifying custom or nested Dockerfile paths via a `--dockerfile` argument.
+2. **Context resolution**: We could not run the build from the `bff/` directory directly because the build context must remain the repository root (`.`) to copy sibling packages like `finops_agent` for shared utilities.
+
+**Resolution**:
+1. **Custom Cloud Build Configuration**: Created [deployment/cloudbuild-bff.yaml](file:///home/dazbo/localdev/smart-gcp-finops/deployment/cloudbuild-bff.yaml) that runs the Docker build step using the `-f bff/Dockerfile` parameter.
+2. **Makefile update**: Updated the `deploy-cloud-run` target in [Makefile](file:///home/dazbo/localdev/smart-gcp-finops/Makefile) to submit the build using `--config deployment/cloudbuild-bff.yaml` and pass the image tag and commit SHA via substitutions.
+3. **CI/CD pipeline update**: Updated [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) to use `-f bff/Dockerfile` in its Docker build step.
+4. **Conditional Lifespan initialization**: Optimised BFF startup in [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) by checking if `AGENT_RUNTIME_ID` is set (production remote mode). If set, it bypasses importing `finops_agent.agent` or initialising the local runner and A2A routes, saving CPU and memory.
+
+This ensures a cleanly isolated BFF container serves the web clients on Cloud Run, while the agent loop runs entirely in Gemini Enterprise Agent Runtime. Hurrah!
+
+---
+
+### Resolving SessionNotFoundError in Gemini Enterprise Agent Platform Playground
+
+**Problem**:
+When querying the deployed agent remotely through the Google Cloud Console "Playground", the playground UI sends queries to the Reasoning Engine with a session ID. However, the Reasoning Engine immediately threw a `SessionNotFoundError: Session not found` exception and failed to respond.
+*Investigation:*
+1. Under the hood, Google's `AdkApp` template initializes the ADK `Runner` without specifying `auto_create_session`, defaulting it to `False`.
+2. When the console Playground UI submits a query, it provides a session ID. If the container instance has scaled down or restarted, the in-memory session is lost. Since `auto_create_session` is `False`, the runner raises `SessionNotFoundError` instead of creating a new session.
+3. Our custom BFF does not hit this because it explicitly invokes `agent_engine.async_create_session()` to create the session before sending queries. But the Playground UI queries the runtime directly and suffers from the scale-down/eviction mismatch.
+4. Furthermore, the ADK API server's ASGI/FastAPI endpoints (in `google/adk/cli/fast_api.py`) instantiate a fresh `AdkApp(agent=Agent(name="tmp"))` directly, bypassing our custom `AgentRuntimeApp` subclass.
+5. In addition, when resolving queries, the ASGI server bypassed the app's `set_up()` method entirely by lazily building and caching runners directly via `adk_web_server.get_runner_async(app_name)`. This method calls the `Runner(...)` constructor directly.
+
+**Resolution**:
+To address both framework bypasses, we implemented global class-level monkeypatches:
+1. **Runner Class Monkeypatch**: In [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), we globally intercept `Runner.__init__` to ensure any runner built by the ASGI server or the templates gets `auto_create_session = True`:
+   ```python
+   from google.adk.runners import Runner
+
+   _original_runner_init = Runner.__init__
+
+   def _patched_runner_init(self, *args, **kwargs) -> None:
+       kwargs["auto_create_session"] = True
+       _original_runner_init(self, *args, **kwargs)
+
+   Runner.__init__ = _patched_runner_init
+   ```
+2. **AdkApp.set_up Monkeypatch**: We retained the class patch for `AdkApp.set_up` as a fallback to ensure template-driven invocations are also fully covered:
+   ```python
+   _original_set_up = AdkApp.set_up
+
+   def _patched_set_up(self) -> None:
+       _original_set_up(self)
+       if runner := self._tmpl_attrs.get("runner"):
+           runner.auto_create_session = True
+       if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+           in_memory_runner.auto_create_session = True
+
+   AdkApp.set_up = _patched_set_up
+   ```
+
+This makes the Agent Runtime resilient to session eviction, enabling seamless direct interaction in the Cloud Console Playground. Hurrah!
+
 
 ---
 
@@ -2378,6 +2439,55 @@ The official Google `run-gemini-cli` GitHub Action was deprecated, causing PR pi
 
 The pipeline is now fully green, and rate limiting is robust and configurable. Hurrah!
 
+---
+
+### Graceful Tool Error Handling & Retry Mitigation
+
+**Problem**:
+If a tool execution encountered a transient database error or invalid generated SQL (like the `_PARTITIONTIME` BadRequest), the agent's default Automatic Function Calling (AFC) logic would recursively rewrite and retry the tool execution. In a remote Agent Runtime environment, this multi-turn loop frequently triggered the `google-genai` SDK's streaming/unary connection hangs, leaving the user with a frozen UI and no feedback.
+
+**Resolution**:
+We implemented prompt-level error handling constraints to enforce a graceful exit strategy:
+1. **System Instruction Warnings**: Added a `CRITICAL ON TOOL ERRORS` instruction to the agent system prompt:
+   * Instructs the model that if any tool call fails, returns an error key, or raises an exception, it **MUST NOT** attempt to rewrite parameters, guess schemas, or retry the call.
+   * Forces the model to immediately halt further tool execution and return a friendly, helpful message to the user explaining which tool failed, stating the specific error message, and suggesting how they might rephrase their query.
+2. **Result**: Instead of looping endlessly and hanging, the agent now terminates cleanly on tool failures, providing a clear explanation of what went wrong so the user can easily rephrase or troubleshoot. Hurrah!
+39. Aligned environment variable files (`.env` and `app/.env`), retaining `LOG_LEVEL` in both, moving logging and telemetry to `app/.env`, and cleaning up duplicate GITHUB_TOKEN entries in root `.env`. Updated the Makefile to parse `.env` files dynamically, excluding forbidden variables (like `GOOGLE_CLOUD_PROJECT`) from the Agent Runtime. Integrated dynamic environment parsing in Terraform (`locals.tf`) to synchronize GitHub repository variables and container configurations directly from `app/.env` without duplicate definitions.
+
+## Deep Dives
+
+### Environment Configuration Alignment & Dynamic Injection
+
+**Problem**:
+Historically, the environment configuration variables for the local environment, Cloud Run container, and Vertex AI Agent Runtime were duplicated across several files: `.env`, `app/.env`, `Makefile` targets, and Terraform resource definitions. This duplication made updates tedious and error-prone, occasionally leading to forbidden variables (like `GOOGLE_CLOUD_PROJECT`) being pushed to the Agent Runtime, causing deployment failures.
+
+**Resolution**:
+We aligned and unified the environment variables across all layers:
+1. **Config Separation**:
+   - **Root `.env`**: Scoped only to development environment configuration and unified container build/run.
+   - **Agent `.env` (`app/.env`)**: Dedicated purely to variables required by the ADK agent at runtime.
+2. **Dynamic Makefile Extraction**:
+   - Updated the `deploy-cloud-run` and `deploy-agent-runtime` Makefile targets to parse `app/.env` dynamically, removing comments and blank lines, and assembling the string on-the-fly.
+   - Specifically excluded `GOOGLE_CLOUD_PROJECT` from the Agent Runtime deployment to satisfy Vertex AI platform validation rules.
+3. **Terraform Dynamic Parsing**:
+   - Added HCL parsing logic to `locals.tf` to parse `app/.env` directly:
+     ```hcl
+     env_content = fileexists("${path.module}/../../app/.env") ? file("${path.module}/../../app/.env") : ""
+     env_lines = [
+       for line in split("\n", local.env_content) :
+       trimspace(line)
+       if trimspace(line) != "" && !startswith(trimspace(line), "#")
+     ]
+     env_map = {
+       for line in local.env_lines :
+       trimspace(split("=", line)[0]) => trimspace(substr(line, length(split("=", line)[0]) + 1, -1))
+     }
+     ```
+   - Updated `github.tf` and `service.tf` to read variables dynamically from `local.env_map` using fallback lookup logic.
+4. **git-crypt Synchronization**:
+   - Synchronized the aligned plaintext files to their encrypted parallel files (`.env.enc`, `app/.env.enc`, `env.tfvars.enc`) to safeguard credentials.
+
+This achieves a completely unified configuration system with single sources of truth. Hurrah!
 
 
 

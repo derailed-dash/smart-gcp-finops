@@ -32,6 +32,19 @@ class ProjectDiscoveryManager:
         if not user_email:
             return set()
 
+        # Special case: Vertex AI Console Playground identity.
+        # Allow it to access only the current deployment project and the billing project.
+        # This allows Console testing without exposing full developer/org level permissions.
+        if user_email == "vais-query-reasoning-engine":
+            playground_projects = {settings.google_cloud_project}
+            if settings.google_cloud_billing_project:
+                playground_projects.add(settings.google_cloud_billing_project)
+            logger.info(
+                "Playground identity detected. Restricting access to project(s): %s",
+                list(playground_projects),
+            )
+            return playground_projects
+
         now = time.time()
 
         # Read from cache if valid
@@ -91,9 +104,40 @@ class ProjectDiscoveryManager:
                     len(all_billing_projects),
                 )
 
-                crm_service = get_service("cloudresourcemanager", "v1")
+                from google.cloud import asset_v1
+                asset_client = asset_v1.AssetServiceClient()
+                crm_service = None
+
                 for project_id in all_billing_projects:
                     try:
+                        # Try to use Cloud Asset API first (requires roles/cloudasset.viewer)
+                        scope = f"projects/{project_id}"
+                        query = f"policy: {user_email}"
+                        response = asset_client.search_all_iam_policies(
+                            request={"scope": scope, "query": query}
+                        )
+                        has_bindings = False
+                        for _ in response:
+                            has_bindings = True
+                            break
+
+                        if has_bindings:
+                            projects.add(project_id)
+                            logger.info(
+                                "Confirmed user access to project %s via Asset API searchAllIamPolicies",
+                                project_id,
+                            )
+                            continue
+                    except Exception as asset_ex:
+                        logger.debug(
+                            "Failed to search IAM policies via Asset API for project %s: %s. Trying Cloud Resource Manager...",
+                            project_id,
+                            asset_ex,
+                        )
+
+                    try:
+                        if crm_service is None:
+                            crm_service = get_service("cloudresourcemanager", "v1")
                         policy = crm_service.projects().getIamPolicy(resource=project_id).execute()
                         logger.debug(
                             "Fetched IAM policy for project %s. bindings count: %d",

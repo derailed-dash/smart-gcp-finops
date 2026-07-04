@@ -195,3 +195,27 @@ variable "google_cloud_region" {
   default     = "europe-west1"
 }
 
+variable "otel_to_cloud" {
+  type        = bool
+  description = "Whether to export OpenTelemetry traces to Cloud Trace"
+  default     = true
+}
+
+variable "google_cloud_agent_engine_enable_telemetry" {
+  type        = bool
+  description = "Whether to enable agent engine telemetry"
+  default     = true
+}
+
+variable "otel_semconv_stability_opt_in" {
+  type        = string
+  description = "OpenTelemetry semantic conventions opt-in level"
+  default     = "gen_ai_latest_experimental"
+}
+
+variable "otel_instrumentation_genai_capture_message_content" {
+  type        = string
+  description = "OpenTelemetry GenAI message content capture mode"
+  default     = "EVENT_ONLY"
+}
+

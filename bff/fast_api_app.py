@@ -151,27 +151,42 @@ limiter = Limiter(key_func=get_iap_user_key)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manages the startup and shutdown lifecycle of the FastAPI application.
 
-    Initialises the ADK Runner, configures the session and artifact services,
-    and maps them to the application state for global access.
+    Initialises the ADK Runner or remote client dependencies, and maps them
+    to the application state for global access.
     """
-    from finops_agent.agent import app as adk_app
-    from finops_agent.agent import root_agent
+    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
+    if not agent_runtime_id:
+        # In local development mode (no remote AGENT_RUNTIME_ID set), we run the agent
+        # locally within this FastAPI process. This requires importing and loading
+        # the agent package, constructing the local Runner, and registering local A2A routes.
+        logger.info("Starting BFF in LOCAL fallback mode. Initialising local agent...")
+        from finops_agent.agent import app as adk_app
+        from finops_agent.agent import root_agent
 
-    runner = Runner(
-        app=adk_app,
-        session_service=services.get_session_service(),
-        artifact_service=services.get_artifact_service(),
-        auto_create_session=True,
-    )
-    app.state.runner = runner
-    app.state.agent_app_name = adk_app.name
-    await attach_a2a_routes(
-        app,
-        agent=root_agent,
-        runner=runner,
-        task_store=InMemoryTaskStore(),
-        rpc_path=f"/a2a/{adk_app.name}",
-    )
+        runner = Runner(
+            app=adk_app,
+            session_service=services.get_session_service(),
+            artifact_service=services.get_artifact_service(),
+            auto_create_session=True,
+        )
+        app.state.runner = runner
+        app.state.agent_app_name = adk_app.name
+        await attach_a2a_routes(
+            app,
+            agent=root_agent,
+            runner=runner,
+            task_store=InMemoryTaskStore(),
+            rpc_path=f"/a2a/{adk_app.name}",
+        )
+    else:
+        # In production (Cloud Run), we bypass loading the local agent because the
+        # cognitive loop runs inside the remote Agent Runtime. Bypassing local agent
+        # instantiation saves memory, avoids importing heavy runtime/tool packages,
+        # and eliminates redundant local A2A endpoints since A2A is managed by the remote runtime.
+        logger.info("Starting BFF in REMOTE mode. Routing queries to Agent Runtime: %s", agent_runtime_id)
+        app.state.runner = None
+        app.state.agent_app_name = "finops_agent"
+
     yield
 
 

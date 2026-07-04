@@ -35,7 +35,7 @@ resource "google_cloud_run_v2_service" "app" {
 
       env {
         name  = "GOOGLE_CLOUD_REGION"
-        value = var.google_cloud_region
+        value = lookup(local.env_map, "GOOGLE_CLOUD_REGION", var.google_cloud_region)
       }
 
       env {
@@ -45,57 +45,57 @@ resource "google_cloud_run_v2_service" "app" {
 
       env {
         name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-        value = each.key == "prod" ? "NO_CONTENT" : "true"
+        value = lookup(local.env_map, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", each.key == "prod" ? "NO_CONTENT" : "true")
       }
 
       env {
         name  = "OTEL_SERVICE_NAME"
-        value = "${var.project_name}-${each.key}"
+        value = lookup(local.env_map, "OTEL_SERVICE_NAME", "${var.project_name}-${each.key}")
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_PROJECT"
-        value = var.google_cloud_billing_project
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_PROJECT", var.google_cloud_billing_project)
       }
 
       env {
         name  = "BILLING_EXPORT_DATASET"
-        value = var.billing_export_dataset
+        value = lookup(local.env_map, "BILLING_EXPORT_DATASET", var.billing_export_dataset)
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_ACCOUNT"
-        value = var.billing_account_id
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_ACCOUNT", var.billing_account_id)
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_LOCATION"
-        value = var.billing_export_location
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_LOCATION", var.billing_export_location)
       }
 
       env {
         name  = "GOOGLE_GENAI_USE_VERTEXAI"
-        value = tostring(var.google_genai_use_vertexai)
+        value = lookup(local.env_map, "GOOGLE_GENAI_USE_VERTEXAI", tostring(var.google_genai_use_vertexai))
       }
 
       env {
         name  = "GOOGLE_CLOUD_LOCATION"
-        value = var.google_cloud_location
+        value = lookup(local.env_map, "GOOGLE_CLOUD_LOCATION", var.google_cloud_location)
       }
 
       env {
         name  = "MODEL"
-        value = var.model
+        value = lookup(local.env_map, "MODEL", var.model)
       }
 
       env {
         name  = "FAST_MODEL"
-        value = var.fast_model
+        value = lookup(local.env_map, "FAST_MODEL", var.fast_model)
       }
 
       env {
         name  = "GOOGLE_CLOUD_ORGANIZATION"
-        value = var.google_cloud_organization_id
+        value = lookup(local.env_map, "GOOGLE_CLOUD_ORGANIZATION", var.google_cloud_organization_id)
       }
 
       env {
@@ -192,62 +192,77 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
 
       env {
         name  = "GOOGLE_CLOUD_REGION"
-        value = var.google_cloud_region
+        value = lookup(local.env_map, "GOOGLE_CLOUD_REGION", var.google_cloud_region)
       }
 
       env {
         name  = "GOOGLE_CLOUD_LOCATION"
-        value = var.google_cloud_location
+        value = lookup(local.env_map, "GOOGLE_CLOUD_LOCATION", var.google_cloud_location)
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_PROJECT"
-        value = var.google_cloud_billing_project
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_PROJECT", var.google_cloud_billing_project)
       }
 
       env {
         name  = "BILLING_EXPORT_DATASET"
-        value = var.billing_export_dataset
+        value = lookup(local.env_map, "BILLING_EXPORT_DATASET", var.billing_export_dataset)
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_ACCOUNT"
-        value = var.billing_account_id
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_ACCOUNT", var.billing_account_id)
       }
 
       env {
         name  = "GOOGLE_CLOUD_BILLING_LOCATION"
-        value = var.billing_export_location
+        value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_LOCATION", var.billing_export_location)
       }
 
       env {
         name  = "GOOGLE_GENAI_USE_VERTEXAI"
-        value = tostring(var.google_genai_use_vertexai)
+        value = lookup(local.env_map, "GOOGLE_GENAI_USE_VERTEXAI", tostring(var.google_genai_use_vertexai))
       }
 
       env {
         name  = "MODEL"
-        value = var.model
+        value = lookup(local.env_map, "MODEL", var.model)
       }
 
       env {
         name  = "FAST_MODEL"
-        value = var.fast_model
+        value = lookup(local.env_map, "FAST_MODEL", var.fast_model)
       }
 
       env {
         name  = "GOOGLE_CLOUD_ORGANIZATION"
-        value = var.google_cloud_organization_id
+        value = lookup(local.env_map, "GOOGLE_CLOUD_ORGANIZATION", var.google_cloud_organization_id)
+      }
+
+      env {
+        name  = "OTEL_TO_CLOUD"
+        value = lookup(local.env_map, "OTEL_TO_CLOUD", tostring(var.otel_to_cloud))
+      }
+
+      env {
+        name  = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"
+        value = lookup(local.env_map, "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", tostring(var.google_cloud_agent_engine_enable_telemetry))
+      }
+
+      env {
+        name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
+        value = lookup(local.env_map, "OTEL_SEMCONV_STABILITY_OPT_IN", var.otel_semconv_stability_opt_in)
       }
 
       env {
         name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-        value = each.key == "prod" ? "NO_CONTENT" : "true"
+        value = lookup(local.env_map, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", var.otel_instrumentation_genai_capture_message_content)
       }
 
       env {
         name  = "OTEL_SERVICE_NAME"
-        value = "${var.project_name}-${each.key}-backend"
+        value = lookup(local.env_map, "OTEL_SERVICE_NAME", "${var.project_name}-${each.key}-backend")
       }
 
       env {

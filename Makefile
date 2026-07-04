@@ -109,14 +109,16 @@ docker-run:
 # Define the fully-qualified Artifact Registry image name
 IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
 
-# Deploy the FastAPI BFF & React UI container to Google Cloud Run.
+# Deploy the Backend-for-Frontend (BFF) & React UI container to Google Cloud Run.
 # Usage: make deploy-cloud-run [MEMORY=2Gi] [MIN_INSTANCES=0]
-# Note: This target resolves the newest AGENT_RUNTIME_ID dynamically, packaging it as an env var on Cloud Run.
-# You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
+# Note: This target builds the container using `bff/Dockerfile` (the standalone BFF+UI image, 
+#       which executes as a remote proxy client to the Agent Runtime), and deploys it to Cloud Run.
+#       It resolves the newest AGENT_RUNTIME_ID dynamically, packaging it as an env var on Cloud Run.
+#       You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
 deploy-cloud-run:
-	@echo "🚀 Building and pushing container to Artifact Registry..."
-	gcloud builds submit --tag "$(IMAGE_TAG)" --project "$(CICD_PROJECT_ID)" .
-	@echo "📦 Deploying image from Artifact Registry to Cloud Run..."
+	@echo "🚀 Building and pushing standalone BFF+UI container (using bff/Dockerfile) to Artifact Registry..."
+	gcloud builds submit --config deployment/cloudbuild-bff.yaml --substitutions="_IMAGE_TAG=$(IMAGE_TAG),_COMMIT_SHA=$(shell git rev-parse HEAD 2>/dev/null || echo '')" --project "$(CICD_PROJECT_ID)" .
+	@echo "📦 Deploying BFF+UI image from Artifact Registry to Cloud Run..."
 	gcloud run deploy "$(SERVICE_NAME)" \
 		--image "$(IMAGE_TAG)" \
 		--memory "$(MEMORY)" \
@@ -128,7 +130,7 @@ deploy-cloud-run:
 		--cpu-boost \
 		--no-allow-unauthenticated \
 		--iap \
-		--update-env-vars="GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,COMMIT_SHA=$(shell git rev-parse HEAD),LOG_LEVEL=$(PROD_LOG_LEVEL),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID)"
+		--update-env-vars="$$(grep -v '^#' app/.env | grep -v '^$$' | paste -sd, -),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID),COMMIT_SHA=$(shell git rev-parse HEAD)"
 
 # Deploy the standalone ADK agent (packaged via app/Dockerfile) to Gemini Enterprise Agent Runtime (Vertex AI).
 # Note: Deploys the Python agent logic (in `app/`) to create a new Reasoning Engine ID.
@@ -143,7 +145,7 @@ deploy-agent-runtime:
 		--service-name "$(SERVICE_NAME)-backend" \
 		--min-instances 0 \
 		--max-instances 1 \
-		--update-env-vars="GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_REGION),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),GOOGLE_CLOUD_BILLING_ACCOUNT=$(GOOGLE_CLOUD_BILLING_ACCOUNT),GOOGLE_CLOUD_BILLING_LOCATION=$(GOOGLE_CLOUD_BILLING_LOCATION),GOOGLE_CLOUD_BILLING_PROJECT=$(GOOGLE_CLOUD_BILLING_PROJECT),BILLING_EXPORT_DATASET=$(BILLING_EXPORT_DATASET),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),MODEL=$(MODEL),FAST_MODEL=$(FAST_MODEL),GOOGLE_CLOUD_ORGANIZATION=$(GOOGLE_CLOUD_ORGANIZATION),LOGS_BUCKET_NAME=$(GOOGLE_CLOUD_PROJECT)-$(SERVICE_NAME)-logs,OTEL_TO_CLOUD=$(OTEL_TO_CLOUD),LOG_LEVEL=$(PROD_LOG_LEVEL)"
+		--update-env-vars="$$(grep -v '^#' .env | grep -v '^$$' | grep -v 'GOOGLE_CLOUD_PROJECT' | paste -sd, -)"
 
 # Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
 get-agent-runtime-id:

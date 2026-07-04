@@ -68,6 +68,7 @@ This repository is associated with a multi-part series of articles documenting t
 
 ```
 smart-gcp-finops/
+├── .env                  # Root environment vars (dev setup, unified container)
 ├── app/                  # Standalone Agent Runtime Package (ADK Agent)
 │   ├── finops_agent/          # Core ADK agent python package
 │   │   ├── app_utils/             # CAI, BQ tools, credential & cache helpers
