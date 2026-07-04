@@ -80,7 +80,7 @@ locals {
   # Parse key-value pairs from env_content (ignoring comments and empty lines)
   env_lines = [
     for line in split("\n", local.env_content) :
-    trimspace(split("#", line)[0])
+    trimspace(split(" #", line)[0])
     if trimspace(line) != "" && !startswith(trimspace(line), "#") && length(split("=", line)) > 1
   ]
   

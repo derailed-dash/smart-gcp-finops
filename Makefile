@@ -11,6 +11,10 @@ ifneq (,$(wildcard .env))
     $(eval $(subst |,$(newline),$(CLEAN_ENV)))
 endif
 
+# Note: The shell pipelines (using sed, grep, paste) are designed for GNU utilities.
+#       On macOS, default BSD utilities may occasionally exhibit different argument behaviors.
+#       Ensure you have GNU coreutils installed if encountering command substitution syntax errors.
+
 # ==============================================================================
 # Installation & Setup
 # ==============================================================================

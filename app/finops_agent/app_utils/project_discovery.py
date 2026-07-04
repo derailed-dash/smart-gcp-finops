@@ -32,10 +32,7 @@ class ProjectDiscoveryManager:
         if not user_email:
             return set()
 
-        # Special case: Vertex AI Console Playground identity.
-        # Allow it to access only the current deployment project and the billing project.
-        # This allows Console testing without exposing full developer/org level permissions.
-        if user_email == "vais-query-reasoning-engine":
+        if user_email == settings.playground_service_identity:
             playground_projects = {settings.google_cloud_project}
             if settings.google_cloud_billing_project:
                 playground_projects.add(settings.google_cloud_billing_project)

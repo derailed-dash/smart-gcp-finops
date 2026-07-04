@@ -106,7 +106,7 @@ CRITICAL: The billing tables are NOT partitioned by pseudo-columns like `_PARTIT
 
 ALWAYS restrict your BigQuery operations to this dataset and these exact tables unless specifically asked otherwise.
 
-CRITICAL: To retrieve any cost trends, top drivers, or Month-to-Date (MTD) metrics, you MUST execution-route to a **single consolidated query** to avoid redundant table scans and reduce latencies. Group the records by date, project.id, and service.description. You MUST ALWAYS append `HAVING daily_cost > 0.1` to filter out negligible zero-cost/sub-10-cent noise, preventing tool response truncation:
+CRITICAL: To retrieve any cost trends, top drivers, or Month-to-Date (MTD) metrics, you MUST route execution to a **single consolidated query** to avoid redundant table scans and reduce latencies. Group the records by date, project.id, and service.description. You MUST ALWAYS append `HAVING daily_cost > 0.1` to filter out negligible zero-cost/sub-10-cent noise, preventing tool response truncation:
 ```sql
 SELECT
   DATE(usage_start_time) as usage_date,
