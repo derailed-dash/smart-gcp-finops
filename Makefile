@@ -109,6 +109,13 @@ docker-run:
 # Define the fully-qualified Artifact Registry image name
 IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
 
+# Validate that no environment variables in app/.env contain forbidden comma characters.
+validate-env:
+	@if grep -v '^#' app/.env | grep -q ','; then \
+		echo "❌ Error: app/.env contains a comma (,) which is forbidden in Cloud Run environment variables."; \
+		exit 1; \
+	fi
+
 # Deploy the Backend-for-Frontend (BFF) & React UI container to Google Cloud Run.
 # Usage: make deploy-cloud-run [MEMORY=2Gi] [MIN_INSTANCES=0]
 # Note: This target builds the container using `bff/Dockerfile` (the standalone BFF+UI image, 
@@ -117,7 +124,7 @@ IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-f
 #       You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
 # WARNING: The environment variable parser uses `paste -sd, -` to join variables for gcloud.
 #          DO NOT use commas (,) in any environment variable values in `app/.env` to avoid syntax errors.
-deploy-cloud-run:
+deploy-cloud-run: validate-env
 	@echo "🚀 Building and pushing standalone BFF+UI container (using bff/Dockerfile) to Artifact Registry..."
 	gcloud builds submit --config deployment/cloudbuild-bff.yaml --substitutions="_IMAGE_TAG=$(IMAGE_TAG),_COMMIT_SHA=$(shell git rev-parse HEAD 2>/dev/null || echo '')" --project "$(CICD_PROJECT_ID)" .
 	@echo "📦 Deploying BFF+UI image from Artifact Registry to Cloud Run..."
@@ -137,7 +144,7 @@ deploy-cloud-run:
 # Deploy the standalone ADK agent (packaged via app/Dockerfile) to Gemini Enterprise Agent Runtime (Vertex AI).
 # Note: Deploys the Python agent logic (in `app/`) to create a new Reasoning Engine ID.
 # After this finishes, you MUST redeploy the Cloud Run service (`make deploy-cloud-run`) to update BFF routing to this new instance.
-deploy-agent-runtime:
+deploy-agent-runtime: validate-env
 	cd app && uvx google-agents-cli deploy \
 		--deployment-target agent_runtime \
 		--no-confirm-project \

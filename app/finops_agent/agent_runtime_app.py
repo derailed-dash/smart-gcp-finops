@@ -27,6 +27,8 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from vertexai.agent_engines.templates.adk import AdkApp
 
 # Monkeypatching for auto_create_session.
+# TODO(derailed-dash): Remove this monkeypatch once the Google ADK team implements native
+# support for configuring 'auto_create_session' via environment variables or a standard App config.
 # Verified against: google-adk >= 2.3.0, < 3.0.0
 # Why: Standard Vertex AI Console Playground queries the reasoning engine directly,
 # bypassing the custom AppState configuration in the BFF, which triggers SessionNotFoundError.
