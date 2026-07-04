@@ -31,5 +31,5 @@ jobs:
           model: 'gemini-3.5-flash'
           add-files: 'true'
           context-lines: '30'
-          exclude: '**/.*,**/*.png,**/*.jpg,**/*.jpeg,**/*.gif,**/*.enc,**/*.lock,**/*.tfvars,docs/images/**'
+          exclude: '.*,*.enc,*.lock,*.png,*.jpg,*.jpeg,*.gif,**/.*,**/*.enc,**/*.lock,**/*.png,**/*.jpg,**/*.jpeg,**/*.gif,**/*.tfvars,**/*.tfvars.enc,docs/images/**'
           prompt: 'Review the code changes and provide all feedback and comments exclusively in English (UK).'
