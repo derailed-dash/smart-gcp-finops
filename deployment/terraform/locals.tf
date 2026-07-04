@@ -81,7 +81,7 @@ locals {
   env_lines = [
     for line in split("\n", local.env_content) :
     trimspace(line)
-    if trimspace(line) != "" && !startswith(trimspace(line), "#")
+    if trimspace(line) != "" && !startswith(trimspace(line), "#") && length(split("=", line)) > 1
   ]
   
   env_map = {

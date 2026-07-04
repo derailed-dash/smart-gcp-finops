@@ -115,6 +115,8 @@ IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-f
 #       which executes as a remote proxy client to the Agent Runtime), and deploys it to Cloud Run.
 #       It resolves the newest AGENT_RUNTIME_ID dynamically, packaging it as an env var on Cloud Run.
 #       You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
+# WARNING: The environment variable parser uses `paste -sd, -` to join variables for gcloud.
+#          DO NOT use commas (,) in any environment variable values in `app/.env` to avoid syntax errors.
 deploy-cloud-run:
 	@echo "🚀 Building and pushing standalone BFF+UI container (using bff/Dockerfile) to Artifact Registry..."
 	gcloud builds submit --config deployment/cloudbuild-bff.yaml --substitutions="_IMAGE_TAG=$(IMAGE_TAG),_COMMIT_SHA=$(shell git rev-parse HEAD 2>/dev/null || echo '')" --project "$(CICD_PROJECT_ID)" .
