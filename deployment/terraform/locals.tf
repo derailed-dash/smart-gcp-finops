@@ -73,5 +73,20 @@ locals {
 
   agent_runtime_cpu    = "1"
   agent_runtime_memory = "4Gi"
+
+  # Parse app/.env file to get variables
+  env_content = fileexists("${path.module}/../../app/.env") ? file("${path.module}/../../app/.env") : ""
+  
+  # Parse key-value pairs from env_content (ignoring comments and empty lines)
+  env_lines = [
+    for line in split("\n", local.env_content) :
+    trimspace(split(" #", line)[0])
+    if trimspace(line) != "" && !startswith(trimspace(line), "#") && length(split("=", line)) > 1
+  ]
+  
+  env_map = {
+    for line in local.env_lines :
+    trimspace(split("=", line)[0]) => trimspace(substr(line, length(split("=", line)[0]) + 1, -1))
+  }
 }
 

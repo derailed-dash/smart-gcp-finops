@@ -140,3 +140,24 @@ All tests pass successfully under the new architecture:
   ```bash
   make deploy-cloud-run LOG_LEVEL=DEBUG
   ```
+
+## 12. Separate UI/BFF and Agent Runtime Deployment (2026-07-04)
+
+- **Goal:** Separation of concerns in production by deploying the Backend-for-Frontend (BFF) & React UI container to Cloud Run, whilst routing cognitive reasoning loops to the remote Agent Runtime.
+- **Resolution:**
+  1. **Conditional Lifespan in FastAPI BFF:** Modified [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) to check for `AGENT_RUNTIME_ID`. If present (production remote mode), it skips loading the local agent package, skips initialising the local runner, and bypasses local A2A route attachment. This saves memory, reduces CPU usage, and isolates the BFF runtime from the agent execution path.
+  2. **Dedicated Cloud Run Dockerfile Target:** Created [deployment/cloudbuild-bff.yaml](file:///home/dazbo/localdev/smart-gcp-finops/deployment/cloudbuild-bff.yaml) and updated the `Makefile` `deploy-cloud-run` target to use it. This was necessary because the `gcloud builds submit` command's `--tag` shortcut does not support specifying a custom Dockerfile with `--dockerfile`. The build now correctly builds `bff/Dockerfile` using Cloud Build, whilst keeping the root `Dockerfile` (unified) for local developer container testing.
+  3. **CI/CD Workflow Update:** Updated `.github/workflows/staging.yaml` build step to compile the image using `-f bff/Dockerfile` instead of the root `Dockerfile`.
+  4. **Verification:** Verified that all unit and E2E integration tests continue to build and pass successfully.
+  5. **Telemetry Hardening:** Explicitly configured the `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true`, `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`, and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=EVENT_ONLY` environment variables in the Agent Runtime deployment pipelines. This enables full OpenTelemetry tracing and captures input/output content (prompts, responses, and tool definitions) in trace spans, which is mandatory for offline evaluations and online platform monitoring.
+
+## 13. Auto-Create Session Monkeypatching (2026-07-04)
+
+- **Issue:** When querying the reasoning engine directly from the Vertex AI Console Playground, the platform calls the ASGI app inside the container but fails to provide a pre-existing or valid Session ID, leading to a crash with `SessionNotFoundError`.
+- **Resolution:** Implemented global class-level monkeypatches inside [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py#L29-L62) to intercept `Runner.__init__` and `AdkApp.set_up` and dynamically override/inject `auto_create_session = True` on all runners. To prevent future SDK upgrade breakages, these patches are wrapped in defensive `try-except` blocks with dynamic `TypeError` argument-signature fallbacks.
+- **How to Remove the Patches:**
+  Once Google ADK supports configuring session auto-creation natively (e.g. via an environment variable like `ADK_AUTO_CREATE_SESSION` or a template parameter), you can safely remove the monkeypatches:
+  1. Delete the `try-except` block at the top of [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py).
+  2. If the feature was added via a standard configuration or environment variable, configure it accordingly in [app/.env](file:///home/dazbo/localdev/smart-gcp-finops/app/.env) instead.
+
+

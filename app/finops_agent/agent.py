@@ -26,6 +26,8 @@ from google.adk.integrations.bigquery import BigQueryCredentialsConfig, BigQuery
 from google.adk.models import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.adk.plugins.base_plugin import BasePlugin
+from google.adk.tools import BaseTool, ToolContext
 from google.genai import Client, types
 
 from finops_agent.app_utils.cai_tools import (
@@ -100,9 +102,11 @@ CRITICAL: To execute any SQL queries against BigQuery, you MUST use the cached `
 
 CRITICAL: If the user asks for costs of specific, individual resources (like VM instances, buckets, or disks by name), you MUST query the resource-level table `{resource_table_id}`. Do NOT query the standard `{standard_table_id}` table for resource names or `resource.global_name` as those fields do not exist there and will cause syntax errors.
 
+CRITICAL: The billing tables are NOT partitioned by pseudo-columns like `_PARTITIONTIME`, `_PARTITIONDATE`, or `_PARTITION_LOAD_TIME`. You MUST NOT use `_PARTITIONTIME` or any other partition pseudo-columns in your SQL queries; doing so will result in "Unrecognized name: _PARTITIONTIME" syntax errors. Always filter by `usage_start_time` or `usage_end_time` for temporal bounds.
+
 ALWAYS restrict your BigQuery operations to this dataset and these exact tables unless specifically asked otherwise.
 
-CRITICAL: To retrieve any cost trends, top drivers, or Month-to-Date (MTD) metrics, you MUST execution-route to a **single consolidated query** to avoid redundant table scans and reduce latencies. Group the records by date, project.id, and service.description. You MUST ALWAYS append `HAVING daily_cost > 0.1` to filter out negligible zero-cost/sub-10-cent noise, preventing tool response truncation:
+CRITICAL: To retrieve any cost trends, top drivers, or Month-to-Date (MTD) metrics, you MUST route execution to a **single consolidated query** to avoid redundant table scans and reduce latencies. Group the records by date, project.id, and service.description. You MUST ALWAYS append `HAVING daily_cost > 0.1` to filter out negligible zero-cost/sub-10-cent noise, preventing tool response truncation:
 ```sql
 SELECT
   DATE(usage_start_time) as usage_date,
@@ -181,8 +185,8 @@ To minimize query turn latency and prevent redundant API execution, you MUST adh
      - **CRITICAL**: Every query against the resource-level table `{resource_table_id}` MUST:
        1. Apply a cost threshold filter (e.g., `cost > 0.5` or `SUM(...) > 0.5` or `cost_increase > 0.1`). NEVER query `cost > 0` or omit a cost threshold filter.
        2. ALWAYS include a `LIMIT 15` (or less) clause.
-       NEVER retrieve raw or low-cost resource lists without a strict limit and filter.
      - Banned tools: Do NOT call `list_zombie_resources` (zombies are irrelevant to a specific date spike), and do NOT call any tools from `dev_knowledge_mcp_toolset`, `bigquery_toolset`, or `cloud_assist_mcp_toolset`. Do NOT query history for more than 2 resources.
+     - **CRITICAL ON TOOL ERRORS**: If any tool call (such as `execute_cached_bigquery_sql` or a Cloud Asset tool) returns an error payload (e.g., containing an 'error' key or message), or if a tool execution raises an exception, you MUST NOT attempt to silently rewrite parameters, guess table schemas/columns, or retry the tool call recursively. Instead, immediately halt further tool execution and return a friendly, clear response to the user explaining which tool failed, stating the specific error message, and suggesting how they might rephrase their query.
 
 When providing cost information, you MUST be precise, ALWAYS explicitly state the exact time period or duration that the costs represent (e.g. 'Month-to-Date', 'for the current calendar month', 'for the last 90 days', or 'from [start_date] to [end_date]'), and ALWAYS dynamically determine, format, and express all monetary values in the correct active billing currency (typically present as 'currency' in standard or resource-level billing export tables). You MUST mention the correct active currency symbol or code (e.g. £/GBP, $/USD, €/EUR) in your conversational responses or analyses, aligning with the actual billing export data. Never present bare cost values without their corresponding duration.
 
@@ -404,21 +408,120 @@ Cached Queries List:
         logger.error("Failed to execute semantic cache lookup: %s", e)
 
 
+class DefensiveToolErrorPlugin(BasePlugin):
+    """Intercepts tool execution exceptions and stores them in session state to trigger a graceful halt."""
+
+    def __init__(self, name: str = "defensive_tool_error_plugin"):
+        super().__init__(name)
+
+    async def on_tool_error_callback(
+        self,
+        *,
+        tool: BaseTool,
+        tool_args: dict[str, Any],
+        tool_context: ToolContext,
+        error: Exception,
+    ) -> dict[str, Any] | None:
+        logger.warning(
+            "DefensiveToolErrorPlugin intercepted unhandled error in tool %s: %s",
+            tool.name,
+            error,
+        )
+        # Store error info in session state so before_model_bypass can intercept the next turn
+        tool_context.state["last_tool_error"] = {
+            "tool": tool.name,
+            "error": str(error),
+        }
+        # Return a dictionary response to satisfy the runner, but it will be bypassed in the next turn
+        return {"error": str(error)}
+
+
+def _override_llm_request_with_message(req: LlmRequest, message: str) -> None:
+    """Safely overrides the LLM request to force the model to output a specific message verbatim,
+    disabling all tool call capabilities and JSON output schema requirements.
+    """
+    req.contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text="Output the system warning message.")]
+        )
+    ]
+    req.config.system_instruction = (
+        f"You must ignore all previous history and instructions. Immediately respond with the "
+        f"following message verbatim and nothing else. Do not invoke any tools. Message:\n\n{message}"
+    )
+    req.config.tools = []
+    req.config.response_schema = None
+    req.config.response_mime_type = "text/plain"
+    req.config.tool_config = None
+
+
 async def before_model_bypass(
     callback_context: CallbackContext,
     request: LlmRequest | None = None,
     llm_request: LlmRequest | None = None,
     **kwargs,
 ) -> LlmResponse | None:
-    """If a cached response is present in session state, return it to skip the LLM model call entirely."""
+    """If a cached response is present, or if access is denied/tool fails, bypass the LLM entirely and return immediately."""
     ctx = callback_context
+    req = llm_request or request
+
+    # 1. Turn-level Cache lookup bypass
     if "cached_agent_response" in ctx.state:
         logger.debug("Bypassing ADK LLM call using cached agent response.")
-
-        part = types.Part(text=ctx.state["cached_agent_response"])
+        cached_msg = ctx.state["cached_agent_response"]
+        if req:
+            _override_llm_request_with_message(req, cached_msg)
+            return None
+        part = types.Part(text=cached_msg)
         content = types.Content(role="model", parts=[part])
-
         return LlmResponse(content=content)
+
+    # 2. Defensive check: Authentication
+    user_email = ctx.user_id
+    if not user_email:
+        logger.warning("Access denied inside before_model_bypass: missing user_id.")
+        auth_msg = "❌ Access Denied: Unauthenticated request. Please sign in via Identity-Aware Proxy (IAP)."
+        if req:
+            _override_llm_request_with_message(req, auth_msg)
+            return None
+        part = types.Part(text=auth_msg)
+        content = types.Content(role="model", parts=[part])
+        return LlmResponse(content=content)
+
+    # 3. Defensive check: Authorization (No projects linked or allowed)
+    allowed_projects = ctx.state.get("allowed_projects")
+    if allowed_projects is not None and len(allowed_projects) == 0:
+        logger.warning("Access denied inside before_model_bypass: user %s has no allowed projects.", user_email)
+        auth_msg = (
+            f"❌ Access Denied: The user `{user_email}` does not have access to any GCP projects "
+            f"linked to the billing account `{settings.google_cloud_billing_account}`.\n\n"
+            f"Please contact your administrator to verify that your account has been assigned "
+            f"the appropriate project or billing viewer roles."
+        )
+        if req:
+            _override_llm_request_with_message(req, auth_msg)
+            return None
+        part = types.Part(text=auth_msg)
+        content = types.Content(role="model", parts=[part])
+        return LlmResponse(content=content)
+
+    # 4. Defensive check: Graceful halt on tool error
+    if "last_tool_error" in ctx.state:
+        error_info = ctx.state.pop("last_tool_error")
+        logger.warning("Graceful tool error intercept inside before_model_bypass: tool '%s' failed.", error_info["tool"])
+        friendly_msg = (
+            f"❌ Cost Analysis Execution Error:\n"
+            f"The tool `{error_info['tool']}` encountered an issue: `{error_info['error']}`.\n\n"
+            f"Please modify your query or temporal filters and try again."
+        )
+        if req:
+            _override_llm_request_with_message(req, friendly_msg)
+            return None
+        part = types.Part(text=friendly_msg)
+        content = types.Content(role="model", parts=[part])
+        return LlmResponse(content=content)
+
     return None
 
 
@@ -532,4 +635,5 @@ app = App(
         ttl_seconds=600,  # Store the cache for up to 10 minutes
         cache_intervals=10,  # Refresh after 10 turns
     ),
+    plugins=[DefensiveToolErrorPlugin()],
 )

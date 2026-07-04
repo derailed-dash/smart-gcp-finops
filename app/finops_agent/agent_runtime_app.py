@@ -26,6 +26,54 @@ from dotenv import load_dotenv
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from vertexai.agent_engines.templates.adk import AdkApp
 
+# Monkeypatching for auto_create_session.
+# TODO(derailed-dash): Remove this monkeypatch once the Google ADK team implements native
+# support for configuring 'auto_create_session' via environment variables or a standard App config.
+# Verified against: google-adk >= 2.3.0, < 3.0.0
+# Why: Standard Vertex AI Console Playground queries the reasoning engine directly,
+# bypassing the custom AppState configuration in the BFF, which triggers SessionNotFoundError.
+# Enforcing auto_create_session = True globally ensures that transient sessions are handled gracefully.
+try:
+    _original_set_up = AdkApp.set_up
+
+    def _patched_set_up(self) -> None:
+        _original_set_up(self)
+        if runner := self._tmpl_attrs.get("runner"):
+            runner.auto_create_session = True
+        if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+            in_memory_runner.auto_create_session = True
+
+    AdkApp.set_up = _patched_set_up
+
+    from google.adk.runners import Runner
+
+    _original_runner_init = Runner.__init__
+
+    def _patched_runner_init(self, *args, **kwargs) -> None:
+        # Enforce auto_create_session defensively
+        kwargs["auto_create_session"] = True
+        try:
+            _original_runner_init(self, *args, **kwargs)
+        except TypeError as e:
+            # Fallback if signature changes in future SDK upgrades
+            logging.getLogger(__name__).error(
+                "ADK Runner.__init__ signature mismatch during monkeypatch execution: %s. "
+                "Attempting fallback initialization without custom kwargs.",
+                e,
+            )
+            # Re-try without injecting auto_create_session keyword argument
+            kwargs.pop("auto_create_session", None)
+            _original_runner_init(self, *args, **kwargs)
+
+    Runner.__init__ = _patched_runner_init
+except Exception as e:
+    logging.getLogger(__name__).warning(
+        "Failed to apply auto_create_session monkeypatches to ADK components: %s. "
+        "Vertex AI Console Playground queries may fail if they use stale session IDs.",
+        e,
+    )
+
+
 from finops_agent.agent import app as adk_app
 from finops_agent.app_utils.typing import Feedback
 from finops_agent.config import settings
@@ -40,6 +88,14 @@ class AgentRuntimeApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
+
+        # Enable automatic session creation in the underlying ADK runners.
+        # This prevents SessionNotFoundError if the console Playground or client
+        # sends queries using expired or invalid session IDs (e.g. after container scale-down).
+        if runner := self._tmpl_attrs.get("runner"):
+            runner.auto_create_session = True
+        if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+            in_memory_runner.auto_create_session = True
 
         # Configure logging using standard Python library and cloud-logging backend
         otel_to_cloud = (os.getenv("K_SERVICE") is not None) or (

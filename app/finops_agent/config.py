@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     model: str = "gemini-3.5-flash"
     fast_model: str = "gemini-3.1-flash-lite"
     local_developer_email: str = "local-dev@example.com"
+    playground_service_identity: str = "vais-query-reasoning-engine"  # Identity used by the GCP Console Playground to query reasoning engines; used to apply restricted project scoping defensively
 
     # Rate Limiting Configuration
     dashboard_rate_limit: str = "10/minute; 100/day"

@@ -218,8 +218,20 @@ The configuration parameters for FinSavant flow through a structured lifecycle t
 
 ![Environment Variable Propagation Flow](docs/images/env_variable_lifecycle.png)
 
-### 2. Local Development (.env)
-For local development, variables are read from a local `.env` file situated under `app/` and `bff/`. These are ignored by Git. A template `.env.example` is provided as a starting point.
+### 2. Local Development & Deployment Configuration (.env files)
+
+To separate responsibilities and maintain security, the repository uses two distinct `.env` files:
+
+1. **Root `.env`** (Situated in the project root):
+   - **Purpose**: Configuration for local development environment, container builds, and the unified container (which hosts both BFF and agent locally).
+   - **Scope**: Includes infrastructure/deployment variables (like `REPO`, `GITHUB_TOKEN`, `SERVICE_SA_EMAIL`, `AGENT_RUNTIME_ID`), plus local/unified runtime variables.
+   - **Status**: Kept in sync with root `.env.enc` via `git-crypt`.
+
+2. **Agent `.env`** (Situated under [app/.env](file:///home/dazbo/localdev/smart-gcp-finops/app/.env)):
+   - **Purpose**: Configuration required strictly by the ADK agent runtime.
+   - **Scope**: Contains only variables needed at runtime by the agent code (such as models, billing settings, logging levels, and telemetry). It is packaged with the agent during deployment.
+   - **Platform Restrictions**: Note that the Vertex AI Agent Runtime strictly forbids certain platform-reserved variables (like `GOOGLE_CLOUD_PROJECT`) from being set in the environment payload. The deployment tools automatically filter these out when deploying to the Agent Runtime.
+   - **Status**: Kept in sync with `app/.env.enc` via `git-crypt`.
 
 ### 3. Staging and Production Configuration Mapping
 

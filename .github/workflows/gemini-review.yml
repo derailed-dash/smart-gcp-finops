@@ -29,6 +29,6 @@ jobs:
         with:
           gemini-key: ${{ secrets.GEMINI_API_KEY }}
           model: 'gemini-3.5-flash'
-          add-files: 'true'
+          add-files: 'false'
           context-lines: '30'
           prompt: 'Review the code changes and provide all feedback and comments exclusively in English (UK).'
