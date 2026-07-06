@@ -4,9 +4,9 @@
 
 Welcome back, friends!
 
-In the [previous part](todo link) I described the purpose of [FinSavant](todo_link), the motivation for creating it, its overall architecture and tech stack, and how it works.
+In the [previous part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of [FinSavant](https://github.com/derailed-dash/smart-gcp-finops), the motivation for creating it, its overall architecture and tech stack, and how it works.
 
-In this part we're going to use FinSavant as a case study in how to setup a development environment for the purposes of building such an ADK-based agentic solution. We'll cover:
+In this part we're going to use FinSavant as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. We'll cover:
 
 1. Using Antigravity IDE
 1. Overall project workspace structure
@@ -14,7 +14,7 @@ In this part we're going to use FinSavant as a case study in how to setup a deve
 1. My project's `GEMINI.md` (or if you prefer, `AGENTS.md`)
 1. My documentation approach
 1. Setting up MCP servers for your coding agent, such as BigQuery MCP
-1. Scaffolding the intial ADK agent using Google Agents CLI and its supporting skill
+1. Scaffolding the initial ADK agent using Google Agents CLI and its supporting skill
 1. Getting started with a Makefile
 
 Sound good? Let's get cracking!
@@ -25,7 +25,7 @@ Let's see where we are in this series.
 
 1. Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions.
 2. Development Environment Setup, Google Antigravity, MCPs and Skills, and ADK Bootstrapping with Agents CLI **📍 You are here.**
-3. Buliding the ADK Agent and API
+3. Building the ADK Agent and API
 4. Designing and Building the UI with Google Stitch and A2UI
 5. Deployment with Gemini Enterprise Agent Platform, Agent Runtime, Cloud Run and IAP
 6. Automating Deployment with CI/CD and Terraform
@@ -37,7 +37,7 @@ These days, my favourite coding environment _for any significant project_ is Ant
 
 TODO: Agy overview and download link
 
-(By the way, I often refer to Antegravity as _Agy_.)
+(By the way, I often refer to Antigravity as _Agy_.)
 
 ## Project Structure
 
@@ -57,7 +57,6 @@ Here's the rough outline of the project structure we'll be creating. We won't be
 * ├── docs/               # Project documentation
 * │   ├── images/             # Diagrams and architectural visual assets
   │   ├── DESIGN.md           # Visual identity, components, and UI design
-  │   ├── PRD.md              # Product specification
   │   ├── architecture-and-walkthrough.md # Solution blueprints, ADRs, and component data flows
   │   └── testing.md          # Testing strategy and verification instructions
 * ├── frontend/           # React UI frontend
@@ -98,7 +97,7 @@ Give it a go!
 
 ## Skills for Your Coding Agent
 
-I like to describe skills as **units of knowledge that agents load on-demand**, when they need to do a particular task. I've previously articles on the subject of my favourite skills, where to find them, and how to install them. I recommend you check out [this one](todo). You might want to go ahead and install all of my favourites!  
+I like to describe skills as **units of knowledge that agents load on-demand**, when they need to do a particular task. I've previously written articles on the subject of my favourite skills, where to find them, and how to install them. I recommend you check out [this one](https://medium.com/google-cloud/dialling-our-agents-to-11-agent-skills-you-need-to-be-using-ccffa51e91df). You might want to go ahead and install all of my favourites!  
 
 But for now, let's add a few skills that will definitely be useful for our current project. I recommend installing them globally, so they'll be available to all of your development projects.
 
@@ -114,11 +113,13 @@ We're also going to install the Google Agents CLI and its associated skill, but 
 
 ## `GEMINI.md` - Context for Your Coding Agent
 
-This is how we tell the Agy Agent:
+This is how you tell the Agy Agent:
 
 - Useful stuff about your project's goals
 - Rules and guidelines you want it to follow
 - References you want it to read
+
+Essentially, I'm using it as a product guide and spec for the agent.
 
 When we create `GEMINI.md` in the root of a project, then the context is scoped only to _that project_. (This project-specific context gets appended to any global `GEMINI.md` you have defined.) 
 
@@ -135,7 +136,7 @@ To create an agentic FinOps solution for GCP that:
 
 - Uses ADK for agent orchestration.
 - Is able to examine billing and cost data in BigQuery, based on billing exports.
-- Is able to understand Google Cloud infrasture and services across multiple Google projects associated with a billing account.
+- Is able to understand Google Cloud infrastructure and services across multiple Google projects associated with a billing account.
 - Considers projects associated with a particular Google Cloud organisation, associated with a billing account.
 - Leverages Google Developer Knowledge API MCP for grounding:  Google APIs, Google Cloud infrastructure, Google Cloud best practices.
 - Is able to detect cost anomalies and inefficiencies, and trends.
@@ -154,7 +155,7 @@ To create an agentic FinOps solution for GCP that:
 - Leverage Google Stitch to design the UI, and use the Stitch MCP server to pull in the design, in order to convert to React.
 - The UI is connected to the agent via FastAPI.
 - The UI and API will be hosted in a single Cloud Run service. The service will be secured using IAP, using direct Cloud Run integration - no Load Balancer.
-- The Agent will be deployed to Agent Runtime in Gemini Enteprise Agent Platform.
+- The Agent will be deployed to Agent Runtime in Gemini Enterprise Agent Platform.
 
 ## Tool Use: Skills, Gemini Enterprise Agent Platform, Agent Runtime and ADK
 
@@ -181,7 +182,6 @@ You will have additional skills available to you, but always check if the follow
 
 - README.md - Project README; the developer's front door
 - TODO.md - High level plan for the project
-- PRD.md - The product spec
 - architecture-and-walkthrough.md - The main architecture, including design decisions
 - DESIGN.md - Where we will capture the UI design
 - testing.md - Where we will document test strategy, summary of tests, testing instructions, any manual testing processes
@@ -224,32 +224,54 @@ Give Agy a restart now, so it picks up this context.
 
 ## Documentation Approach
 
-I'm a big fan of having a consistent set of high-quality, continuously maintained documentation. I even have my own agent skill - `maintain-core-documentation` - to automate much of this for me. Check out my [previous blog on this subject](todo).
+I'm a big fan of having a consistent set of high-quality, continuously maintained documentation. I even have my own agent skill - `maintaining-core-documentation` - to automate much of this for me. Check out my previous blog on this subject: [Documentation as Context: A Skill to Automate Your Blueprints for the Agentic Era](https://medium.com/google-cloud/documentation-as-context-a-skill-to-automate-your-blueprints-for-the-agentic-era-2bec0cf041a3).
 
 If you ran the `npx skills add https://github.com/derailed-dash/dazbo-agent-skills -y -g` above, then you now already have this skill installed.
 
 With this in place, you could issue a prompt like this to bootstrap a set of documentation for a brand new project:
 
 ```text
-Use maintain-core-documentation to boostrap my project documentation.
+Use maintaining-core-documentation to bootstrap my project documentation.
 ```
 
 As you evolve your project, you can ask the agent to `Maintain core documentation` and it will update as required.
 
 ## MCP Servers for Your Coding Agent
 
-I've [previously written about](todo) some of my favourite MCP servers. There's only a couple that we'll need for this project:
+I've [previously written about](https://medium.com/google-cloud/dialling-our-agents-to-11-my-favourite-mcp-servers-9549c1442a5e) some of my favourite MCP servers. There are only a couple that we'll need for this project:
 
 - Google BigQuery Remote MCP Server
 - My ADK-Docs MCP Server
 
 Note that we won't be using either of these in the _FinSavant_ agent itself. These are purely to help us during development.
 
-Let's try out the BigQuery MCP server...
+Let's try out the BigQuery MCP server. In your workspace's `.gemini/settings.json` file, we register the Remote BigQuery MCP server with Google credentials:
+
+```json
+{
+  "mcpServers": {
+    "bigquery-mcp-server": {
+      "httpUrl": "https://bigquery.googleapis.com/mcp",
+      "authProviderType": "google_credentials",
+      "oauth": {
+        "scopes": [
+          "https://www.googleapis.com/auth/bigquery"
+        ]
+      },
+      "timeout": 30000,
+      "headers": {
+        "x-goog-user-project": "your-gcp-billing-project"
+      }
+    }
+  }
+}
+```
+
+When you open the workspace in Antigravity IDE, it loads this configuration automatically. Your coding agent will then be able to query schemas, inspect tables, and run SQL queries in BigQuery to assist you while you build and validate the local code.
 
 ## Scaffolding Your ADK Agent
 
-The easiest way to scaffold a new ADK agent is to use make use of **Google Agents CLI**. The Agents CLI is actually a bundle, containing:
+The easiest way to scaffold a new ADK agent is to make use of **Google Agents CLI**. The Agents CLI is actually a bundle, containing:
 
 - The **Agents CLI** itself - commands for scaffolding, evaluating, deploying, and observing AI agents on Google Cloud.
 - An associated set of **agent skills** that turn your development agent into an expert in using Agents CLI.
@@ -257,13 +279,16 @@ The easiest way to scaffold a new ADK agent is to use make use of **Google Agent
 So now we could run the CLI manually...
 
 ```bash
-command
+agents-cli scaffold create app \
+  --agent adk \
+  --prototype \
+  --agent-guidance-filename GEMINI.md
 ```
 
 But instead we can now just say to the Agy Agent:
 
 ```text
-/gill-me Please scaffold a new ADK agent called 'finops_agent'. This root agent should be deployed inside its own 'finops_agent' folder inside the 'app' folder. Do not implement any business logic for the agent.
+/grill-me Please scaffold a new ADK agent called 'finops_agent'. This root agent should be deployed inside its own 'finops_agent' folder inside the 'app' folder. Do not implement any business logic for the agent.
 ```
 
 ## Getting Started with a Makefile
@@ -272,7 +297,7 @@ But instead we can now just say to the Agy Agent:
 
 ### Project Demo & Portfolio
 
-- [FinSavant on GitHub](todo_link)
+- [FinSavant on GitHub](https://github.com/derailed-dash/smart-gcp-finops)
 - [FinSavant YouTube Demo](https://youtu.be/zs_IRUxIx4E)
 - [Dazbo's Portfolio](https://dazbo.co.uk)
 
@@ -290,6 +315,5 @@ But instead we can now just say to the Agy Agent:
 
 ### Other Related Articles & Resources
 
-- 
-
+- [Antigravity IDE Documentation](https://antigravity.google/product/antigravity-ide?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
