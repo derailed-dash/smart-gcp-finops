@@ -33,9 +33,9 @@ Let's see where we are in this series.
 
 ## Getting Started with Antigravity IDE
 
-These days, my favourite coding environment _for any significant project_ is Antigravity IDE. This is Google's agentic integrated development environment. 
+These days, my favourite coding environment _for any significant project_ is Antigravity IDE. This is Google's agent-first integrated development environment. You get a look-and-feel that's familiar to VS Code users, but powered with autonomous, context-aware agents that can plan, execute, verify, and work in parallel.
 
-TODO: Agy overview and download link
+You can get it [here](https://antigravity.google/product/antigravity-ide).
 
 (By the way, I often refer to Antigravity as _Agy_.)
 
@@ -86,12 +86,15 @@ If you wanted to build such a structure from scratch, here's a cool thing to try
 1. Create your new project folder, e.g. `smart-gcp-finops`
 1. Open this folder in Antigravity IDE.
 1. Supply this prompt to the Agy Agent:
-   ```/grill-me Using this folder tree as a template, create the required folder structure 
-   in this workspace for my new 'smart-gcp-finops' Python project.
+   ```/grill-me Using this folder tree as a template, create the 
+   required folder structure in this workspace for my new Python project.
    Only create folders and files that are marked as '*'. 
    For required files, provide initial starter-for-10 content. 
    << paste the tree structure here >>
    ```
+
+This video demonstrates Agy scaffolding the entire project from scratch, in response to the prompt above:
+[![Agy Scaffolding Demo](https://img.youtube.com/vi/DmnBHilRjOo/maxresdefault.jpg)](https://youtu.be/DmnBHilRjOo)
 
 Give it a go!
 
@@ -233,6 +236,10 @@ With this in place, you could issue a prompt like this to bootstrap a set of doc
 ```text
 Use maintaining-core-documentation to bootstrap my project documentation.
 ```
+
+Check out this video to see the skill doing its magic!
+
+[![Documentation Skill Demo](https://img.youtube.com/vi/fvT_GJ4LPhE/maxresdefault.jpg)](https://youtu.be/fvT_GJ4LPhE)
 
 As you evolve your project, you can ask the agent to `Maintain core documentation` and it will update as required.
 
