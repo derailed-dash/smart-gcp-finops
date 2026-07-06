@@ -93,7 +93,7 @@ The fastest way to verify your local environment is correctly configured for the
 **Expected Result**: The agent should return the `gcp_billing_export_v1_...` tables.
 
 **Quota Project Header (`x-goog-user-project`)**:
-When testing across projects, ensure your `.gemini/settings.json` includes the `x-goog-user-project` header. Without this, BigQuery may attempt to bill the query to the project containing the data, which often results in `403: Access Denied` if your identity only has data-level permissions.
+When testing across projects, ensure your `.agents/mcp_config.json` includes the `x-goog-user-project` header. Without this, BigQuery may attempt to bill the query to the project containing the data, which often results in `403: Access Denied` if your identity only has data-level permissions.
 
 ### BigQuery CLI Connectivity
 

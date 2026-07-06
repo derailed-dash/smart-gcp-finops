@@ -35,7 +35,7 @@ We have Cloud Billing Exports into a BQ dataset.
 
 20. Enabled BigQuery billing export access for the agent by granting cross-project IAM permissions to the application service accounts, allowing for centralized cost analysis.
 21. Standardised the Billing Account ID configuration as a first-class variable across all layers (Local, Terraform, Cloud Run, and CI/CD) to enable dynamic billing table discovery.
-22. Enabled BigQuery MCP for the local Gemini CLI by creating a workspace-specific `.gemini/settings.json` file, allowing the agent to interact directly with BigQuery via the Remote MCP endpoint.
+22. Enabled BigQuery MCP for the local Gemini CLI by creating a workspace-specific `.agents/mcp_config.json` file, allowing the agent to interact directly with BigQuery via the Remote MCP endpoint.
 23. Transitioned to a "Discovery-Based" architecture for Cloud Asset Inventory, enabling the application to list projects associated with a billing account without requiring a Google Cloud Organization.
 24. Added optional `GOOGLE_CLOUD_ORGANIZATION` to `.env` and granted `roles/cloudasset.viewer` to the agent's service account to allow it to read asset metadata from CAI.
 25. Implemented dynamic project discovery logic using the Cloud Billing API (`billingAccounts.projects.list`). This allows the agent to map the full infrastructure footprint linked to a billing account without requiring Organization-level permissions. Added unit tests with mock pagination to ensure robust handling of large project lists.
@@ -174,7 +174,7 @@ Cool, right? Now we have a truly portable, multi-project FinOps engine. Hurrah!
 
 **Problem**: While I had the IAM permissions and the table names sorted, I still needed a bridge between my local development environment (the Gemini CLI) and the live data in BigQuery. I didn't want to just "shell out" to `bq query` every time — I wanted the agent to have *native* awareness of the datasets and tables.
 
-**Resolution**: I configured a workspace-specific `.gemini/settings.json` file to enable the **BigQuery MCP (Model Context Protocol)** server using its remote endpoint.
+**Resolution**: I configured a workspace-specific `.agents/mcp_config.json` file to enable the **BigQuery MCP (Model Context Protocol)** server using its remote endpoint.
 
 **Why this way?**:
 - **Semantic Awareness**: Instead of treating BigQuery as a black box that returns text, the agent now sees it as a structured toolset with specific capabilities (`list_datasets`, `query`, etc.).
@@ -187,7 +187,7 @@ The agent didn't just guess; it used the `bigquery-mcp-server_list_dataset_ids` 
 
 Now, the agent isn't just a "coder" — it's a data-aware FinOps analyst. Hurrah!
 
-**Pro-Tip**: Workspace-specific settings in `.gemini/settings.json` are your best friend for project isolation. It keeps your global Gemini config clean while giving each project the specific "superpowers" it needs.
+**Pro-Tip**: Workspace-specific settings in `.agents/mcp_config.json` are your best friend for project isolation. It keeps your global Gemini config clean while giving each project the specific "superpowers" it needs.
 
 ### User Verification Protocol: Phase 1 Complete
 

@@ -46,18 +46,17 @@ To enable the Gemini CLI agent to interact with BigQuery data locally, you must 
 
 ### 1. BigQuery MCP Configuration
 
-Create or update `.gemini/settings.json` in the project root:
+Create or update `.agents/mcp_config.json` in the project root:
 
 ```json
 {
   "mcpServers": {
     "bigquery-mcp-server": {
-      "httpUrl": "https://bigquery.googleapis.com/mcp",
+      "serverUrl": "https://bigquery.googleapis.com/mcp",
       "authProviderType": "google_credentials",
       "oauth": {
         "scopes": ["https://www.googleapis.com/auth/bigquery"]
       },
-      "timeout": 30000,
       "headers": {
         "x-goog-user-project": "$GOOGLE_CLOUD_BILLING_PROJECT"
       }

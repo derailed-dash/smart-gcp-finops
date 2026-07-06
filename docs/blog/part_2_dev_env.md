@@ -69,8 +69,8 @@ Here's the rough outline of the project structure we'll be creating. We won't be
 * │   ├── eval/               # Agent evaluation
 * │   ├── unit/               # Unit tests
 * │   └── integration/        # Integration tests
-* ├── .gemini/            # Workspace Gemini configuration
-  │   └── settings.json       # E.g. MCP servers
+* ├── .agents/            # Workspace customizations root
+  │   └── mcp_config.json   # E.g. MCP servers
 * ├── .github/            # GitHub Actions workflows and CI/CD
 * ├── .env                # Root environment vars (dev setup, unified container, GitHub, etc)
   ├── .envrc              # Automatically launch when entering this directory
@@ -253,20 +253,19 @@ I've [previously written about](https://medium.com/google-cloud/dialling-our-age
 
 Note that we won't be using either of these in the _FinSavant_ agent itself. These are purely to help us during development.
 
-Let's try out the BigQuery MCP server. In your workspace's `.gemini/settings.json` file, we register the Remote BigQuery MCP server with Google credentials:
+Let's try out the BigQuery MCP server. In your workspace's `.agents/mcp_config.json` file, we register the Remote BigQuery MCP server with Google credentials:
 
 ```json
 {
   "mcpServers": {
     "bigquery-mcp-server": {
-      "httpUrl": "https://bigquery.googleapis.com/mcp",
+      "serverUrl": "https://bigquery.googleapis.com/mcp",
       "authProviderType": "google_credentials",
       "oauth": {
         "scopes": [
           "https://www.googleapis.com/auth/bigquery"
         ]
       },
-      "timeout": 30000,
       "headers": {
         "x-goog-user-project": "your-gcp-billing-project"
       }

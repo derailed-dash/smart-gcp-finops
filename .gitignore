@@ -208,4 +208,5 @@ gha-creds-*.json
 /deployment/terraform/vars/env.tfvars
 deployment_metadata.json
 /app/.env
-.gemini/settings.json
+.agents/mcp_config.json
+
