@@ -34,42 +34,20 @@ We have Cloud Billing Exports into a BQ dataset.
 19. Added IAP to the Cloud Run service via Terraform, using the `google-beta` provider to access the `iap_enabled` attribute.
 
 20. Enabled BigQuery billing export access for the agent by granting cross-project IAM permissions to the application service accounts, allowing for centralized cost analysis.
-    - **Spacing Sweet Spot**: Tuned the dynamic SVG chart's vertical headroom multiplier to `170` (combined with side-by-side bars). Since no grouped bar ever exceeds the lines, this provides a mathematically perfect visual balance: curves and bars fill the grid space beautifully, stretching all the way to `30px` below the top of the SVG box, utilizing the full vertical space of the `260px` container, leaving exactly the right visual padding under the HTML legend and title, with zero possibility of overlap.
-    - **Values Spacing**: Shifted the horizontal start baseline to `45` (width `645`), positioned Y-axis values at `x="43"` (shifted right), and moved the rotated Y-axis label to `x="8"`. This leaves an elegant `35px` gap of absolute breathing room on the left margin, fully resolving label overlap.
-    - **General labeling**: Renamed the Y-axis title to `"Daily cost"` for a cleaner, uncluttered feel.
-
-This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dynamically adapts to any global enterprise billing context with elegant premium spacing! Hurrah!
 21. Standardised the Billing Account ID configuration as a first-class variable across all layers (Local, Terraform, Cloud Run, and CI/CD) to enable dynamic billing table discovery.
 22. Enabled BigQuery MCP for the local Gemini CLI by creating a workspace-specific `.gemini/settings.json` file, allowing the agent to interact directly with BigQuery via the Remote MCP endpoint.
 23. Transitioned to a "Discovery-Based" architecture for Cloud Asset Inventory, enabling the application to list projects associated with a billing account without requiring a Google Cloud Organization.
 24. Added optional `GOOGLE_CLOUD_ORGANIZATION` to `.env` and granted `roles/cloudasset.viewer` to the agent's service account to allow it to read asset metadata from CAI.
-
 25. Implemented dynamic project discovery logic using the Cloud Billing API (`billingAccounts.projects.list`). This allows the agent to map the full infrastructure footprint linked to a billing account without requiring Organization-level permissions. Added unit tests with mock pagination to ensure robust handling of large project lists.
 26. Configured `.eslintrc.json` with robust React and TypeScript rules to implement static linter quality gates on the frontend repository.
-27. Upgraded the development compiler to Vite 6.4.2 and pinned esbuild to ^0.25.0 via npm overrides, resolving critical local development vulnerabilities (GHSA-4w7w-66w2-5vf9, GHSA-67mh-4wv8-2f99) while maintaining complete isolation from the production container.
 28. Implemented ADK Turn-Level Agent Caching using `before_agent_callback`, `before_model_callback`, and `after_agent_callback` to completely skip LLM and tool execution for recently answered user queries.
 29. Optimized Cloud Asset Inventory scans by caching the results of `list_zombie_resources` inside `zombie_tools.py` using a global, thread-safe cache to accelerate both the REST dashboard and ADK tools.
-30. Upgraded React chat interface with dynamic in-place tool status updates (`reasoning-block-compact`) and expandable historical logs details summary to prevent terminal log spam and duplicate logs.
-31. Resolved BigQuery MCP bypass by applying a custom tool_filter to bq_mcp_toolset, excluding raw remote query execution tools and forcing the agent to route all SQL queries through the optimized, cached execute_cached_bigquery_sql tool.
 32. Implemented thread-safe, 5-minute TTL caching on get_cai_metadata_for_resources and get_cai_history_for_resource in cai_tools.py to accelerate asset metadata and history queries during cost spike analysis.
 33. Enhanced turn-level ADK cache by normalising user query cache keys (lowercase, space-compressed, trimmed) to guarantee robust matching regardless of trailing whitespace or case differences.
 34. Resolved critical PR #7 bugs: refactored GCP credentials into a centralized, reusable helper; fixed `types.Part` instantiation to conform to the new `google-genai` SDK; re-architected FastAPI SSE streaming to use a non-blocking `asyncio.Queue`; and implemented optional chaining across React KPI rendering to prevent UI crashes under dynamic payloads.
-35. Upgraded `google-adk` to version `1.34.1` (and `google-genai` to `1.75.0`), completely eliminating the internal `session_context` concurrency warning (`Error on session runner task`) from backend logs.
-36. Restored thread-isolated queue producer streaming architecture in [fast_api_app.py](../app/fast_api_app.py) using a background thread and `asyncio.Queue`, resolving uvicorn and gRPC event-loop conflicts that caused silent streaming crashes.
-37. Resolved a critical integration test failure (405 Method Not Allowed on `/apps/app/users/{user_id}/sessions`) by removing the trailing slash from `BASE_URL` in `test_server_e2e.py`, preventing double-slash path matching issues in Starlette/FastAPI's router.
 38. Sanitised environment variable loading in the Makefile by implementing an in-memory `sed` and `eval` newline substitution pattern, preventing literal double quotes and trailing comments/whitespace from corrupting deployment commands.
 
 ## Deep Dives
-
-### Terraform State Orchestration
-
-**Problem**: The Agent Starter Pack (ASP) includes two Terraform directories: `deployment/terraform/` (Root) and `deployment/terraform/dev/` (Isolated). We initially used `make setup-dev-env` which applied the isolated dev state. When we later tried to initialize the global CI/CD via the root Terraform, we encountered `409: Already Exists` errors because both states were trying to manage the same staging project (`finops-admin-dev`).
-
-**Resolution**: In a multi-project setup (Prod/CICD + Dev/Staging), the root `terraform/` directory must be the **sole source of truth**. It manages both environments to ensure the CI/CD runner has correctly orchestrated permissions. We had to destroy the isolated `dev/` state before the Root Terraform could successfully take control.
-
-**Recommendation**: Avoid `make setup-dev-env` if you plan to use a multi-project CI/CD pipeline. Use the root `terraform/` folder for all environment management.
-
-**Recommendation**: Migrate to a remote backend as early as possible. It’s one of those "boring but essential" tasks that saves you a massive headache down the road. Hurrah!
 
 ### Remote State with GCS
 
@@ -90,6 +68,7 @@ This delivers a state-of-the-art, fully localized GCP FinOps dashboard that dyna
 **Pro-Tip**: Always set `uniform_bucket_level_access = true` on your state bucket and restrict access to only the CI/CD service account and essential admins. Your state file contains every secret and IP address in your architecture — treat it like the Crown Jewels.
 
 ### Modernizing CI/CD: The "Manual Gate" Pattern
+
 **Problem**: The `agent-starter-pack` (ASP) provides a fantastic "out of the box" CI/CD pipeline that automatically triggers a production deployment immediately after a successful staging deploy. While this is great for rapid prototyping, it’s a bit too "wild west" for a project where we want to ensure everything is perfect in staging before even thinking about production. We wanted a "manual gate" to review staging first.
 
 **Resolution**: We opted to **decouple** the workflows. On a GitHub personal/free plan, you don't have access to the native "Environment Protection Rules" (which allow for required reviewers). To achieve the same effect for free, we split the logic:
@@ -210,35 +189,6 @@ Now, the agent isn't just a "coder" — it's a data-aware FinOps analyst. Hurrah
 
 **Pro-Tip**: Workspace-specific settings in `.gemini/settings.json` are your best friend for project isolation. It keeps your global Gemini config clean while giving each project the specific "superpowers" it needs.
 
-### Agent Logic: Integrating BigQuery Remote MCP
-
-**Problem**: Once I had the BigQuery MCP enabled in my local Gemini CLI, I needed to bring that same intelligence into the core ADK agent that runs on our remote Gemini Enterprise Agent Runtime (with local execution support in our BFF container). I didn't want the agent to just *talk* about BigQuery; I wanted it to *be* a BigQuery expert.
-
-**Resolution**: I updated the `app/agent.py` logic to initialize a dedicated `McpToolset` using the remote BigQuery MCP endpoint.
-
-**How it's implemented**:
-I used the `google.adk.tools.mcp_tool.McpToolset` along with `StreamableHTTPConnectionParams` to connect the agent directly to the BigQuery API.
-
-```python
-# BigQuery MCP Toolset Configuration
-bq_mcp_toolset = McpToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url="https://bigquery.googleapis.com/mcp",
-    ),
-    header_provider=get_auth_headers
-)
-```
-
-**Key Architectural Choices**:
-1.  **Quota Project Header**: Just like in my local setup, I included the `x-goog-user-project` header. This is the "secret sauce" that allows our agent to query data in one project while "billing" the processing cost to another (the FinOps Admin project). 
-2.  **System Prompt Context**: I injected the `BILLING_PROJECT_ID` and `BILLING_DATASET` directly into the agent's instructions. This gives the agent immediate context about where the "gold mine" of data is located.
-3.  **Auth Header Provider**: I created a `get_auth_headers()` helper to ensure the MCP client always has fresh, valid OAuth 2.0 headers when it makes requests.
-
-**The Result**:
-When I launch the agent via `make playground`, it now shows up with a full suite of BigQuery-specific tools (`bigquery-mcp-server_query`, `bigquery-mcp-server_list_datasets`, etc.). I can ask it high-level questions like "show me the top 5 services by cost in the last 30 days," and it will correctly formulate and execute a SQL query against our billing export tables.
-
-**Pro-Tip**: When using remote MCP endpoints, ensure your environment variables are correctly set for the destination project. A small typo in your project ID can lead to frustrating "404 Not Found" errors from the MCP server.
-
 ### User Verification Protocol: Phase 1 Complete
 
 **Problem**: With all the "plumbing" done, I needed a structured way to prove everything was actually working. No one wants to hear "it works on my machine" when you're dealing with billing data.
@@ -300,12 +250,6 @@ def get_auth_headers(ctx: ReadonlyContext) -> dict[str, str]:
 **Pro-Tip**: Always use `google.auth.transport.requests.Request()` when refreshing. It’s the standard way to ensure the refresh signal is sent correctly over the wire.
 
 Now my agent isn't just smart; it's persistent. Hurrah!
-
-# Links
-
-- [Configure IAP for Cloud Run](https://docs.cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run)
-
-23. Transitioned to a "Discovery-Based" architecture for Cloud Asset Inventory, enabling the application to list projects associated with a billing account without requiring a Google Cloud Organization.
 
 ### Flexible Project Discovery: Organization-Independent FinOps
 

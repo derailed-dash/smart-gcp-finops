@@ -40,12 +40,6 @@
 [x] Setup continuous deployment (CI/CD) of the frontend and backend
 [x] Cache repeating queries, e.g. duplicate queries for zombie resources.
 [x] Migrate to Gemini Enterprise Agent Runtime, with UI in separate Cloud Run
-[~] Create blog series
-  - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
-  - [x] Blog part 1
-  - [ ] Blog part 2
-  - [ ] Blog part 3
-  - [ ] Blog part 4
 [x] Swap out BigQuery MCP in the agent to use ADK native BigQueryToolset. Update blog accordingly; we still use MCP from our dev environment, but not in the agent.
 [x] Remove env var redundancy in architecture walkthrough md
 [x] Bootstrap new ADK agent folder with agents-cli
@@ -63,10 +57,20 @@
   - [x] Update Terraform and CI/CD to ensure all is working.
 [x] Fix Vertex branding in UI
 [x] Implement API rate limiting
+[x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
+[~] Create blog series
+  - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
+  - [x] Blog part 1
+  - [~] Blog part 2
+  - [ ] Blog part 3
+  - [ ] Blog part 4
+  - [ ] Blog part 5
+  - [ ] Blog part 6
+  - [ ] Blog part 7
 [ ] Convert arch diagrams to renders
 [x] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
 [ ] Ensure best-practices query is always aligned to deployed services and costs; not generic
+[ ] Separate monolithic prompt with subagents
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
-[x] Update Terraform variables and CI/CD pipelines to ensure `google_cloud_location` / `GOOGLE_CLOUD_LOCATION` is explicitly set to `"global"` to prevent regional Gemini model routing errors (like 404 on `gemini-3.5-flash`).
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

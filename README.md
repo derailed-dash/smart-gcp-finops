@@ -68,9 +68,8 @@ This repository is associated with a multi-part series of articles documenting t
 
 ```
 smart-gcp-finops/
-├── .env                  # Root environment vars (dev setup, unified container)
-├── app/                  # Standalone Agent Runtime Package (ADK Agent)
-│   ├── finops_agent/          # Core ADK agent python package
+├── app/                  # ADK agent package Runtime Package (ADK Agent)
+│   ├── finops_agent/          # Root agent
 │   │   ├── app_utils/             # CAI, BQ tools, credential & cache helpers
 │   │   ├── agent.py               # Root agent definitions & tool routing
 │   │   ├── deploy_to_agent_runtime.py   # Deploys agent to Agent Runtime
@@ -80,29 +79,33 @@ smart-gcp-finops/
 │   ├── agents-cli-manifest.yaml   # ADK Agent CLI manifest to support lifecycle
 │   ├── Dockerfile             # For deploying agent to Agent Runtime
 │   └── pyproject.toml         # Agent runtime dependencies
-├── bff/                  # Backend-for-Frontend (FastAPI Web App)
-│   ├── Dockerfile             # UI/BFF-only Dockerfile (TBD)
-│   └── fast_api_app.py        # Serves UI, proxies queries, and manages SSE streams
-├── deployment/           # Infrastructure & CI/CD (Terraform IaC)
-│   └── terraform/             # Centralised IaC for Prod & Staging
-├── docs/                 # System-wide architecture and design documentation
+├── bff/                  # Backend-for-Frontend (API)
+│   ├── Dockerfile             # UI/BFF-only Dockerfile
+│   └── fast_api_app.py        # BFF FastAPI
+├── deployment/           # Infrastructure & Setup
+│   └── terraform/             # TF IaC
+├── docs/                 # Project documentation
 │   ├── images/                # Diagrams and architectural visual assets
-│   ├── DESIGN.md              # Visual identity, components, and design tokens
+│   ├── DESIGN.md              # Visual identity, components, and UI design
 │   ├── architecture-and-walkthrough.md # Solution blueprints, ADRs, and component data flows
 │   └── testing.md             # Testing strategy and verification instructions
-├── frontend/             # Single Page Application (React + Vite + Stitch)
+├── frontend/             # React UI frontend
 │   ├── src/                   # Application source code
 │   └── index.html             # Homepage
 ├── notebooks/            # Jupyter notebooks for prototyping and evaluation
 │   └── adk_app_testing.ipynb  # Interactive playground for testing local and remote runs
 ├── scripts/              # Env setup and other utility scripts
 ├── tests/                # Unit and integration test suites
-├── .gemini/              # Gemini configuration (MCP settings)
+├── .gemini/              # Workspace Gemini configuration (e.g. MCP settings)
 ├── .github/              # GitHub Actions workflows and CI/CD
+├── .env                  # Root environment vars (dev setup, unified container)
+├── .envrc                # Automatically launch when entering this directory
+├── .gitignore            # Exclude from git
 ├── Dockerfile            # Configuration for the unified development image
-├── Makefile              # Centralised developer command pipeline
-├── GEMINI.md             # Developer context & guidelines
-├── pyproject.toml        # Root developer environment configuration
+├── Makefile              # Centralised developer convenience commands
+├── GEMINI.md             # Development agent context & guidelines
+├── LICENSE               # Standard open-source license file
+├── pyproject.toml        # Root project configuration / dependencies
 ├── README.md             # Developer documentation homepage
 └── TODO.md               # TODO list
 ```

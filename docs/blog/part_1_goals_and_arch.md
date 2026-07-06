@@ -227,8 +227,9 @@ Stay tuned!
 
 ### Project Demo & Portfolio
 
-- [Dazbo's Portfolio](https://dazbo.co.uk)
+- [FinSavant on GitHub](todo_link)
 - [FinSavant YouTube Demo](https://youtu.be/zs_IRUxIx4E)
+- [Dazbo's Portfolio](https://dazbo.co.uk)
 
 ### Gemini Enterprise Agent Platform & ADK
 
@@ -245,6 +246,7 @@ Stay tuned!
 - [Agent Evaluations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/optimize/evaluation/agent-evaluation?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
 ### Google Cloud Services & APIs
+
 - [Cloud Run Overview](https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Identity-Aware Proxy (IAP) Overview](https://docs.cloud.google.com/iap/docs/concepts-overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
@@ -252,10 +254,12 @@ Stay tuned!
 - [Developer Knowledge MCP Server](https://developers.google.com/knowledge/mcp?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
 ### GCP Billing & FinOps
+
 - [Google Cloud FinOps Hub](https://docs.cloud.google.com/billing/docs/how-to/finops-hub?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [BigQuery Billing Exports Setup](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
 ### Articles & Resources
+
 - [Using Google IAP with Cloud Run without a Load Balancer (Dazbo on Medium)](https://medium.com/google-cloud/using-google-identity-aware-proxy-iap-with-cloud-run-without-a-load-balancer-27db89b9ed49?sharedUserId=derailed.dash)
 - [Cloud Run IAP Integration Announcement](https://cloud.google.com/blog/products/serverless/iap-integration-with-cloud-run?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
