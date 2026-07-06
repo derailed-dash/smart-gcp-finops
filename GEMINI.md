@@ -130,7 +130,7 @@ The series should have several parts. I'm thinking:
   - Local Dev Environment
   - Use of Agy IDE, and Agy CLI
   - MCPs and skills we've used for development
-  - Boostrapping with Agents CLI
+  - Bootstrapping with Agents CLI
   - Validation with ADK Web
   - Creating a Makefile
 

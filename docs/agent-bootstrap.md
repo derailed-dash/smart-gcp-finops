@@ -153,7 +153,7 @@ All tests pass successfully under the new architecture:
 
 ## 13. Auto-Create Session Monkeypatching (2026-07-04)
 
-- **Issue:** When querying the reasoning engine directly from the Vertex AI Console Playground, the platform calls the ASGI app inside the container but fails to provide a pre-existing or valid Session ID, leading to a crash with `SessionNotFoundError`.
+- **Issue:** When querying the Agent Runtime directly from the Gemini Enterprise Agent Platform Console Playground, the platform calls the ASGI app inside the container but fails to provide a pre-existing or valid Session ID, leading to a crash with `SessionNotFoundError`.
 - **Resolution:** Implemented global class-level monkeypatches inside [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py#L29-L62) to intercept `Runner.__init__` and `AdkApp.set_up` and dynamically override/inject `auto_create_session = True` on all runners. To prevent future SDK upgrade breakages, these patches are wrapped in defensive `try-except` blocks with dynamic `TypeError` argument-signature fallbacks.
 - **How to Remove the Patches:**
   Once Google ADK supports configuring session auto-creation natively (e.g. via an environment variable like `ADK_AUTO_CREATE_SESSION` or a template parameter), you can safely remove the monkeypatches:

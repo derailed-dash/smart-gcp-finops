@@ -175,7 +175,7 @@ You will have additional skills available to you, but always check if the follow
 
 ### Gemini Enterprise Agent Platform APIs
 
-- `gemini-api`: Vertex AI, Google Cloud, and Agent Platform enterprise usage with the Google Gen AI SDK.
+- `gemini-api`: Gemini Enterprise Agent Platform, Google Cloud, and Agent Platform enterprise usage with the Google Gen AI SDK.
 [skipping for brevity]
 
 ### Agent Platform Engine & Model Management
