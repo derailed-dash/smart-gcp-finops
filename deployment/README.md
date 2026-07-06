@@ -216,7 +216,7 @@ The configuration parameters for FinSavant flow through a structured lifecycle t
 
 ### 1. The Configuration Flow
 
-![Environment Variable Propagation Flow](docs/images/env_variable_lifecycle.png)
+![Environment Variable Propagation Flow](../docs/images/env_variable_lifecycle.png)
 
 ### 2. Local Development & Deployment Configuration (.env files)
 
@@ -309,28 +309,7 @@ This project implements **Native (Built-in) IAP for Cloud Run**, providing enter
 
 ### How Native IAP Works Under the Hood
 
-```mermaid
-sequenceDiagram
-    actor User as authorised User
-    participant IAP as Built-in IAP Proxy
-    participant Run as Private Cloud Run Container
-
-    User->>IAP: 1. Requests App URL
-    Note over IAP: Checks Google Account Session
-    alt Session active & belongs to Organisation Domain
-        IAP->>User: Redirects to Internal OAuth Consent Screen
-        User->>IAP: Authenticates
-    end
-    Note over IAP: Evaluates roles/iap.httpsResourceAccessor
-    alt User has accessor role
-        IAP->>Run: 2. Proxies request using IAP Service Agent Identity
-        Note over Run: Verifies roles/run.invoker for IAP Service Agent
-        Run->>IAP: 3. Serves response
-        IAP->>User: 4. Returns content (Vite React UI + FastAPI)
-    else User is blocked
-        IAP->>User: 403 Forbidden
-    end
-```
+![Built-in IAP Authentication Flow for Cloud Run](../docs/images/cloudrun_iap_flow.png)
 
 1. **Request Interception**: All public traffic hitting the Cloud Run URL is intercepted at the Google Cloud front-end by the built-in IAP proxy layer before reaching the container.
 2. **User Authentication**: Unauthenticated users are redirected to the Google OAuth consent screen. Native IAP requires this consent screen to be configured as **Internal** (restricted to members of your Google Workspace/Cloud Organization `123456789012`).
@@ -500,7 +479,7 @@ If your GCP billing account is associated with standalone ("orphaned") projects 
         done
         ```
 
-*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
+*   **Option B: Filter and bind only to standalone projects (not in the organisation)**:
     *   **For Developer Account**:
         ```bash
         for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
@@ -533,6 +512,3 @@ If your GCP billing account is associated with standalone ("orphaned") projects 
         ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
-
-
-

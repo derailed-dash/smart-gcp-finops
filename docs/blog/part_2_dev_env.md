@@ -4,9 +4,11 @@
 
 Welcome back, friends!
 
-In the [previous part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of [FinSavant](https://github.com/derailed-dash/smart-gcp-finops), the motivation for creating it, its overall architecture and tech stack, and how it works.
+In the [first part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of [FinSavant](https://github.com/derailed-dash/smart-gcp-finops), the motivation for creating it, its overall architecture and tech stack, and how it works.
 
-In this part we're going to use FinSavant as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. We'll cover:
+In this part we're going to use FinSavant as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful tips here that will help you build your own solution environments more effectively and quickly.
+
+We'll cover:
 
 1. Using Antigravity IDE
 1. Overall project workspace structure
@@ -33,7 +35,7 @@ Let's see where we are in this series.
 
 ## Getting Started with Antigravity IDE
 
-These days, my favourite coding environment _for any significant project_ is Antigravity IDE. This is Google's agent-first integrated development environment. You get a look-and-feel that's familiar to VS Code users, but powered with autonomous, context-aware agents that can plan, execute, verify, and work in parallel.
+These days, my favourite coding environment _for any significant project_ is Antigravity IDE. This is Google's _agent-first_ integrated development environment. You get a look-and-feel that's familiar to VS Code users, but powered with autonomous, context-aware agents that can plan, execute, verify, and work in parallel.
 
 You can get it [here](https://antigravity.google/product/antigravity-ide).
 
@@ -41,7 +43,7 @@ You can get it [here](https://antigravity.google/product/antigravity-ide).
 
 ## Project Structure
 
-Here's the rough outline of the project structure we'll be creating. We won't be building all of this structure here; nor does this represent the final state of the project.  But it gives you an idea of where we're heading. (I'll explain the `*` in a minute!)
+Here's the rough outline of the project structure we'll be creating. We won't be building all of this structure here; nor does this represent the final state of the project. But it gives you an idea of where we're heading. (I'll explain the `*` in a minute!)
 
 ```text
   smart-gcp-finops/
@@ -83,8 +85,8 @@ Here's the rough outline of the project structure we'll be creating. We won't be
 
 If you wanted to build such a structure from scratch, here's a cool thing to try...
 
-1. Create your new project folder, e.g. `smart-gcp-finops`
-1. Open this folder in Antigravity IDE.
+1. Create your new project folder, e.g. `my-cool-project`
+1. Open that folder in Antigravity IDE.
 1. Supply this prompt to the Agy Agent:
    ```/grill-me Using this folder tree as a template, create the 
    required folder structure in this workspace for my new Python project.
@@ -92,6 +94,10 @@ If you wanted to build such a structure from scratch, here's a cool thing to try
    For required files, provide initial starter-for-10 content. 
    << paste the tree structure here >>
    ```
+
+Why `/grill-me`?  This is a built-in Agy command that causes the agent to ask questions to remove ambiguity. If you were to give the agent a slightly vague prompt without this prefix, then the agent might make some guesses about what you want. But with `/grill-me`, the agent will still make educated guesses, but it will also ask you questions to clarify your intent.
+
+The prompt above is a good example of where this is useful. You'll notice that my project tree has a `LICENSE.md` file, which is a standard component to include in open-source projects. But my prompt doesn't specify which license to use. So when you use `/grill-me`, the agent will offer sensible license choices based on your project and context, and ask you to confirm.
 
 This video demonstrates Agy scaffolding the entire project from scratch, in response to the prompt above:
 [![Agy Scaffolding Demo](https://img.youtube.com/vi/DmnBHilRjOo/maxresdefault.jpg)](https://youtu.be/DmnBHilRjOo)
@@ -116,22 +122,18 @@ We're also going to install the Google Agents CLI and its associated skill, but 
 
 ## `GEMINI.md` - Context for Your Coding Agent
 
-This is how you tell the Agy Agent:
+The `GEMINI.md` file is how you define your project rules and context.  It's where you tell the Agy Agent:
 
-- Useful stuff about your project's goals
+- About your project's goals
 - Rules and guidelines you want it to follow
 - References you want it to read
 
-Essentially, I'm using it as a product guide and spec for the agent.
+When we create `GEMINI.md` in the root of a project, then the file is scoped only to _that project_. (This project-specific context gets appended to any global `GEMINI.md` you have defined.) Then, when you launch any Antigravity tool from this workspace - such as Agy 2.0, Agy IDE, or Agy CLI - the Agent will automatically read this context.
 
-When we create `GEMINI.md` in the root of a project, then the context is scoped only to _that project_. (This project-specific context gets appended to any global `GEMINI.md` you have defined.) 
-
-When you launch any Antigravity tool from this workspace - such as Agy 2.0, IDE, or Antigravity CLI - the Agy Agent will automatically read this context.
-
-Let me show you what my `GEMINI.md` looked like, when starting out with _FinSavant_:
+Let me show you what my `GEMINI.md` looks like, when starting out with _FinSavant_:
 
 ```md
-# FinSavant
+# FinSavant - the Agentic FinOps Solution
 
 ## Project Goals
 
@@ -219,19 +221,18 @@ As we go, document steps taken, experience and findings in docs/blog.md. Later, 
 
 - Include all the key steps we did, in the order we did them.
 [skipping for brevity]
-
 ...
 ```
 
-Give Agy a restart now, so it picks up this context.
+If you're following along, give Agy a restart now, so it picks up this context.
 
 ## Documentation Approach
 
 I'm a big fan of having a consistent set of high-quality, continuously maintained documentation. I even have my own agent skill - `maintaining-core-documentation` - to automate much of this for me. Check out my previous blog on this subject: [Documentation as Context: A Skill to Automate Your Blueprints for the Agentic Era](https://medium.com/google-cloud/documentation-as-context-a-skill-to-automate-your-blueprints-for-the-agentic-era-2bec0cf041a3).
 
-If you ran the `npx skills add https://github.com/derailed-dash/dazbo-agent-skills -y -g` above, then you now already have this skill installed.
+If you previously ran the `npx skills add https://github.com/derailed-dash/dazbo-agent-skills -y -g` command from above, then you already have this skill installed.
 
-With this in place, you could issue a prompt like this to bootstrap a set of documentation for a brand new project:
+With this in place, you could issue this prompt to bootstrap a set of documentation for a brand-new project:
 
 ```text
 Use maintaining-core-documentation to bootstrap my project documentation.
@@ -241,14 +242,14 @@ Check out this video to see the skill doing its magic!
 
 [![Documentation Skill Demo](https://img.youtube.com/vi/fvT_GJ4LPhE/maxresdefault.jpg)](https://youtu.be/fvT_GJ4LPhE)
 
-As you evolve your project, you can ask the agent to `Maintain core documentation` and it will update as required.
+As you evolve your project, this skill will automatically maintain your documentation.
 
 ## MCP Servers for Your Coding Agent
 
 I've [previously written about](https://medium.com/google-cloud/dialling-our-agents-to-11-my-favourite-mcp-servers-9549c1442a5e) some of my favourite MCP servers. There are only a couple that we'll need for this project:
 
-- Google BigQuery Remote MCP Server
-- My ADK-Docs MCP Server
+- [Google BigQuery Remote MCP Server](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp)
+- [ADK Docs MCP](https://adk.dev/tutorials/coding-with-ai/#adk-docs-mcp-server)
 
 Note that we won't be using either of these in the _FinSavant_ agent itself. These are purely to help us during development.
 
