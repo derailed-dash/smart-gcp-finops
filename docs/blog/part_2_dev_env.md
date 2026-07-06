@@ -253,7 +253,7 @@ I've [previously written about](https://medium.com/google-cloud/dialling-our-age
 
 Note that we won't be using either of these in the _FinSavant_ agent itself. These are purely to help us during development.
 
-Let's try out the BigQuery MCP server. In your workspace's `.agents/mcp_config.json` file, we register the Remote BigQuery MCP server with Google credentials:
+Let's try out the BigQuery MCP server. In your workspace's `.agents/mcp_config.json` file, we configure the Remote BigQuery MCP server like this:
 
 ```json
 {
@@ -274,7 +274,32 @@ Let's try out the BigQuery MCP server. In your workspace's `.agents/mcp_config.j
 }
 ```
 
-When you open the workspace in Antigravity IDE, it loads this configuration automatically. Your coding agent will then be able to query schemas, inspect tables, and run SQL queries in BigQuery to assist you while you build and validate the local code.
+A few things to note about this:
+
+- **Billing project**: Replace `your-gcp-billing-project` with the Google project where your billing data export lives.
+
+    ![BQ Billing Dataset in the Cloud Console](../images/bq_billing_dataset_console.png)
+
+- **BigQuery API**: Make sure the BigQuery API (`bigquery.googleapis.com`) is enabled on that project.
+- **Developer Identity Permissions**: Because the MCP server uses `google_credentials` to authenticate, your local developer account (active in `gcloud auth`) must be authorised on Google Cloud. You need the `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` roles on the project hosting the billing dataset.  You also need the `roles/mcp.toolUser` role, in order to use this managed MCP server to query the BigQuery database.
+
+And now, when you open the workspace in Antigravity IDE, it will load this configuration automatically. Your coding agent will then be able to query schemas, inspect tables, and try out SQL queries in order to assist you when you actually create the _FinSavant_ agent code.
+
+Let's test it!
+
+First, I issue this prompt to the Agy agent:
+
+```text
+What billing tables do I have? Explain their key functions.
+```
+
+![what billing tables do I have?](../images/what-billing-tables.png)
+
+You can see the agent immediately finds the MCP server, and asks for permission to invoke its tools. After I grant permission, I get this response:
+
+![BQ MCP response](../images/bq-mcp-response.png)
+
+Nice! You can see helpful this is going to be.
 
 ## Scaffolding Your ADK Agent
 

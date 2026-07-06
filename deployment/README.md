@@ -67,6 +67,12 @@ Create or update `.agents/mcp_config.json` in the project root:
 
 **Note**: The `x-goog-user-project` header is critical when your billing export resides in a centralized "admin" project. It tells BigQuery to use your specific billing project for query quota and processing costs.
 
+**Developer Identity Permissions**: Since the BigQuery MCP server uses `google_credentials` to authenticate, your local developer account (active in `gcloud auth`) must be authorised on Google Cloud. You must ensure that your personal identity is granted:
+- `roles/bigquery.dataViewer` on the project hosting the billing export dataset (to view and read table schemas).
+- `roles/bigquery.jobUser` on the quota project (specified in `x-goog-user-project` / `GOOGLE_CLOUD_BILLING_PROJECT` to execute query jobs).
+
+Additionally, make sure the BigQuery API (`bigquery.googleapis.com`) is enabled in both projects.
+
 ### 2. Environment Variables
 
 For local development and container runtime, configuration is driven by variables in a `.env` file. Do NOT commit actual credential values or IDs; maintain a local `.env` file ignored by Git.
@@ -206,7 +212,7 @@ To support the FinOps cross-referencing logic, specific IAM roles are configured
 1.  **Billing Account Project Discovery**: Grants `roles/billing.viewer` at the Billing Account level via `google_billing_account_iam_member` to allow dynamic discovery of associated projects.
 2.  **Asset Inventory Cross-Referencing**:
     - **With Organization**: If `google_cloud_organization_id` is supplied, grants `roles/cloudasset.viewer` at the Organization level via `google_organization_iam_member`. This provides efficient visibility across the entire estate.
-    - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`.
+    - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`, and `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the billing project to query billing data.
 3.  **BigQuery Cost Analysis**: Grants `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the centralized Billing Project via `google_project_iam_member`.
 
 ## Environment Variable Configuration & Lifecycle

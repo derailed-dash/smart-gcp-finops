@@ -96,7 +96,7 @@ smart-gcp-finops/
 │   └── adk_app_testing.ipynb  # Interactive playground for testing local and remote runs
 ├── scripts/              # Env setup and other utility scripts
 ├── tests/                # Unit and integration test suites
-├── .gemini/              # Workspace Gemini configuration (e.g. MCP settings)
+├── .agents/              # Workspace Gemini configuration (e.g. MCP settings)
 ├── .github/              # GitHub Actions workflows and CI/CD
 ├── .env                  # Root environment vars (dev setup, unified container)
 ├── .envrc                # Automatically launch when entering this directory
