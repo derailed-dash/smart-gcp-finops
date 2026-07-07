@@ -1,6 +1,6 @@
 # Description: Agent-specific pyproject.toml configuration.
 # Scope: Governs the standalone ADK (Agent Development Kit) agent environment and reasoning loops.
-# Build Target: app/Dockerfile compiling the Reasoning Engine backend deployed to managed Vertex AI Agent Runtime.
+# Build Target: agent/Dockerfile compiling the Reasoning Engine backend deployed to managed Vertex AI Agent Runtime.
 
 [project]
 name = "finops-agent"
@@ -58,7 +58,7 @@ select = [
 ignore = ["E501", "C901", "B006"] # ignore line too long, too complex
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "frontend"]
+known-first-party = ["agent", "frontend"]
 
 [tool.ty]
 # ty is Astral's Rust-based type checker (same team as ruff/uv)

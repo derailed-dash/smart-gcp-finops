@@ -47,7 +47,7 @@ Here's the rough outline of the project structure we'll be creating. We won't be
 
 ```text
   smart-gcp-finops/
-* ├── app/                # ADK agent package
+  ├── agent/                # ADK agent package
   │   ├── finops_agent/       # Root agent
   │   ├── .env                # Agent specific environment vars
   │   ├── Dockerfile          # For deploying agent to Agent Runtime
@@ -305,22 +305,26 @@ Nice! You can see helpful this is going to be.
 
 The easiest way to scaffold a new ADK agent is to make use of **Google Agents CLI**. The Agents CLI is actually a bundle, containing:
 
-- The **Agents CLI** itself - commands for scaffolding, evaluating, deploying, and observing AI agents on Google Cloud.
+- The **Agents CLI** itself - commands for scaffolding, evaluating, deploying, and observing AI agents on Google Cloud. The [GitHub repo](https://github.com/google/agents-cli) describes the commands available:
+
+  ![agents-cli commands](../images/agents-cli-commands.png)
+
 - An associated set of **agent skills** that turn your development agent into an expert in using Agents CLI.
 
-So now we could run the CLI manually...
+  ![agents-cli skills](../images/agents-cli-commands.png)
+
+So, to make our top level `agent` folder that contains a root agent called `finops_agent`, we could run this CLI command:
 
 ```bash
-agents-cli scaffold create app \
-  --agent adk \
-  --prototype \
-  --agent-guidance-filename GEMINI.md
+agents-cli create agent \
+  --adk \
+  --agent-directory finops_agent
 ```
 
 But instead we can now just say to the Agy Agent:
 
 ```text
-/grill-me Please scaffold a new ADK agent called 'finops_agent'. This root agent should be deployed inside its own 'finops_agent' folder inside the 'app' folder. Do not implement any business logic for the agent.
+/grill-me Please scaffold a new ADK agent called 'finops_agent'. This root agent should be deployed inside its own 'finops_agent' folder inside the 'agent' folder. Do not implement any business logic for the agent.
 ```
 
 ## Getting Started with a Makefile
@@ -337,6 +341,7 @@ But instead we can now just say to the Agy Agent:
 
 - [Gemini Enterprise Agent Platform Overview](https://docs.cloud.google.com/gemini-enterprise-agent-platform/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [ADK Agent Building Guide](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/adk?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
+- [Agents CLI on GitHub](https://github.com/google/agents-cli?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Agents CLI Documentation](https://google.github.io/agents-cli/?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 
 ### Google Cloud Services & APIs

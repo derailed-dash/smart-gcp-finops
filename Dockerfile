@@ -37,7 +37,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY ./bff ./bff
 
 # Copy the agent package (since BFF imports from it, e.g. for local fallback)
-COPY ./app/finops_agent ./app/finops_agent
+COPY ./agent/finops_agent ./agent/finops_agent
 
 # Copy the built frontend static assets from Stage 1
 COPY --from=frontend-builder /app/frontend/dist /code/frontend/dist

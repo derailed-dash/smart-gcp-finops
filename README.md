@@ -68,7 +68,7 @@ This repository is associated with a multi-part series of articles documenting t
 
 ```
 smart-gcp-finops/
-├── app/                  # ADK agent package Runtime Package (ADK Agent)
+├── agent/                # ADK agent package Runtime Package (ADK Agent)
 │   ├── finops_agent/          # Root agent
 │   │   ├── app_utils/             # CAI, BQ tools, credential & cache helpers
 │   │   ├── agent.py               # Root agent definitions & tool routing

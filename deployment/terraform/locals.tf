@@ -74,8 +74,8 @@ locals {
   agent_runtime_cpu    = "1"
   agent_runtime_memory = "4Gi"
 
-  # Parse app/.env file to get variables
-  env_content = fileexists("${path.module}/../../app/.env") ? file("${path.module}/../../app/.env") : ""
+  # Parse agent/.env file to get variables
+  env_content = fileexists("${path.module}/../../agent/.env") ? file("${path.module}/../../agent/.env") : ""
   
   # Parse key-value pairs from env_content (ignoring comments and empty lines)
   env_lines = [

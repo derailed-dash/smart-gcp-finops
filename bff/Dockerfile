@@ -9,7 +9,7 @@
 # Scope: Designed for deployment to Google Cloud Run in production/staging. When
 #        deployed with AGENT_RUNTIME_ID set, this service routes agent queries
 #        remotely to the standalone Agent Runtime container. It copies the
-#        `app/finops_agent` directory to resolve utility imports (such as logging
+#        `agent/finops_agent` directory to resolve utility imports (such as logging
 #        and telemetry configurations) but does not execute the cognitive loops.
 # ==============================================================================
 
@@ -50,7 +50,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY ./bff ./bff
 
 # Copy the agent package (since BFF imports from it, e.g. for local fallback)
-COPY ./app/finops_agent ./app/finops_agent
+COPY ./agent/finops_agent ./agent/finops_agent
 
 # Copy the built frontend static assets from Stage 1
 COPY --from=frontend-builder /app/frontend/dist /code/frontend/dist

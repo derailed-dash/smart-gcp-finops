@@ -48,11 +48,11 @@ jobs:
 
       - name: Export requirements for Agent Runtime
         run: |
-          uv pip compile app/pyproject.toml -o app/finops_agent/requirements.txt
+          uv pip compile agent/pyproject.toml -o agent/finops_agent/requirements.txt
 
       - name: Deploy to Agent Runtime (Production)
         run: |
-          cd app && uvx google-agents-cli deploy \
+          cd agent && uvx google-agents-cli deploy \
             --deployment-target agent_runtime \
             --no-confirm-project \
             --project ${{ vars.PROD_PROJECT_ID }} \
@@ -65,12 +65,12 @@ jobs:
 
       - name: Extract Agent Runtime ID
         run: |
-          if [ -f app/deployment_metadata.json ]; then
-            AGENT_RUNTIME_ID=$(jq -r '.remote_agent_runtime_id' app/deployment_metadata.json)
+          if [ -f agent/deployment_metadata.json ]; then
+            AGENT_RUNTIME_ID=$(jq -r '.remote_agent_runtime_id' agent/deployment_metadata.json)
             echo "AGENT_RUNTIME_ID=$AGENT_RUNTIME_ID" >> $GITHUB_ENV
             echo "Extracted Agent Runtime ID: $AGENT_RUNTIME_ID"
           else
-            echo "app/deployment_metadata.json not found!"
+            echo "agent/deployment_metadata.json not found!"
             exit 1
           fi
 

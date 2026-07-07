@@ -36,6 +36,7 @@ dev = [
     "pytest-cov>=5.0.0,<8.0.0",
     "pytest-mock>=3.14.0,<4.0.0",
     "nest-asyncio>=1.6.0,<2.0.0",
+    "finops-agent",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +65,7 @@ select = [
 ignore = ["E501", "C901", "B006"] # ignore line too long, too complex
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "frontend"]
+known-first-party = ["agent", "frontend"]
 
 [tool.ty]
 # ty is Astral's Rust-based type checker (same team as ruff/uv)
@@ -89,8 +90,14 @@ deprecated = "ignore"
 
 [tool.codespell]
 ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb,**/package-lock.json"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb,**/package-lock.json,uvicorn_e2e.log"
 
+
+[tool.uv.workspace]
+members = ["agent"]
+
+[tool.uv.sources]
+finops-agent = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -98,8 +105,8 @@ build-backend = "hatchling.build"
 
 
 [tool.pytest.ini_options]
-pythonpath = [".", "app"]
+pythonpath = [".", "agent"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.hatch.build.targets.wheel]
-packages = ["app/finops_agent", "frontend"]
+packages = ["agent/finops_agent", "frontend"]

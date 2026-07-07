@@ -277,7 +277,7 @@ Standard ADK telemetry and OpenTelemetry tracing are integrated into the applica
 
 #### How Tracing Works Under the Hood
 
-The application logging and telemetry is configured in [logging_and_telemetry.py](../app/finops_agent/app_utils/logging_and_telemetry.py) and initialised during backend startup (in [fast_api_app.py](../bff/fast_api_app.py) and [agent_runtime_app.py](../app/finops_agent/agent_runtime_app.py)).
+The application logging and telemetry is configured in [logging_and_telemetry.py](../agent/finops_agent/app_utils/logging_and_telemetry.py) and initialised during backend startup (in [fast_api_app.py](../bff/fast_api_app.py) and [agent_runtime_app.py](../agent/finops_agent/agent_runtime_app.py)).
 
 1. **Standard ADK Tracing & Logging**: If `OTEL_TO_CLOUD` is set to `"true"` (or when running on Cloud Run), the app uses standard `google.adk.telemetry` APIs to configure Google Cloud Trace and Cloud Logging exporters. This is safely initialised via `maybe_set_otel_providers()`, which ensures existing global OpenTelemetry providers are not overridden.
 2. **GenAI SDK Instrumentation**: The `GoogleGenAiSdkInstrumentor` from `opentelemetry.instrumentation.google_genai` is loaded to instrument all Gemini model calls. This captures detailed metrics and span events for model queries.

@@ -50,18 +50,15 @@ playground:
 	@echo "|                                                                             |"
 	@echo "| 💡 Try asking: What's the weather in San Francisco?                         |"
 	@echo "|                                                                             |"
-	@echo "| 🔍 IMPORTANT: Select the 'app' folder to interact with your agent.          |"
+	@echo "| 🔍 IMPORTANT: Select the 'agent' folder to interact with your agent.         |"
 	@echo "==============================================================================="
 	uv run adk web . --port 8501 --reload_agents
 
 # Launch local development server with hot-reload
 # Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
 local-backend:
-	PYTHONPATH=app uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
+	PYTHONPATH=agent uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
 
-# Run the Backend BFF Server (FastAPI + ADK Agent)
-run-backend:
-	PYTHONPATH=app uv run python -m bff.fast_api_app
 
 # Launch the Vite Dev Server for the React UI
 run-frontend:
@@ -113,10 +110,10 @@ docker-run:
 # Define the fully-qualified Artifact Registry image name
 IMAGE_TAG = $(GOOGLE_CLOUD_REGION)-docker.pkg.dev/$(CICD_PROJECT_ID)/smart-gcp-finops-repo/smart-gcp-finops:latest
 
-# Validate that no environment variables in app/.env contain forbidden comma characters.
+# Validate that no environment variables in agent/.env contain forbidden comma characters.
 validate-env:
-	@if grep -v '^#' app/.env | grep -q ','; then \
-		echo "❌ Error: app/.env contains a comma (,) which is forbidden in Cloud Run environment variables."; \
+	@if grep -v '^#' agent/.env | grep -q ','; then \
+		echo "❌ Error: agent/.env contains a comma (,) which is forbidden in Cloud Run environment variables."; \
 		exit 1; \
 	fi
 
@@ -127,7 +124,7 @@ validate-env:
 #       It resolves the newest AGENT_RUNTIME_ID dynamically, packaging it as an env var on Cloud Run.
 #       You MUST run this command after any backend updates deployed via `make deploy-agent-runtime` to update the BFF routing.
 # WARNING: The environment variable parser uses `paste -sd, -` to join variables for gcloud.
-#          DO NOT use commas (,) in any environment variable values in `app/.env` to avoid syntax errors.
+#          DO NOT use commas (,) in any environment variable values in `agent/.env` to avoid syntax errors.
 deploy-cloud-run: validate-env
 	@echo "🚀 Building and pushing standalone BFF+UI container (using bff/Dockerfile) to Artifact Registry..."
 	gcloud builds submit --config deployment/cloudbuild-bff.yaml --substitutions="_IMAGE_TAG=$(IMAGE_TAG),_COMMIT_SHA=$(shell git rev-parse HEAD 2>/dev/null || echo '')" --project "$(CICD_PROJECT_ID)" .
@@ -143,13 +140,13 @@ deploy-cloud-run: validate-env
 		--cpu-boost \
 		--no-allow-unauthenticated \
 		--iap \
-		--update-env-vars="$$(grep -v '^#' app/.env | grep -v '^$$' | paste -sd, -),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID),COMMIT_SHA=$(shell git rev-parse HEAD)"
+		--update-env-vars="$$(grep -v '^#' agent/.env | grep -v '^$$' | paste -sd, -),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID),COMMIT_SHA=$(shell git rev-parse HEAD)"
 
-# Deploy the standalone ADK agent (packaged via app/Dockerfile) to Gemini Enterprise Agent Runtime (Vertex AI).
-# Note: Deploys the Python agent logic (in `app/`) to create a new Reasoning Engine ID.
+# Deploy the standalone ADK agent (packaged via agent/Dockerfile) to Gemini Enterprise Agent Runtime (Vertex AI).
+# Note: Deploys the Python agent logic (in `agent/`) to create a new Reasoning Engine ID.
 # After this finishes, you MUST redeploy the Cloud Run service (`make deploy-cloud-run`) to update BFF routing to this new instance.
 deploy-agent-runtime: validate-env
-	cd app && uvx google-agents-cli deploy \
+	cd agent && uvx google-agents-cli deploy \
 		--deployment-target agent_runtime \
 		--no-confirm-project \
 		--project "$(GOOGLE_CLOUD_PROJECT)" \
@@ -166,9 +163,9 @@ get-agent-runtime-id:
 
 # Compile requirements.txt inside the agent package.
 # Why: Vertex AI SDK requires a standard requirements.txt for Reasoning Engine packaging.
-# Note: Developers must NOT edit requirements.txt manually. Add dependencies to app/pyproject.toml and run this target.
+# Note: Developers must NOT edit requirements.txt manually. Add dependencies to agent/pyproject.toml and run this target.
 export-requirements:
-	uv pip compile app/pyproject.toml -o app/finops_agent/requirements.txt
+	uv pip compile agent/pyproject.toml -o agent/finops_agent/requirements.txt
 
 # ==============================================================================
 # Testing & Code Quality
@@ -200,7 +197,7 @@ eval:
 	@echo "| Running Agent Evaluation                                                    |"
 	@echo "==============================================================================="
 	uv sync --dev --extra eval
-	uv run adk eval ./app $${EVALSET:-tests/eval/evalsets/basic.evalset.json} \
+	uv run adk eval ./agent $${EVALSET:-tests/eval/evalsets/basic.evalset.json} \
 		$(if $(EVAL_CONFIG),--config_file_path=$(EVAL_CONFIG),$(if $(wildcard tests/eval/eval_config.json),--config_file_path=tests/eval/eval_config.json,))
 
 # Run evaluation with all evalsets
@@ -222,7 +219,7 @@ lint:
 	uv run codespell
 	uv run ruff check . --diff
 	uv run ruff format . --check --diff
-	uv run ty check app/
+	uv run ty check agent/
 
 # Set up development environment resources using Terraform
 tf-plan:

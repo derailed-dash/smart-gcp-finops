@@ -102,6 +102,7 @@ class ProjectDiscoveryManager:
                 )
 
                 from google.cloud import asset_v1
+
                 asset_client = asset_v1.AssetServiceClient()
                 crm_service = None
 

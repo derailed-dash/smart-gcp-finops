@@ -2433,6 +2433,26 @@ We aligned and unified the environment variables across all layers:
 
 This achieves a completely unified configuration system with single sources of truth. Hurrah!
 
+---
+
+### Folder Layout Refactoring: `app/` to `agent/`
+
+**Problem**:
+The ADK agent runtime package was historically placed in an `app/` folder. This conflicted conceptually with the general standard where "app" represents the entire application, whereas our repository is structured as a decoupled monorepo containing distinct component folders (`bff/`, `frontend/`, `agent/`). This caused semantic confusion, and forced developers to select the `app/` directory for agent interactions in local playground scripts.
+
+**Resolution**:
+We surgically renamed and refactored the project's folder layout to improve readability and conform to best practices:
+1. **Renaming**: Renamed the `/app` directory to `/agent`. The inner python package name (`finops_agent`) was preserved to keep all import paths clean and logical.
+2. **Path Insertion**: Updated `/bff/fast_api_app.py` to insert `/agent` to the python search path so it correctly resolves utility imports from the `finops_agent` package:
+   ```python
+   sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent"))
+   ```
+3. **Docker Build Files**: Updated `/bff/Dockerfile` to copy `./agent/finops_agent` instead of `./app/finops_agent`.
+4. **Makefile & CI/CD Pipelines**: Substituted `/app` with `/agent` across all local execution targets (eval targets, PYTHONPATH, lint tools) and GitHub workflow actions (`staging.yaml`, `deploy-to-prod.yaml`, `pr_checks.yaml`, `gemini-review.yml`).
+5. **Terraform**: Updated local env parsing in `deployment/terraform/locals.tf` to parse variables from `agent/.env` instead of `app/.env`.
+
+This brings clean semantic naming to our repository structure, with a self-evident `/agent`, `/bff`, and `/frontend` hierarchy! Hurrah!
+
 
 
 
