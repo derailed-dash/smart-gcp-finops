@@ -313,19 +313,72 @@ The easiest way to scaffold a new ADK agent is to make use of **Google Agents CL
 
   ![agents-cli skills](../images/agents-cli-commands.png)
 
-So, to make our top level `agent` folder that contains a root agent called `finops_agent`, we could run this CLI command:
+You install the bundle like this:
 
 ```bash
-agents-cli create agent \
-  --adk \
-  --agent-directory finops_agent
+uvx google-agents-cli setup
 ```
 
-But instead we can now just say to the Agy Agent:
+If you already have it installed, then you can upgrade like this. (It's worth doing this occasionally - this CLI is evolving quickly!)
+
+```bash
+uv tool upgrade google-agents-cli
+```
+
+With this installed, we could create our top level `agent` folder that contains a root agent called `finops_agent` by running this Agents CLI command:
+
+```bash
+agents-cli scaffold create agent \
+  --agent adk \
+  --prototype \
+  --agent-directory finops_agent 
+```
+
+It will create this, inside of our workspace folder:
 
 ```text
-/grill-me Please scaffold a new ADK agent called 'finops_agent'. This root agent should be deployed inside its own 'finops_agent' folder inside the 'agent' folder. Do not implement any business logic for the agent.
+agent/
+├── finops_agent/                 # Your agent code
+│   ├── __init__.py               # Registers the app (exports `app`)
+│   ├── agent.py                  # Agent definition — instructions, model, tools
+│   └── app_utils/                # Utilities (telemetry, converters)
+│       ├── __init__.py
+│       ├── telemetry.py          # OpenTelemetry setup for Cloud Trace
+│       ├── typing.py             # Request/response Pydantic models
+│       └── gcs.py                # GCS utility functions
+│
+├── tests/
+│   ├── eval/                     # Evaluation test cases
+│   │   ├── datasets/
+│   │   │   └── basic-dataset.json    # Default eval cases
+│   │   └── eval_config.yaml          # Evaluation metrics configuration
+│   ├── integration/
+│   │   └── test_agent.py         # Integration test (runs agent end-to-end)
+│   └── unit/
+│       └── test_dummy.py         # Placeholder for unit tests
+│
+├── .env                          # Environment variables (project ID, location)
+├── .env.example                  # Example environment variables
+├── .gitignore                    # Git ignore file
+├── pyproject.toml                # Project config and dependencies
+├── agents-cli-manifest.yaml      # Configuration for agents-cli
+├── Dockerfile                    # Dockerfile for the agent runtime
+└── GEMINI.md                     # Guidance file for coding agents
 ```
+
+![agents-cli create](../images/adk-create.png)
+
+But since we now have the skills installed, there's an easier way that doesn't require you to check the CLI documentation...
+
+```text
+Please bootstrap a new ADK agent project. The agent top-level project should be named `agent`, and it should should contain a root `agent-directory` called `finops_agent`, NOT the default of `app`. This means pyproject.toml and other config files will live under agent/, and all Python source files (like agent.py and fast_api_app.py) will live inside inside agent/finops_agent/.
+```
+
+Sure, this prompt is quite detailed, but I'm after a very specific folder structure.
+
+Let's see a live demo...
+
+[![Agents-CLI ADK scaffolding demo](https://img.youtube.com/vi/wxMK7MJwHqA/maxresdefault.jpg)](https://youtu.be/wxMK7MJwHqA)
 
 ## Getting Started with a Makefile
 
