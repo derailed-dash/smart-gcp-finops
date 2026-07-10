@@ -6,7 +6,7 @@ Welcome back, friends!
 
 In the [first part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of [FinSavant](https://github.com/derailed-dash/smart-gcp-finops), the motivation for creating it, its overall architecture and tech stack, and how it works.
 
-In this part we're going to use FinSavant as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful tips here that will help you build your own solution environments more effectively and quickly.
+In this part we're going to use _FinSavant_ as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful information and tips here that will help you build your own agentic solutions more effectively and quickly.
 
 We'll cover:
 
@@ -380,7 +380,60 @@ Let's see a live demo...
 
 [![Agents-CLI ADK scaffolding demo](https://img.youtube.com/vi/wxMK7MJwHqA/maxresdefault.jpg)](https://youtu.be/wxMK7MJwHqA)
 
-## Getting Started with a Makefile
+As you can see from the demo, we can now use `agents-cli` to check if our newly scaffolded agent is working.
+
+First, we could just send a single prompt on the command line:
+
+```bash
+cd agent
+agents-cli run "Hello! Who are you?"
+```
+
+![agents-cli run](../images/agents-cli-run.png)
+
+Or, we could run up the extremely powerful and useful **ADK Web** interface, using this handly shortcut:
+
+```bash
+# From the agent folder
+agents-cli playground
+```
+
+![agents-cli playground](../images/agents-cli-adk-web.png)
+
+## Bonus Tip: Getting Started with a Makefile
+
+In a "monorepo" setup like _FinSavant_, you quickly end up managing a lot of moving parts: building frontend assets, compiling Python environments, building and running multiple Docker images, executing test suites, and deploying resources to various target environments. 
+
+Rather than forcing yourself (or your team) to remember a massive list of commands and flags, wrapping them in a `Makefile` is a developer workflow essential. 
+
+Earlier, during the demonstration of bootstrapping the project, the agent actually created an initial `Makefile` for us. If you followed along, you'll now have a `Makefile` that looks something like this:
+
+```makefile
+.PHONY: install lint format lint-fix test
+
+install:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is not installed. Installing uv..."; curl -LsSf https://astral.sh/uv/0.11.16/install.sh | sh; source $HOME/.local/bin/env; }
+	uv sync
+
+lint:
+	uvx codespell@latest -s
+	uvx ruff@latest check .
+
+lint-fix:
+	uvx codespell@latest -w
+	uvx ruff@latest check --fix .
+
+test:
+	uv run pytest tests/
+```
+
+Now you can run any of these `make` targets, like this:
+
+```bash
+make install
+```
+
+With this in place, we can build on it in future articles as we develop the _FinSavant_ solution.
 
 ## Useful Links and References
 
@@ -406,4 +459,7 @@ Let's see a live demo...
 ### Other Related Articles & Resources
 
 - [Antigravity IDE Documentation](https://antigravity.google/product/antigravity-ide?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
+- [Makefile Tutorial](https://makefiletutorial.com/) - A modern, visual guide to writing GNU Makefiles.
+- [uv Package Manager](https://astral.sh/uv) - Fast Python package manager and resolver.
+- [Ruff Linter & Formatter](https://docs.astral.sh/ruff/) - Blazing fast linter and formatter for Python.
 
