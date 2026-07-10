@@ -2,13 +2,13 @@
 
 ## Welcome to Part 2
 
-Welcome back, friends!
-
 ![Dr Evil Back](../images/dr-evil-back.png)
+
+Welcome back, friends!
 
 In the [first part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of the [FinSavant](https://github.com/derailed-dash/smart-gcp-finops) FinOps solution, the motivation for creating it, its overall architecture and tech stack, and how it works.
 
-In this part we're going to use _FinSavant_ as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. **Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful information and tips here that will help you build your own agentic solutions more effectively and quickly.**
+In this part we'll use _FinSavant_ as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. **Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful information and tips here that will help you build your own agentic solutions more effectively and quickly.**
 
 We'll cover:
 
