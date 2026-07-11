@@ -5,8 +5,6 @@
 We have Cloud Billing Exports into a BQ dataset.
 
 ## Setup
-6. Created TODO.md file.
-7. Created .env file (and checked .gitignore)
 8. Created `scripts/setup-env.sh` and `.envrc` to automatically run this.
 11. Used `deep-research` skill, along with adk-docs-mcp, to investigate best practices for React UI with ADK. Updated GEMINI.md with the findings.
 12. Performed documentation review with my `project-documentation` skill.

@@ -1,5 +1,7 @@
 # FinSavant Part 2: Building an Agentic FinOps Platform - Development Environment Setup, Google Antigravity, MCPs and Skills, and ADK Bootstrapping with Agents CLI
 
+**TL;DR - This article is going to be jam-packed with useful information, tips, tricks and hacks for setting up an agentic development in the Google ecosystem. Let's get cracking!**
+
 ## Welcome to Part 2
 
 ![Dr Evil Back](../images/dr-evil-back.png)
@@ -8,7 +10,7 @@ Welcome back, friends!
 
 In the [first part](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0) I described the purpose of the [FinSavant](https://github.com/derailed-dash/smart-gcp-finops) FinOps solution, the motivation for creating it, its overall architecture and tech stack, and how it works.
 
-In this part we'll use _FinSavant_ as a case study in how to set up a development environment for the purposes of building such an ADK-based agentic solution. **Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful information and tips here that will help you build your own agentic solutions more effectively and quickly.**
+In this part we'll use _FinSavant_ as a case study in **how to set up a development environment** for the purposes of building such an ADK-based agentic solution. **Even if you're not particularly interested in _FinSavant_ itself, I hope you'll find a bunch of useful information and tips here that will help you build your own agentic solutions more effectively and quickly.**
 
 We'll cover:
 
@@ -41,7 +43,18 @@ These days, my favourite coding environment _for any significant project_ is Ant
 
 You can get it [here](https://antigravity.google/product/antigravity-ide).
 
-(By the way, I often refer to Antigravity as _Agy_.)
+(I often refer to Antigravity as _Agy_.)
+
+By the way, Agy IDE is just one member of the Agy suite. 
+
+![The Antigravity Suite](../images/agy-suite-all.jpg)
+
+I've covered these before, but here's a quick reminder of the four Agy solutions in the suite:
+
+- **Antigravity 2.0**, which is now the dedicated agent-first “builder” environment on your desktop. Notably, it doesn’t itself include an IDE. Instead, we now interact only with the agent manager. This surface aims to usher in the era of “idea to product” using agents, without concerning ourselves over the code. Many builders who don’t come from a coding background will love this.
+- **Antigravity IDE**, which gives us the more familiar VS Code-esque coding environment, supported by the Antigravity agent harness. Here we can do agent-assisted development, and we always see the code. Coders will feel at home here.
+- **Antigravity SDK**, which gives you the harness and tools that power Antigravity, but exposed as a Python Agent SDK. By importing from google.antigravity we can programmatically leverage Antigravity’s capabilities.
+- **Antigravity CLI**, which is the next evolution of the the extremely awesome Gemini CLI. It’s still a terminal-first environment for interacting with Gemini models. But the new Antigravity CLI is built in Go, and you can tell; it feels much faster than Gemini CLI, both during startup and in general use. It leverages the same agent “harness” as Antigravity 2.0 and the IDE, and this allows for common settings and configuration across the Antigravity suite.
 
 ## Project Structure
 
@@ -120,19 +133,19 @@ npx skills add https://github.com/google-gemini/gemini-skills/ -y -g
 npx skills add https://github.com/shubhamsaboo/awesome-llm-apps/awesome-agent-skills -y -g --skill technical-writer
 ```
 
-We're also going to install the Google Agents CLI and its associated skill, but we'll get to that later.
+We're also going to install the _Google Agents CLI_ and its associated skills, but we'll get to that later.
 
 ## `GEMINI.md` - Context for Your Coding Agent
 
-The `GEMINI.md` file is how you define your project rules and context.  It's where you tell the Agy Agent:
+The `GEMINI.md` file (or `AGENTS.md` if you prefer) is how you define your project's rules and context.  It's where you tell the Agy Agent:
 
 - About your project's goals
 - Rules and guidelines you want it to follow
 - References you want it to read
 
-When we create `GEMINI.md` in the root of a project, then the file is scoped only to _that project_. (This project-specific context gets appended to any global `GEMINI.md` you have defined.) Then, when you launch any Antigravity tool from this workspace - such as Agy 2.0, Agy IDE, or Agy CLI - the Agent will automatically read this context.
+When we create `GEMINI.md` in the root of a project then the file is scoped only to _that project_. (This project-specific context gets appended to any global `GEMINI.md` you have defined.) When you launch any Antigravity tool from this workspace - such as Agy 2.0, Agy IDE, or Agy CLI - the Agent will automatically read this context.
 
-Let me show you what my `GEMINI.md` looks like, when starting out with _FinSavant_:
+Let me show you what my `GEMINI.md` looked like, when starting out with _FinSavant_:
 
 ```md
 # FinSavant - the Agentic FinOps Solution
@@ -226,7 +239,7 @@ As we go, document steps taken, experience and findings in docs/blog.md. Later, 
 ...
 ```
 
-If you're following along, give Agy a restart now, so it picks up this context.
+If you're following along and you've just created your context file, give Agy a restart now, so it picks this up.
 
 ## Documentation Approach
 
@@ -248,14 +261,14 @@ As you evolve your project, this skill will automatically maintain your document
 
 ## MCP Servers for Your Coding Agent
 
-I've [previously written about](https://medium.com/google-cloud/dialling-our-agents-to-11-my-favourite-mcp-servers-9549c1442a5e) some of my favourite MCP servers. There are only a couple that we'll need for this project:
+I've previously written about [some of my favourite MCP servers](https://medium.com/google-cloud/dialling-our-agents-to-11-my-favourite-mcp-servers-9549c1442a5e). There are only a couple that we'll need for this project:
 
 - [Google BigQuery Remote MCP Server](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp)
 - [ADK Docs MCP](https://adk.dev/tutorials/coding-with-ai/#adk-docs-mcp-server)
 
 Note that we won't be using either of these in the _FinSavant_ agent itself. These are purely to help us during development.
 
-Let's try out the BigQuery MCP server. In your workspace's `.agents/mcp_config.json` file, we configure the Remote BigQuery MCP server like this:
+Let's try out the BigQuery MCP server first. In your workspace's `.agents/mcp_config.json` file, we configure the **Remote BigQuery MCP server** like this:
 
 ```json
 {
@@ -283,9 +296,10 @@ A few things to note about this:
     ![BQ Billing Dataset in the Cloud Console](../images/bq_billing_dataset_console.png)
 
 - **BigQuery API**: Make sure the BigQuery API (`bigquery.googleapis.com`) is enabled on that project.
-- **Developer Identity Permissions**: Because the MCP server uses `google_credentials` to authenticate, your local developer account (active in `gcloud auth`) must be authorised on Google Cloud. You need the `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` roles on the project hosting the billing dataset.  You also need the `roles/mcp.toolUser` role, in order to use this managed MCP server to query the BigQuery database.
+- **Developer Identity Permissions**: Because the MCP server uses `google_credentials` to authenticate, your local developer account (active in `gcloud auth`) must be authorised on Google Cloud. You need the `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` roles on the project hosting the billing dataset.  
+- You also need the `roles/mcp.toolUser` role, in order to use this managed MCP server to query the BigQuery database.
 
-And now, when you open the workspace in Antigravity IDE, it will load this configuration automatically. Your coding agent will then be able to query schemas, inspect tables, and try out SQL queries in order to assist you when you actually create the _FinSavant_ agent code.
+And now, when you open the workspace in Antigravity IDE, it will load this configuration automatically. Your coding agent will be able to query schemas, inspect tables, and try out SQL queries in order to assist you when you actually create the _FinSavant_ agent code.
 
 Let's test it!
 
@@ -295,9 +309,9 @@ First, I issue this prompt to the Agy agent:
 What billing tables do I have? Explain their key functions.
 ```
 
-![what billing tables do I have?](../images/what-billing-tables.png)
+![What billing tables do I have?](../images/what-billing-tables.png)
 
-You can see the agent immediately finds the MCP server, and asks for permission to invoke its tools. After I grant permission, I get this response:
+You can see the agent immediately finds the MCP server and asks for permission to invoke its tools. After I grant permission, I get this response:
 
 ![BQ MCP response](../images/bq-mcp-response.png)
 
@@ -315,19 +329,21 @@ The easiest way to scaffold a new ADK agent is to make use of **Google Agents CL
 
   ![agents-cli skills](../images/agents-cli-commands.png)
 
-You install the bundle like this:
+You install the bundle using this one-time command:
 
 ```bash
 uvx google-agents-cli setup
 ```
 
-If you already have it installed, then you can upgrade like this. (It's worth doing this occasionally - this CLI is evolving quickly!)
+If you already have it installed, then you can upgrade like this:
 
 ```bash
 uv tool upgrade google-agents-cli
 ```
 
-With this installed, we could create our top level `agent` folder that contains a root agent called `finops_agent` by running this Agents CLI command:
+(It's worth doing this occasionally - this CLI is evolving quickly!)
+
+With this installed, we _could_ create our top level `agent` folder that contains a root agent called `finops_agent` by running this command:
 
 ```bash
 agents-cli scaffold create agent \
@@ -336,7 +352,7 @@ agents-cli scaffold create agent \
   --agent-directory finops_agent 
 ```
 
-It will create this, inside of our workspace folder:
+You'll end up with the following inside of your workspace folder:
 
 ```text
 agent/
@@ -370,7 +386,7 @@ agent/
 
 ![agents-cli create](../images/adk-create.png)
 
-But since we now have the skills installed, there's an easier way that doesn't require you to check the CLI documentation...
+But since we now have the skills installed, there's an easier way to accomplish this, that doesn't require you to check the CLI documentation...
 
 ```text
 Please bootstrap a new ADK agent project. The agent top-level project should be named `agent`, and it should should contain a root `agent-directory` called `finops_agent`, NOT the default of `app`. This means pyproject.toml and other config files will live under agent/, and all Python source files (like agent.py and fast_api_app.py) will live inside inside agent/finops_agent/.
@@ -384,7 +400,7 @@ Let's see a live demo...
 
 As you can see from the demo, we can now use `agents-cli` to check if our newly scaffolded agent is working.
 
-First, we could just send a single prompt on the command line:
+For example, by issuing a single test prompt on the command line:
 
 ```bash
 cd agent
@@ -402,11 +418,13 @@ agents-cli playground
 
 ![agents-cli playground](../images/agents-cli-adk-web.png)
 
-## Bonus Tip: Getting Started with a Makefile
+## Bonus #1: Getting Started with a Makefile
 
-In a "monorepo" setup like _FinSavant_, you quickly end up managing a lot of moving parts: building frontend assets, compiling Python environments, building and running multiple Docker images, executing test suites, and deploying resources to various target environments. 
+In a "monorepo" project setup like _FinSavant_, you quickly end up managing a lot of moving parts: building frontend assets, compiling Python environments, building and running multiple Docker images, executing test suites, and deploying resources to various target environments. 
 
-Rather than forcing yourself (or your team) to remember a massive list of commands and flags, wrapping them in a `Makefile` is a developer workflow essential. 
+Rather than forcing yourself (or your team) to remember a massive list of commands and flags, wrapping them in a `Makefile` is a big win. 
+
+But what actually is a `Makefile`? At its core, it is a configuration file used by the classic `make` build automation tool. These days it has evolved into a lightweight, standardised task runner. It allows us to define short aliases (known as "targets") for complex shell commands, documenting project workflows in a single, standard file that is easy for both humans and agents to discover.
 
 Earlier, during the demonstration of bootstrapping the project, the agent actually created an initial `Makefile` for us. If you followed along, you'll now have a `Makefile` that looks something like this:
 
@@ -429,13 +447,91 @@ test:
 	uv run pytest tests/
 ```
 
-Now you can run any of these `make` targets, like this:
+Now you can run any of these `make` _targets_, like this:
 
 ```bash
 make install
 ```
 
 With this in place, we can build on it in future articles as we develop the _FinSavant_ solution.
+
+## Bonus #2: My Setup-Env Script
+
+These days, whenever I'm working on a project that makes use of Google services, I always create a helper `setup-env` script to configure my environment for me.
+
+This script:
+
+1. **Loads environment variables**: Automatically exports all key/value pairs from `.env` directly into the current shell session.
+2. **Handles Google Cloud authentication**: If not skipped (via the `--noauth` flag), it runs `gcloud auth login --update-adc` to authenticate the user and configure Google Application Default Credentials (ADC).
+3. **Sets the active gcloud project**: Configures `gcloud` defaults for the target project and billing quota project settings.
+4. **Extracts project metadata**: Dynamically retrieves the Google Cloud Project Number and constructs helper variables (like the Cloud Build service account email) for deployment scripts.
+5. **Synchronises Python dependencies**: Runs `uv sync` to ensure all standard, development, and notebook dependencies are installed in the local environment.
+6. **Activates the virtual environment**: Activates the local Python virtual environment (`.venv`) so the user is immediately ready to run code.
+
+You can find a copy of this `scripts/setup-env.sh` in my [GitHub repository](https://github.com/derailed-dash/smart-gcp-finops/blob/main/scripts/setup-env.sh). Because it uses standard environment variables defined in your `.env`, you can use it any of your Google projects!
+
+You run it from the project root directory like this:
+
+```bash
+source scripts/setup-env.sh
+```
+
+## Bonus #3: Automating Setup with `direnv` and `.envrc`
+
+If you haven't come across this before, I think you're going to like it!
+
+Manually sourcing the `setup-env.sh` script every time I open a terminal in the project directory is a bit of a chore. To automate this, we can use `direnv` — an extension for your shell that automatically runs custom scripts and loads / unloads environment variables depending on your current directory.
+
+By placing a `.envrc` file at the root of the project, `direnv` automatically executes it whenever you `cd` into the directory. 
+
+Here is what our `.envrc` looks like:
+
+```bash
+if [ ! -d ".venv" ]; then
+  uv venv
+fi
+
+# Check if gcloud token is still valid to avoid re-authenticating
+if gcloud auth print-access-token --quiet > /dev/null 2>&1; then
+  echo "gcloud token is valid, skipping authentication."
+  source scripts/setup-env.sh --noauth
+else
+  echo "gcloud token is not valid, re-authenticating."
+  source scripts/setup-env.sh
+fi
+```
+
+This configuration does a few smart things:
+1. **Bootstraps the virtual environment**: Automatically initialises a virtual environment using `uv venv` if it doesn't already exist.
+2. **Verifies active Google session**: Runs `gcloud auth print-access-token` silently to check if our Google Cloud session is active.
+3. **Smart sourcing**: If the Google Cloud session is still valid, it sources the setup-env script with the `--noauth` flag, avoiding repetitive and annoying browser login prompts. If the session has expired, it triggers the full setup script to re-authenticate.
+
+There's a couple of one-off steps we have to do to get `direnv` up and running:
+
+1. Install `direnv`. On Debian/Ubuntu systems, this is `sudo apt install direnv`.
+2. Allow _this_ folder for `direnv`. Run `direnv allow` in the terminal, in the project folder where we've placed our `.envrc` file.
+
+Now, when we enter our project folder, the script runs automatically, like this:
+
+![running direnv](../images/direnv-demo.gif)
+
+Pretty neat, right?
+
+## Wrap-Up and Next Steps
+
+Okay, we're done with the environment setup. We've:
+
+- Setup Google Antigravity, along with some killer skills and MCP servers
+- Bootstrapped our project using the Agy agent
+- Established an initial set of core project documentation, using a custom skill
+- Used the Agy agent to bootstrap an AKD agent, making use of `agents-cli` and its skills
+- Created a `Makefile` for standardising common development, testing and deployment tasks
+- Created a `scripts/setup-env.sh` script for setting up our Google Cloud environment
+- Used `direnv` and a `.envrc` file to automate the setup process, everytime we open a terminal in this directory
+
+In the next part, we'll look at the actual code for our _FinSavant_ agents and tools!
+
+See you there!
 
 ## Useful Links and References
 
