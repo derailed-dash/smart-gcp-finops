@@ -61,13 +61,13 @@
 [~] Create blog series
   - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
   - [x] Blog part 1
-  - [~] Blog part 2
+  - [x] Blog part 2
   - [ ] Blog part 3
   - [ ] Blog part 4
   - [ ] Blog part 5
   - [ ] Blog part 6
   - [ ] Blog part 7
-[ ] Convert arch diagrams to renders
+[x] Convert arch diagrams to renders
 [x] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
 [ ] Ensure best-practices query is always aligned to deployed services and costs; not generic
 [ ] Separate monolithic prompt with subagents
