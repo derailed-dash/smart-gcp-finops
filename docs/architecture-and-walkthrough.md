@@ -15,7 +15,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **GCS Remote State** | Store Terraform state on GCS (`finops-admin-prd-tfstate`) to ensure a shared source of truth across CI/CD environments and enable state locking. |
 | **Custom Domain Mapping**| Use Cloud Run Domain Mappings over an External ALB + Cloud DNS setup for simplicity and cost optimization. |
 | **Cross-Project Billing**| Grant the Application Service Account cross-project access to the BigQuery billing export project (`var.google_cloud_billing_project`) via project-level IAM roles, enabling centralised cost analysis. |
-| **BigQuery MCP for local development** | In our development workspace, the BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) is configured in the local `.gemini/settings.json` file. This enables developers to have natural language interactions with BigQuery during development, without deploying any code. |
+| **BigQuery MCP for local development** | In our development workspace, the BigQuery MCP server (`https://bigquery.googleapis.com/mcp`) is configured in the local `.agents/mcp_config.json` file. This enables developers to have natural language interactions with BigQuery during development, without deploying any code. |
 | **BigQuery ADK Toolset (Agent)** | The ADK agent uses the native `BigQueryToolset` (from `google.adk.integrations.bigquery`) with Application Default Credentials (ADC) to query dataset metadata and schemas. By avoiding a separate remote MCP layer, it simplifies authentication, reduces runtime latency, and aligns with ADK best practices. |
 | **Organisational CAI Scoping** | Prioritise Organisation-level scopes for CAI lookups but fall back to project-level lookups for any resources not found in the organisation. This ensures complete visibility across all projects linked to the billing account, even those residing in independent projects outside the primary organization. Graceful handling of `403 Forbidden` errors at the organisation level allows for silent fallback to project-level "sniper" queries if the service account lacks top-level permissions. |
 | **CAI Zombie Detection** | Specialised Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
@@ -77,7 +77,7 @@ To support clean isolation, local testing, and separate scaling in production, t
    - **Use Case**: Deployed to Google Cloud Run in production and staging. It routes queries to the remote Agent Runtime in Gemini Enterprise.
    - **Dependencies**: Includes `fastapi`, `uvicorn`, and `google-genai` client packages.
 
-3. **Standalone Agent Runtime Container ([app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile))**:
+3. **Standalone Agent Runtime Container ([agent/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/agent/Dockerfile))**:
    - **Purpose**: Packages the core ADK agent code (`finops_agent`) and the `agent_runtime_app.py` bootstrapper.
    - **Use Case**: Deployed to Gemini Enterprise Agent Runtime to execute the cognitive loops and run tools.
    - **Dependencies**: Includes `google-adk`, `mcp`, and Google Cloud client libraries, with all web-serving and database dependencies (`fastapi`, `uvicorn`, `asyncpg`, etc.) completely pruned.
@@ -101,22 +101,22 @@ This set manages the web container deployed to Cloud Run, which hosts the static
 
 #### 2. The Agent Deployment Set (ADK Agent & Agent Runtime)
 This set manages the Agent container deployed to Gemini Enterprise Agent Runtime, which executes the cognitive loops and calls tools.
-*   **Dependencies**: Governed by [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and `app/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
-*   **Build Target**: Governed by [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
-*   **Configuration**: Initialised locally via `app/.env` and secured in the repository using the `app/.env.enc` git-crypt file. The deployment metadata is also tracked in [app/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml).
-*   **Deploy Command**: Executes `agents-cli deploy` inside the `app/` folder to build and deploy the container image directly to Gemini Enterprise Agent Runtime:
+*   **Dependencies**: Governed by [agent/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/agent/pyproject.toml) and `agent/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
+*   **Build Target**: Governed by [agent/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/agent/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
+*   **Configuration**: Initialised locally via `agent/.env` and secured in the repository using the `agent/.env.enc` git-crypt file. The deployment metadata is also tracked in [agent/agents-cli-manifest.yaml](file:///home/dazbo/localdev/smart-gcp-finops/agent/agents-cli-manifest.yaml).
+*   **Deploy Command**: Executes `agents-cli deploy` inside the `agent/` folder to build and deploy the container image directly to Gemini Enterprise Agent Runtime:
     ```bash
     make deploy-agent-runtime
     ```
 
 #### 3. Automatic Requirements Compilation (`requirements.txt`)
-In the `app/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) file. 
+In the `agent/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/requirements.txt) file. 
 *   **Purpose**: The Gemini Enterprise Agent Platform requires a standard `requirements.txt` file inside the agent source directory during Agent registration/serialization to map package dependencies.
-*   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `app/pyproject.toml` and run the compilation target to generate it automatically:
+*   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `agent/pyproject.toml` and run the compilation target to generate it automatically:
     ```bash
     make export-requirements
     ```
-    This compiles the frozen dependencies from `app/pyproject.toml` directly into `app/finops_agent/requirements.txt`.
+    This compiles the frozen dependencies from `agent/pyproject.toml` directly into `agent/finops_agent/requirements.txt`.
 
 
 ### Project Relationships & Cross-Project Interactions
@@ -180,7 +180,7 @@ To prevent financial spikes (accumulating large BigQuery scan costs or excessive
 
 ### BigQuery Native Toolset Integration
 
-The agent logic in `app/finops_agent/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
+The agent logic in `agent/finops_agent/agent.py` uses the native ADK `BigQueryToolset` to query and inspect BigQuery dataset metadata. This native toolset simplifies agent deployment by removing the dependency on remote MCP protocols while preserving performance.
 
 **Configuration Key Points**:
 - **Authentication**: Configured via `BigQueryCredentialsConfig` using standard Application Default Credentials (ADC), which allows seamless authentication locally and on Cloud Run.
@@ -188,7 +188,7 @@ The agent logic in `app/finops_agent/agent.py` uses the native ADK `BigQueryTool
 - **System Context**: The agent's system prompt is dynamically generated to include the target billing project and dataset IDs, ensuring it always targets the correct source of truth.
 
 ```python
-# app/finops_agent/agent.py snippet
+# agent/finops_agent/agent.py snippet
 # Configure native BigQuery Toolset using Application Default Credentials (ADC)
 import google.auth
 from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredentialsConfig
@@ -224,7 +224,7 @@ The table below outlines how operational and financial use cases map to our inte
 
 #### 2. Latency-Aware Agent Routing Flow
 
-To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../app/finops_agent/agent.py) injects a strict classification tree.
+To prevent execution overlap (e.g. running slow asset scans when asking for a simple database query or Cloud Run rightsizing), the system prompt in [agent.py](../agent/finops_agent/agent.py) injects a strict classification tree.
 
 The agent evaluates the incoming prompt and routes it into one of four mutually exclusive execution lanes, actively blocking/banning the tools belonging to other routes:
 

@@ -441,10 +441,7 @@ def _override_llm_request_with_message(req: LlmRequest, message: str) -> None:
     disabling all tool call capabilities and JSON output schema requirements.
     """
     req.contents = [
-        types.Content(
-            role="user",
-            parts=[types.Part(text="Output the system warning message.")]
-        )
+        types.Content(role="user", parts=[types.Part(text="Output the system warning message.")])
     ]
     req.config.system_instruction = (
         f"You must ignore all previous history and instructions. Immediately respond with the "
@@ -492,7 +489,9 @@ async def before_model_bypass(
     # 3. Defensive check: Authorization (No projects linked or allowed)
     allowed_projects = ctx.state.get("allowed_projects")
     if allowed_projects is not None and len(allowed_projects) == 0:
-        logger.warning("Access denied inside before_model_bypass: user %s has no allowed projects.", user_email)
+        logger.warning(
+            "Access denied inside before_model_bypass: user %s has no allowed projects.", user_email
+        )
         auth_msg = (
             f"❌ Access Denied: The user `{user_email}` does not have access to any GCP projects "
             f"linked to the billing account `{settings.google_cloud_billing_account}`.\n\n"
@@ -509,7 +508,10 @@ async def before_model_bypass(
     # 4. Defensive check: Graceful halt on tool error
     if "last_tool_error" in ctx.state:
         error_info = ctx.state.pop("last_tool_error")
-        logger.warning("Graceful tool error intercept inside before_model_bypass: tool '%s' failed.", error_info["tool"])
+        logger.warning(
+            "Graceful tool error intercept inside before_model_bypass: tool '%s' failed.",
+            error_info["tool"],
+        )
         friendly_msg = (
             f"❌ Cost Analysis Execution Error:\n"
             f"The tool `{error_info['tool']}` encountered an issue: `{error_info['error']}`.\n\n"

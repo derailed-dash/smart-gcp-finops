@@ -87,7 +87,7 @@ async def test_before_model_bypass_tool_error():
         "last_tool_error": {
             "tool": "execute_cached_bigquery_sql",
             "error": "400 Unrecognized name: _PARTITIONTIME",
-        }
+        },
     }
     callback_context.user_id = "test-user@example.com"
 

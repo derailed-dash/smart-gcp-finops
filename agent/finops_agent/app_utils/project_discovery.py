@@ -32,6 +32,13 @@ class ProjectDiscoveryManager:
         if not user_email:
             return set()
 
+        # Map local CLI user to the developer's email for local testing
+        if user_email == "cli-user":
+            logger.info(
+                "Mapping 'cli-user' to local developer email: %s", settings.local_developer_email
+            )
+            user_email = settings.local_developer_email
+
         if user_email == settings.playground_service_identity:
             playground_projects = {settings.google_cloud_project}
             if settings.google_cloud_billing_project:
@@ -102,6 +109,7 @@ class ProjectDiscoveryManager:
                 )
 
                 from google.cloud import asset_v1
+
                 asset_client = asset_v1.AssetServiceClient()
                 crm_service = None
 

@@ -1,4 +1,5 @@
 from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from finops_agent.app_utils.cai_utils import clear_services_cache
@@ -82,8 +83,8 @@ def test_get_projects_in_org_success(mock_build):
 @patch("finops_agent.app_utils.project_discovery.settings")
 def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
     """Test get_user_accessible_projects using organization Cloud Asset IAM policy search."""
-    from finops_agent.app_utils.project_discovery import get_user_accessible_projects
-
+    from finops_agent.app_utils.project_discovery import _USER_PROJECTS_CACHE, get_user_accessible_projects
+    
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = "123456789"
 
@@ -142,4 +143,30 @@ def test_get_user_accessible_projects_standalone(
     mock_service.projects().getIamPolicy.side_effect = get_iam_policy_side_effect
 
     projects = get_user_accessible_projects("test-user@dazbo.co.uk")
+    assert projects == {"proj-a"}
+
+
+@patch("finops_agent.app_utils.project_discovery.list_billing_projects")
+@patch("finops_agent.app_utils.project_discovery.get_service")
+@patch("finops_agent.app_utils.project_discovery.settings")
+def test_get_user_accessible_projects_cli_user(mock_settings, mock_get_service, mock_list_billing):
+    """Test that 'cli-user' is mapped to settings.local_developer_email."""
+    from finops_agent.app_utils.project_discovery import get_user_accessible_projects
+
+    _USER_PROJECTS_CACHE.clear()
+    mock_settings.google_cloud_organization = None
+    mock_settings.google_cloud_billing_account = "012345-ABCDEF-012345"
+    mock_settings.local_developer_email = "test-user@dazbo.co.uk"
+
+    mock_list_billing.return_value = ["proj-a"]
+
+    mock_service = MagicMock()
+    mock_get_service.return_value = mock_service
+
+    mock_policy_a = {
+        "bindings": [{"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}]
+    }
+    mock_service.projects().getIamPolicy().execute.return_value = mock_policy_a
+
+    projects = get_user_accessible_projects("cli-user")
     assert projects == {"proj-a"}

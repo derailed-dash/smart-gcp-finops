@@ -207,4 +207,6 @@ tools/a2a-inspector/
 gha-creds-*.json
 /deployment/terraform/vars/env.tfvars
 deployment_metadata.json
-/app/.env
+/agent/.env
+.agents/mcp_config.json
+

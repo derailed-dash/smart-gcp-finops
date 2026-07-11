@@ -6,38 +6,38 @@ This document tracks the process of scaffolding, migrating, and deploying the AD
 
 - **Command Run:**
   ```bash
-  agents-cli scaffold create app --agent adk --prototype --agent-guidance-filename GEMINI.md
+  agents-cli scaffold create agent --agent adk --prototype --agent-guidance-filename GEMINI.md
   ```
 
 ## 2. Refined Nested Package Layout (Hatchling Compatibility)
 
 During smoke testing and build validation, we discovered that:
 1. Standard ADK packaging uses `hatchling` as its build backend.
-2. If we flatten the structure directly under `app/` (setting `agent_directory: "."`), `hatchling` fails to package the wheel correctly because of workspace-level file pollution and root configuration conflicts.
-3. Therefore, a nested subdirectory representing the Python package is required. We chose `app/finops_agent/` as the dedicated agent package.
+2. If we flatten the structure directly under `agent/` (setting `agent_directory: "."`), `hatchling` fails to package the wheel correctly because of workspace-level file pollution and root configuration conflicts.
+3. Therefore, a nested subdirectory representing the Python package is required. We chose `agent/finops_agent/` as the dedicated agent package.
 
 We migrated the structure as follows:
-- Set `agent_directory: "finops_agent"` in `/home/dazbo/localdev/smart-gcp-finops/app/agents-cli-manifest.yaml`.
-- Created `/home/dazbo/localdev/smart-gcp-finops/app/finops_agent/__init__.py`.
-- Moved all agent code files (`agent.py`, `agent_runtime_app.py`, `deploy_to_agent_runtime.py`, `app_utils/`, etc.) into `app/finops_agent/`.
-- Removed `/home/dazbo/localdev/smart-gcp-finops/app/__init__.py`.
+- Set `agent_directory: "finops_agent"` in `/home/dazbo/localdev/smart-gcp-finops/agent/agents-cli-manifest.yaml`.
+- Created `/home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/__init__.py`.
+- Moved all agent code files (`agent.py`, `agent_runtime_app.py`, `deploy_to_agent_runtime.py`, `app_utils/`, etc.) into `agent/finops_agent/`.
+- Removed `/home/dazbo/localdev/smart-gcp-finops/agent/__init__.py`.
 
 ## 3. BFF and Agent Separation (Unified Container Pattern)
 
 To support clean production deployments where the FastAPI BFF/React UI can be deployed/scaled separately from the Agent Runtime:
 - Created a separate `bff/` directory containing the FastAPI application (`bff/fast_api_app.py`) and its own `bff/Dockerfile`.
-- Deleted `fast_api_app.py` from the agent package (`app/finops_agent/fast_api_app.py`).
-- Kept the agent-serving `agent_runtime_app.py` inside `app/finops_agent/`.
+- Deleted `fast_api_app.py` from the agent package (`agent/finops_agent/fast_api_app.py`).
+- Kept the agent-serving `agent_runtime_app.py` inside `agent/finops_agent/`.
 - Updated all import references in the agent code and unit/integration tests from `app.app_utils.*` to `finops_agent.app_utils.*`.
-- Updated the root `Dockerfile` to copy `./bff` and `./app/finops_agent` and run the FastAPI app as `bff.fast_api_app:app`.
-- Updated `app/Dockerfile` to copy `./finops_agent` and serve the agent using `finops_agent.agent_runtime_app:agent_runtime`.
-- Updated the root `Makefile` run targets (`local-backend` and `run-backend`) to run the BFF FastAPI server with `PYTHONPATH=app`.
+- Updated the root `Dockerfile` to copy `./bff` and `./agent/finops_agent` and run the FastAPI app as `bff.fast_api_app:app`.
+- Updated `agent/Dockerfile` to copy `./finops_agent` and serve the agent using `finops_agent.agent_runtime_app:agent_runtime`.
+- Updated the root `Makefile` run targets (`local-backend` and `run-backend`) to run the BFF FastAPI server with `PYTHONPATH=agent`.
 
 ## 4. Resolution of Renaming & Mocking Edge Cases
 
 ### ADK App Name Alignment
 The ADK runner routes requests based on the resolved `app_name`. By default, the agent loader infers the `app_name` from the subdirectory name containing the agent code (`finops_agent`).
-We aligned this by changing the `App` definition in `app/finops_agent/agent.py` to:
+We aligned this by changing the `App` definition in `agent/finops_agent/agent.py` to:
 ```python
 app = App(
     root_agent=root_agent,
@@ -63,9 +63,9 @@ All tests pass successfully under the new architecture:
 ## 6. Dockerfile Copy Path Fix (2026-07-02)
 
 - **Issue:** Running the unified container (`make docker-run`) failed with `FileNotFoundError: [Errno 2] No such file or directory: '/code/app'` during FastAPI startup. The ADK `get_fast_api_app` helper requires a nested agent folder structure to discover available agents. Because the Dockerfile originally copied `./app/finops_agent` directly to `/code/finops_agent`, `/code/app/` did not exist.
-- **Resolution:** Modified both [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) and [bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile) to copy the agent source package to the nested path `./app/finops_agent` inside the container:
+- **Resolution:** Modified both [Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/Dockerfile) and [bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile) to copy the agent source package to the nested path `./agent/finops_agent` inside the container:
   ```dockerfile
-  COPY ./app/finops_agent ./app/finops_agent
+  COPY ./agent/finops_agent ./agent/finops_agent
   ```
   This preserves the local directory structure exactly, satisfying the ADK loader while keeping `sys.path` imports correct. Verified that `make docker-build` compiles the image successfully.
 
@@ -84,7 +84,7 @@ All tests pass successfully under the new architecture:
   ImportError: cannot import name 'dataplex_v1' from 'google.cloud'
   ```
   *Why:* ADK's `BigQueryToolset` depends internally on the `google-cloud-dataplex` package. When we pruned dependencies to optimize container sizes, we accidentally omitted Dataplex.
-  *Resolution:* Added `google-cloud-dataplex` to the dependencies in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
+  *Resolution:* Added `google-cloud-dataplex` to the dependencies in [agent/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/agent/pyproject.toml) and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/requirements.txt).
 
 - **Issue 2 (404 Mapped Routing):** Remote calls to the container returned HTTP `404 Not Found` (detail: `"Not Found"`) from the Agent Platform Control Plane.
   *Why:* To suppress warning logs, we had pruned the `"async"` and `"async_stream"` keys from `register_operations()` in `agent_runtime_app.py`. However, the Agent Platform control plane uses these keys to construct its routing tables; removing them broke the routing paths.
@@ -153,11 +153,11 @@ All tests pass successfully under the new architecture:
 
 ## 13. Auto-Create Session Monkeypatching (2026-07-04)
 
-- **Issue:** When querying the reasoning engine directly from the Vertex AI Console Playground, the platform calls the ASGI app inside the container but fails to provide a pre-existing or valid Session ID, leading to a crash with `SessionNotFoundError`.
-- **Resolution:** Implemented global class-level monkeypatches inside [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py#L29-L62) to intercept `Runner.__init__` and `AdkApp.set_up` and dynamically override/inject `auto_create_session = True` on all runners. To prevent future SDK upgrade breakages, these patches are wrapped in defensive `try-except` blocks with dynamic `TypeError` argument-signature fallbacks.
+- **Issue:** When querying the Agent Runtime directly from the Gemini Enterprise Agent Platform Console Playground, the platform calls the ASGI app inside the container but fails to provide a pre-existing or valid Session ID, leading to a crash with `SessionNotFoundError`.
+- **Resolution:** Implemented global class-level monkeypatches inside [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/agent_runtime_app.py#L29-L62) to intercept `Runner.__init__` and `AdkApp.set_up` and dynamically override/inject `auto_create_session = True` on all runners. To prevent future SDK upgrade breakages, these patches are wrapped in defensive `try-except` blocks with dynamic `TypeError` argument-signature fallbacks.
 - **How to Remove the Patches:**
   Once Google ADK supports configuring session auto-creation natively (e.g. via an environment variable like `ADK_AUTO_CREATE_SESSION` or a template parameter), you can safely remove the monkeypatches:
-  1. Delete the `try-except` block at the top of [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py).
-  2. If the feature was added via a standard configuration or environment variable, configure it accordingly in [app/.env](file:///home/dazbo/localdev/smart-gcp-finops/app/.env) instead.
+  1. Delete the `try-except` block at the top of [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/agent_runtime_app.py).
+  2. If the feature was added via a standard configuration or environment variable, configure it accordingly in [agent/.env](file:///home/dazbo/localdev/smart-gcp-finops/agent/.env) instead.
 
 

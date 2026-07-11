@@ -14,9 +14,11 @@ import sys
 from collections.abc import AsyncIterator
 from typing import ClassVar
 
-# Ensure workspace root and app/ directory are in sys.path so finops_agent resolves
+# Ensure workspace root and agent/ directory are in sys.path so finops_agent resolves
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent")
+)
 
 from finops_agent.app_utils.logging_and_telemetry import setup_logging_suppressions
 
@@ -83,7 +85,7 @@ allow_origins = (
 
 # Artifact bucket for ADK (created by Terraform, passed via env var)
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
+AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent")
 
 
 class AppState:
@@ -183,7 +185,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # cognitive loop runs inside the remote Agent Runtime. Bypassing local agent
         # instantiation saves memory, avoids importing heavy runtime/tool packages,
         # and eliminates redundant local A2A endpoints since A2A is managed by the remote runtime.
-        logger.info("Starting BFF in REMOTE mode. Routing queries to Agent Runtime: %s", agent_runtime_id)
+        logger.info(
+            "Starting BFF in REMOTE mode. Routing queries to Agent Runtime: %s", agent_runtime_id
+        )
         app.state.runner = None
         app.state.agent_app_name = "finops_agent"
 
@@ -345,7 +349,10 @@ async def chat_stream(request: Request):
                             AppState.remote_session_id = str(session_obj)
                         logger.debug("Created remote session ID: %s", AppState.remote_session_id)
 
-                logger.debug("Starting remote query execution with session ID: %s", AppState.remote_session_id)
+                logger.debug(
+                    "Starting remote query execution with session ID: %s",
+                    AppState.remote_session_id,
+                )
                 try:
                     async for event_dict in agent_engine.async_stream_query(
                         message=augmented_message,
@@ -371,7 +378,9 @@ async def chat_stream(request: Request):
                         event = Event.model_validate(event_dict)
                         await event_queue.put(event)
             except Exception as e:
-                logger.error("Exception in run_remote_agent background thread: %s", e, exc_info=True)
+                logger.error(
+                    "Exception in run_remote_agent background thread: %s", e, exc_info=True
+                )
                 await event_queue.put(e)
             finally:
                 logger.debug("Remote agent runner task completed.")
@@ -549,13 +558,3 @@ if os.path.exists(FRONTEND_DIST):
         if os.path.exists(index_file):
             return FileResponse(index_file)
         raise HTTPException(status_code=404, detail="Index file not found")
-
-
-# Main execution entry point.
-# This block is only entered when executing the script directly (e.g. `python bff/fast_api_app.py`).
-# It is skipped in local development (`make run-backend`) and production (Docker)
-# where uvicorn imports `bff.fast_api_app:app` dynamically as a module.
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -30,7 +30,7 @@ There are distinct operational differences in how updates are delivered to each 
 
 > [!IMPORTANT]
 > **Terraform Infrastructure Changes are MANUAL**: 
-> The GitHub Actions CI/CD workflows only handle application-level deployments (building containers, registering Reasoning Engines, and updating Cloud Run configurations). They **do not** run `terraform plan` or `terraform apply` automatically on pull requests or merges. 
+> The GitHub Actions CI/CD workflows only handle application-level deployments (building containers, deploying agents to the Agent Runtime, and updating Cloud Run configurations). They **do not** run `terraform plan` or `terraform apply` automatically on pull requests or merges. 
 > 
 > If you modify files under `deployment/terraform/`, you **must** run:
 > ```bash
@@ -46,18 +46,17 @@ To enable the Gemini CLI agent to interact with BigQuery data locally, you must 
 
 ### 1. BigQuery MCP Configuration
 
-Create or update `.gemini/settings.json` in the project root:
+Create or update `.agents/mcp_config.json` in the project root:
 
 ```json
 {
   "mcpServers": {
     "bigquery-mcp-server": {
-      "httpUrl": "https://bigquery.googleapis.com/mcp",
+      "serverUrl": "https://bigquery.googleapis.com/mcp",
       "authProviderType": "google_credentials",
       "oauth": {
         "scopes": ["https://www.googleapis.com/auth/bigquery"]
       },
-      "timeout": 30000,
       "headers": {
         "x-goog-user-project": "$GOOGLE_CLOUD_BILLING_PROJECT"
       }
@@ -67,6 +66,12 @@ Create or update `.gemini/settings.json` in the project root:
 ```
 
 **Note**: The `x-goog-user-project` header is critical when your billing export resides in a centralized "admin" project. It tells BigQuery to use your specific billing project for query quota and processing costs.
+
+**Developer Identity Permissions**: Since the BigQuery MCP server uses `google_credentials` to authenticate, your local developer account (active in `gcloud auth`) must be authorised on Google Cloud. You must ensure that your personal identity is granted:
+- `roles/bigquery.dataViewer` on the project hosting the billing export dataset (to view and read table schemas).
+- `roles/bigquery.jobUser` on the quota project (specified in `x-goog-user-project` / `GOOGLE_CLOUD_BILLING_PROJECT` to execute query jobs).
+
+Additionally, make sure the BigQuery API (`bigquery.googleapis.com`) is enabled in both projects.
 
 ### 2. Environment Variables
 
@@ -80,14 +85,14 @@ For local development and container runtime, configuration is driven by variable
 | `GOOGLE_CLOUD_PROJECT` | Deployment Target | The Google Cloud project ID hosting the active app runtime (e.g., staging project during local dev). |
 | `CICD_PROJECT_ID` | CI/CD Infrastructure | The project ID hosting the CI/CD resources (Artifact Registry, WIF). |
 | `GOOGLE_CLOUD_REGION` | Infrastructure Region | The default region where Cloud Run and other regional services are deployed (e.g., `europe-west1`). |
-| `GOOGLE_CLOUD_LOCATION` | GenAI / Vertex AI | The Vertex AI API endpoint location.Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
+| `GOOGLE_CLOUD_LOCATION` | GenAI / Gemini Enterprise Agent Platform | The Gemini Enterprise Agent Platform API endpoint location. Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
 | `GOOGLE_CLOUD_BILLING_ACCOUNT` | Billing Scope | The target GCP Billing Account ID being audited (formatted as `XXXXXX-XXXXXX-XXXXXX`). |
 | `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g. `europe-west4`). |
 | `GOOGLE_CLOUD_BILLING_PROJECT` | Billing Project | The ID of the project hosting the BigQuery billing export dataset (for query execution and data viewing). |
 | `BILLING_EXPORT_DATASET` | Billing Dataset | The name of the BigQuery dataset where Google Cloud billing logs are exported. |
 | `SERVICE_SA` | Security / Identity | Prefix name of the custom application service account (e.g., `smart-gcp-finops-app`). |
 | `SERVICE_SA_EMAIL` | Security / Identity | The full email address of the application service account. |
-| `GOOGLE_GENAI_USE_VERTEXAI` | GenAI Backend | Boolean flag (`True`/`False`) indicating whether to authenticate using Vertex AI IAM instead of raw Gemini API keys. |
+| `GOOGLE_GENAI_USE_VERTEXAI` | GenAI Backend | Boolean flag (`True`/`False`) indicating whether to authenticate using Gemini Enterprise Agent Platform IAM instead of raw Gemini API keys. |
 | `MODEL` | GenAI Reasoning | The primary model ID used by the ADK agent for cost analysis (e.g., `gemini-3.5-flash`). |
 | `FAST_MODEL` | GenAI Caching / Routing | The lite model ID used for semantic caching and request classification (e.g., `gemini-3.1-flash-lite`). |
 | `GOOGLE_CLOUD_ORGANIZATION` | Infrastructure Scope | (Optional) The numeric ID of the Google Cloud Organization to enable Org-wide Cloud Asset searches. |
@@ -185,14 +190,14 @@ The agent and infrastructure are configured using variables in `deployment/terra
 | `google_cloud_billing_project` | The project ID hosting the BigQuery billing dataset (e.g., `finops-admin-123456`). |
 | `billing_export_dataset` | The name of the dataset containing the billing data (e.g., `all_billing_data`). |
 | `google_cloud_organization_id` | (Required) The numeric ID of your Google Cloud Organization. If you do not use an organization, you must set this to an empty string (`""`) in your `env.tfvars` to satisfy Terraform variable validation. |
-| `google_genai_use_vertexai` | Whether to use Vertex AI for Gemini (default: `true`). |
-| `google_cloud_location` | The location for Vertex AI API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
+| `google_genai_use_vertexai` | Whether to use Gemini Enterprise Agent Platform for Gemini (default: `true`). |
+| `google_cloud_location` | The location for Gemini Enterprise Agent Platform API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
 | `model` | The primary model used for reasoning (default: `gemini-3.5-flash`). |
 | `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.1-flash-lite`). |
 | `cloud_run_staging_min_instances` / `cloud_run_prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
 | `cloud_run_staging_max_instances` / `cloud_run_prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
-| `agent_runtime_staging_min_instances` / `agent_runtime_prod_min_instances` | Minimum scaling count for Vertex AI Agent Runtime (e.g., `0`). |
-| `agent_runtime_staging_max_instances` / `agent_runtime_prod_max_instances` | Maximum scaling count for Vertex AI Agent Runtime (e.g., `1` for dev, `10` for prod). |
+| `agent_runtime_staging_min_instances` / `agent_runtime_prod_min_instances` | Minimum scaling count for Gemini Enterprise Agent Runtime (e.g., `0`). |
+| `agent_runtime_staging_max_instances` / `agent_runtime_prod_max_instances` | Maximum scaling count for Gemini Enterprise Agent Runtime (e.g., `1` for dev, `10` for prod). |
 
 These variables are defined in `deployment/terraform/vars/env.tfvars` and are automatically propagated to:
 
@@ -207,7 +212,7 @@ To support the FinOps cross-referencing logic, specific IAM roles are configured
 1.  **Billing Account Project Discovery**: Grants `roles/billing.viewer` at the Billing Account level via `google_billing_account_iam_member` to allow dynamic discovery of associated projects.
 2.  **Asset Inventory Cross-Referencing**:
     - **With Organization**: If `google_cloud_organization_id` is supplied, grants `roles/cloudasset.viewer` at the Organization level via `google_organization_iam_member`. This provides efficient visibility across the entire estate.
-    - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`.
+    - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`, and `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the billing project to query billing data.
 3.  **BigQuery Cost Analysis**: Grants `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the centralized Billing Project via `google_project_iam_member`.
 
 ## Environment Variable Configuration & Lifecycle
@@ -216,7 +221,7 @@ The configuration parameters for FinSavant flow through a structured lifecycle t
 
 ### 1. The Configuration Flow
 
-![Environment Variable Propagation Flow](docs/images/env_variable_lifecycle.png)
+![Environment Variable Propagation Flow](../docs/images/env_variable_lifecycle.png)
 
 ### 2. Local Development & Deployment Configuration (.env files)
 
@@ -227,11 +232,11 @@ To separate responsibilities and maintain security, the repository uses two dist
    - **Scope**: Includes infrastructure/deployment variables (like `REPO`, `GITHUB_TOKEN`, `SERVICE_SA_EMAIL`, `AGENT_RUNTIME_ID`), plus local/unified runtime variables.
    - **Status**: Kept in sync with root `.env.enc` via `git-crypt`.
 
-2. **Agent `.env`** (Situated under [app/.env](file:///home/dazbo/localdev/smart-gcp-finops/app/.env)):
+2. **Agent `.env`** (Situated under [agent/.env](file:///home/dazbo/localdev/smart-gcp-finops/agent/.env)):
    - **Purpose**: Configuration required strictly by the ADK agent runtime.
    - **Scope**: Contains only variables needed at runtime by the agent code (such as models, billing settings, logging levels, and telemetry). It is packaged with the agent during deployment.
-   - **Platform Restrictions**: Note that the Vertex AI Agent Runtime strictly forbids certain platform-reserved variables (like `GOOGLE_CLOUD_PROJECT`) from being set in the environment payload. The deployment tools automatically filter these out when deploying to the Agent Runtime.
-   - **Status**: Kept in sync with `app/.env.enc` via `git-crypt`.
+   - **Platform Restrictions**: Note that the Gemini Enterprise Agent Runtime strictly forbids certain platform-reserved variables (like `GOOGLE_CLOUD_PROJECT`) from being set in the environment payload. The deployment tools automatically filter these out when deploying to the Agent Runtime.
+   - **Status**: Kept in sync with `agent/.env.enc` via `git-crypt`.
 
 ### 3. Staging and Production Configuration Mapping
 
@@ -239,12 +244,12 @@ To separate responsibilities and maintain security, the repository uses two dist
 |--------------------------------------|-----------------------------------|------------------------------------------|---------------|-------------|
 | `project_name` | `vars.CONTAINER_NAME` | N/A | Build Pipeline | Base name for services and containers. |
 | `google_cloud_region` | `vars.REGION` | `GOOGLE_CLOUD_REGION` | BFF & Agent | Google Cloud deployment region. |
-| `google_cloud_location` | `vars.GOOGLE_CLOUD_LOCATION` | `GOOGLE_CLOUD_LOCATION` | BFF & Agent | Vertex AI endpoint location (generally `global`). |
+| `google_cloud_location` | `vars.GOOGLE_CLOUD_LOCATION` | `GOOGLE_CLOUD_LOCATION` | BFF & Agent | Gemini Enterprise Agent Platform endpoint location (generally `global`). |
 | `google_cloud_billing_project` | `vars.GOOGLE_CLOUD_BILLING_PROJECT` | `GOOGLE_CLOUD_BILLING_PROJECT` | BFF & Agent | Project hosting BigQuery billing export. |
 | `billing_export_dataset` | `vars.BILLING_EXPORT_DATASET` | `BILLING_EXPORT_DATASET` | BFF & Agent | Dataset name containing billing tables. |
 | `billing_account_id` | `vars.GOOGLE_CLOUD_BILLING_ACCOUNT` | `GOOGLE_CLOUD_BILLING_ACCOUNT` | BFF & Agent | Billing account ID to analyse. |
 | `google_cloud_organization_id` | `vars.GOOGLE_CLOUD_ORGANIZATION` | `GOOGLE_CLOUD_ORGANIZATION` | BFF & Agent | Numeric ID of the GCP Organisation. |
-| `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Vertex AI connectivity. |
+| `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Gemini Enterprise Agent Platform connectivity. |
 | `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.5-flash`). |
 | `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.1-flash-lite`). |
 | `cloud_run_staging_min_instances` | `vars.CLOUD_RUN_STAGING_MIN_INSTANCES`| N/A | Cloud Run Deploy | Minimum containers for Staging BFF. |
@@ -309,28 +314,7 @@ This project implements **Native (Built-in) IAP for Cloud Run**, providing enter
 
 ### How Native IAP Works Under the Hood
 
-```mermaid
-sequenceDiagram
-    actor User as authorised User
-    participant IAP as Built-in IAP Proxy
-    participant Run as Private Cloud Run Container
-
-    User->>IAP: 1. Requests App URL
-    Note over IAP: Checks Google Account Session
-    alt Session active & belongs to Organisation Domain
-        IAP->>User: Redirects to Internal OAuth Consent Screen
-        User->>IAP: Authenticates
-    end
-    Note over IAP: Evaluates roles/iap.httpsResourceAccessor
-    alt User has accessor role
-        IAP->>Run: 2. Proxies request using IAP Service Agent Identity
-        Note over Run: Verifies roles/run.invoker for IAP Service Agent
-        Run->>IAP: 3. Serves response
-        IAP->>User: 4. Returns content (Vite React UI + FastAPI)
-    else User is blocked
-        IAP->>User: 403 Forbidden
-    end
-```
+![Built-in IAP Authentication Flow for Cloud Run](../docs/images/cloudrun_iap_flow.png)
 
 1. **Request Interception**: All public traffic hitting the Cloud Run URL is intercepted at the Google Cloud front-end by the built-in IAP proxy layer before reaching the container.
 2. **User Authentication**: Unauthenticated users are redirected to the Google OAuth consent screen. Native IAP requires this consent screen to be configured as **Internal** (restricted to members of your Google Workspace/Cloud Organization `123456789012`).
@@ -368,7 +352,7 @@ To prevent Terraform from trying to strip or revert the deployment-metadata and 
 Deploying FinSavant to the Gemini Enterprise Agent Runtime requires coordinating three distinct steps: provisioning infrastructure (Terraform), deploying the agent logic (Agent Runtime), and deploying the container BFF proxy (Cloud Run).
 
 > [!IMPORTANT]
-> **Deployment Sequence Dependency**: Every time you update and redeploy the backend agent logic via `make deploy-agent-runtime`, a new `reasoningEngine` instance ID is created on Google Cloud. You **must** immediately redeploy the Cloud Run service (`make deploy-cloud-run`) afterwards so the front-end/BFF is updated to route user traffic to the new agent instance.
+> **Deployment Sequence Dependency**: Every time you update and redeploy the backend agent logic via `make deploy-agent-runtime`, a new Agent Runtime (`reasoningEngine`) instance ID is created on Google Cloud. You **must** immediately redeploy the Cloud Run service (`make deploy-cloud-run`) afterwards so the front-end/BFF is updated to route user traffic to the new agent instance.
 
 ### 1. Provision Base Infrastructure (Terraform)
 
@@ -381,15 +365,15 @@ terraform plan -var-file=vars/env.tfvars -out=tfplan
 terraform apply tfplan
 ```
 
-### 2. Deploy Agent Logic to Vertex AI Agent Runtime
+### 2. Deploy Agent Logic to Gemini Enterprise Agent Runtime
 
-Compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Vertex AI Agent Runtime (Reasoning Engine):
+Compile the dependencies and package/upload the Python agent logic (configured in the `app/` folder) to the managed Gemini Enterprise Agent Runtime (Agent Platform):
 
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles staging dependencies to `app/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
-*   **Result**: A new `reasoningEngine` resource instance is created on Vertex AI.
+*   **What this does**: It compiles staging dependencies to `agent/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
+*   **Result**: A new Agent Runtime (`reasoningEngine`) resource instance is created on the Gemini Enterprise Agent Platform.
 
 ### 3. Deploy the Cloud Run BFF and Frontend
 
@@ -398,13 +382,13 @@ Deploy the unified frontend and BFF container. This target automatically fetches
 ```bash
 make deploy-cloud-run
 ```
-*   **How it resolves the ID**: During execution, the Makefile runs a helper Python script (`scripts/get-agent-runtime-id.py`) which queries Vertex AI for the most recently deployed reasoning engine matching your backend service name (`smart-gcp-finops-backend`).
-*   **How it routes**: The Makefile captures this newly retrieved ID and injects it as the `AGENT_RUNTIME_ID` environment variable in the Cloud Run deployment parameters. When the container boots, the FastAPI BFF detects this variable and automatically acts as a proxy, streaming chat sessions directly to the remote reasoning engine instead of using a local container runner.
+*   **How it resolves the ID**: During execution, the Makefile runs a helper Python script (`scripts/get-agent-runtime-id.py`) which queries the Gemini Enterprise Agent Platform for the most recently deployed Agent Runtime matching your backend service name (`smart-gcp-finops-backend`).
+*   **How it routes**: The Makefile captures this newly retrieved ID and injects it as the `AGENT_RUNTIME_ID` environment variable in the Cloud Run deployment parameters. When the container boots, the FastAPI BFF detects this variable and automatically acts as a proxy, streaming chat sessions directly to the remote Agent Runtime instead of using a local container runner.
 
 ## CI/CD Pipeline Flow
 
 All of the deployment orchestration steps above are fully automated in our GitHub Actions workflows:
-- **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Vertex AI Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
+- **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Gemini Enterprise Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
 - **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run.
 
 ## IAM Permissions & Validation
@@ -500,7 +484,7 @@ If your GCP billing account is associated with standalone ("orphaned") projects 
         done
         ```
 
-*   **Option B: Filter and bind only to standalone projects (not in the organization)**:
+*   **Option B: Filter and bind only to standalone projects (not in the organisation)**:
     *   **For Developer Account**:
         ```bash
         for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
@@ -533,6 +517,3 @@ If your GCP billing account is associated with standalone ("orphaned") projects 
         ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).
-
-
-

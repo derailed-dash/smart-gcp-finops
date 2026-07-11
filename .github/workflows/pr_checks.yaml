@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'app/**'
+      - 'agent/**'
       - 'data_ingestion/**'
       - 'tests/**'
       - 'deployment/**'
