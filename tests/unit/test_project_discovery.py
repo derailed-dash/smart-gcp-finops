@@ -1,4 +1,4 @@
-from tests.unit.test_tools import mock_settings
+from unittest.mock import ANY, MagicMock, patch
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
