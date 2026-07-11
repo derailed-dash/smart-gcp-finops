@@ -490,7 +490,16 @@ By placing a `.envrc` file at the root of the project, `direnv` automatically ex
 Here is what our `.envrc` looks like:
 
 ```bash
-
+# Bootstraps the virtual environment if it doesn't exist
+if [ ! -d ".venv" ]; then
+    uv venv
+fi
+# Verify active Google session and conditionally source configuration
+if gcloud auth print-access-token >/dev/null 2>&1; then
+    source scripts/setup-env.sh --noauth
+else
+    source scripts/setup-env.sh
+fi
 ```
 
 This configuration does a few smart things:

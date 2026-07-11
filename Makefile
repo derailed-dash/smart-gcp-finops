@@ -68,7 +68,7 @@ install:
 # Launch local ADK Web dev playground
 playground:
 	@echo "==============================================================================="
-	@echo "| 🚀 Starting your agent playground...                                        |"                 |"
+	@echo "| 🚀 Starting your agent playground...                                        |"
 	@echo "==============================================================================="
 	uv run adk web agent/finops_agent --port 8501 --reload_agents
 

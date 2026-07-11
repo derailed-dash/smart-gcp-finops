@@ -232,11 +232,11 @@ To separate responsibilities and maintain security, the repository uses two dist
    - **Scope**: Includes infrastructure/deployment variables (like `REPO`, `GITHUB_TOKEN`, `SERVICE_SA_EMAIL`, `AGENT_RUNTIME_ID`), plus local/unified runtime variables.
    - **Status**: Kept in sync with root `.env.enc` via `git-crypt`.
 
-2. **Agent `.env`** (Situated under [app/.env](file:///home/dazbo/localdev/smart-gcp-finops/app/.env)):
+2. **Agent `.env`** (Situated under [agent/.env](file:///home/dazbo/localdev/smart-gcp-finops/agent/.env)):
    - **Purpose**: Configuration required strictly by the ADK agent runtime.
    - **Scope**: Contains only variables needed at runtime by the agent code (such as models, billing settings, logging levels, and telemetry). It is packaged with the agent during deployment.
    - **Platform Restrictions**: Note that the Gemini Enterprise Agent Runtime strictly forbids certain platform-reserved variables (like `GOOGLE_CLOUD_PROJECT`) from being set in the environment payload. The deployment tools automatically filter these out when deploying to the Agent Runtime.
-   - **Status**: Kept in sync with `app/.env.enc` via `git-crypt`.
+   - **Status**: Kept in sync with `agent/.env.enc` via `git-crypt`.
 
 ### 3. Staging and Production Configuration Mapping
 
@@ -372,7 +372,7 @@ Compile the dependencies and package/upload the Python agent logic (configured i
 ```bash
 make deploy-agent-runtime
 ```
-*   **What this does**: It compiles staging dependencies to `app/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
+*   **What this does**: It compiles staging dependencies to `agent/finops_agent/requirements.txt`, packages the `app` source files, and deploys it to the regional Agent Runtime in Google Cloud.
 *   **Result**: A new Agent Runtime (`reasoningEngine`) resource instance is created on the Gemini Enterprise Agent Platform.
 
 ### 3. Deploy the Cloud Run BFF and Frontend
