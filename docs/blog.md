@@ -5,7 +5,6 @@
 We have Cloud Billing Exports into a BQ dataset.
 
 ## Setup
-8. Created `scripts/setup-env.sh` and `.envrc` to automatically run this.
 11. Used `deep-research` skill, along with adk-docs-mcp, to investigate best practices for React UI with ADK. Updated GEMINI.md with the findings.
 12. Performed documentation review with my `project-documentation` skill.
 13. Update tfvars for dev and prod in `/deployment/terraform/`
@@ -312,8 +311,6 @@ Here is the transcript of the manual verification session:
 1. The agent first used the `bigquery-mcp-server_execute_sql` tool to run a SQL query against the billing export table to identify the resources.
 2. It then extracted the resource names from the BigQuery results and passed them directly to our new `get_cai_metadata_for_resources` tool.
 3. The CAI tool fetched the live operational metadata, confirming all three were currently "Active".
-
----
 
 **User Prompt 3 (The Audit):**
 > "Look at these three services and look for spikes in the last 3 months."
