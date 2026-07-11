@@ -1,5 +1,4 @@
 from unittest.mock import ANY, MagicMock, patch
-from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from finops_agent.app_utils.cai_utils import clear_services_cache
@@ -83,8 +82,11 @@ def test_get_projects_in_org_success(mock_build):
 @patch("finops_agent.app_utils.project_discovery.settings")
 def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
     """Test get_user_accessible_projects using organization Cloud Asset IAM policy search."""
-    from finops_agent.app_utils.project_discovery import _USER_PROJECTS_CACHE, get_user_accessible_projects
-    
+    from finops_agent.app_utils.project_discovery import (
+        _USER_PROJECTS_CACHE,
+        get_user_accessible_projects,
+    )
+
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = "123456789"
 
