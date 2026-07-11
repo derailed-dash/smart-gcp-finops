@@ -10,25 +10,37 @@ on:
       - 'frontend/**'
       - 'tests/**'
       - 'pyproject.toml'
+  issue_comment:
+    types: [created]
 
 jobs:
   review:
+    # Run on PR updates, OR on issue comment starting with /gemini-review
+    if: |
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/gemini-review') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+      issues: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Run Gemini Code Review
-        uses: sshnaidm/gemini-code-review-action@v2
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
-          gemini-key: ${{ secrets.GEMINI_API_KEY }}
-          model: 'gemini-3.5-flash'
-          add-files: 'false'
-          context-lines: '30'
-          prompt: 'Review the code changes and provide all feedback and comments exclusively in English (UK).'
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
+
+      - name: Run Gemini Review Action
+        uses: derailed-dash/gemini-review-action@v1
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          gemini_model: 'gemini-3.5-flash'
+
+

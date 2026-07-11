@@ -419,7 +419,7 @@ agents-cli playground
 
 ![agents-cli playground](../images/agents-cli-adk-web.png)
 
-Concluding thought about `Agents-CLI`: if you know your way around the CLI, you can use it directly. It'll be faster and use fewer tokens. But when you're doing lots of agent related activities like boostrapping, adding CI/CD, deploying and evaluating, you'll probably find that natural language conversations are going to save you a lot of time and pain.
+Concluding thought about `Agents-CLI`: if you know your way around the CLI, you can use it directly. It'll be faster and use fewer tokens. But when you're doing lots of agent related activities like bootstrapping, adding CI/CD, deploying and evaluating, you'll probably find that natural language conversations are going to save you a lot of time and pain.
 
 ## Bonus #1: Getting Started with a Makefile
 

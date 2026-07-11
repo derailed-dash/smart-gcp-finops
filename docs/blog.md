@@ -1715,7 +1715,12 @@ This protects the billing and quota footprint of the application. Hurrah!
 The official Google `run-gemini-cli` GitHub Action was deprecated, causing PR pipelines to fail. Furthermore, the rate-limiting fallback in our BFF was shadowing IP addresses due to developer email fallbacks, and limits were hardcoded in decorators rather than centrally configurable.
 
 **Resolution**:
-1. **GitHub Actions Migration**: Deplaced all deprecated Gemini CLI workflows with a streamlined integration of Sergey Shnaidman's `sshnaidm/gemini-code-review-action@v2` on the `gemini-3.5-flash` model. Configured it with `add-files: 'true'` and `context-lines: '30'` to feed full file changes and context to Gemini for rich, detailed code reviews, and mapped the review prompt to enforce English (UK) output.
+1. **GitHub Actions Migration**: Replaced the deprecated Gemini CLI workflows with a custom, highly robust Python script (`scripts/gemini_pr_review.py`) executed via `uv run` in GitHub Actions. 
+   - **Solving Fragility**: Unlike community actions which fail with `UnicodeDecodeError` when encountering binary/encrypted files (e.g. `*.enc`, `*.lock`, `*.png`), our script explicitly filters out non-text files and loads full file contents dynamically from the checked-out workspace to provide rich context to the model.
+   - **Structured Outputs**: Leveraged Gemini's structured JSON outputs (`response_schema` utilizing Pydantic models) on `gemini-3.5-flash` to guarantee 100% compliance with GitHub's PR review schema.
+   - **Inline Diffs & suggestions**: Formats review comments with severity flags (`🔴`, `🟠`, `🟡`, `🟢`) and wraps code recommendations in native ` ```suggestion ` blocks to enable one-click merges directly inside GitHub.
+   - **At-Will Triggers**: Configured the workflow to run on pull request updates and to re-run on demand when an authorized user posts a `/gemini-review` comment on the PR.
+   - **Resilient Fallback**: If the atomic multi-comment PR review submission fails due to line number mismatches, the script automatically catches the exception and falls back to posting individual review comments, preventing the CI check from failing.
 2. **Terraform Clean-up**: Pruned 7 obsolete actions variables in `deployment/terraform/github.tf` that were only used by the deprecated CLI workflows.
 3. **BFF Rate Limiter Hardening**:
    * **`SlowAPIMiddleware` Registration**: Registered the `SlowAPIMiddleware` on the FastAPI instance to ensure consistent request tracking and correct header injection (`X-RateLimit-*`, `Retry-After`).
