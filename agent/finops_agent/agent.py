@@ -6,6 +6,7 @@ How: Uses the `google-adk` SDK and integrates with a remote BigQuery MCP server.
 This file handles the instantiation of the root agent, provides the custom
 authentication header provider for BigQuery, and sets up the global ADK `App`.
 """
+# This test comment should be spotted and rejected by our PR review
 
 import logging
 import os
