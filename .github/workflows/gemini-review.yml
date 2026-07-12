@@ -1,21 +1,26 @@
-name: '🔎 Gemini Code Review'
+name: "🔎 Dazbo's Gemini Code Review"
 
 on:
   pull_request:
     branches:
       - main
     paths:
+      - 'docs/**'
       - 'agent/**'
       - 'bff/**'
       - 'frontend/**'
+      - 'scripts/**'
       - 'tests/**'
       - 'pyproject.toml'
+      - 'README.md'
+      - 'Makefile'
+      - 'Dockerfile'
   issue_comment:
     types: [created]
 
 jobs:
   review:
-    # Run on PR updates, OR on issue comment starting with /gemini-review
+    # Run on PR updates, OR on issue comment starting with /gemini-review by repo owners/members
     if: |
       github.event_name == 'pull_request' ||
       (
@@ -34,6 +39,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          # Automatically checks out the head ref for PR events,
+          # and pulls the PR head branch for comment-based triggers
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
 
       - name: Run Gemini Review Action
@@ -42,5 +49,3 @@ jobs:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_model: 'gemini-3.5-flash'
-
-
