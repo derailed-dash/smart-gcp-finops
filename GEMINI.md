@@ -2,7 +2,7 @@
 
 ## Project Goals and Requirements
 
-Refer to [docs/PRODUCT.md](file:///home/dazbo/localdev/smart-gcp-finops/docs/PRODUCT.md) for the complete Product Requirement Document containing the product vision, functional specifications, target audience, and success metrics.
+Refer to [docs/PRODUCT.md](docs/PRODUCT.md) for the complete Product Requirement Document containing the product vision, functional specifications, target audience, and success metrics.
 
 ## Tool Use: Skills, Gemini Enterprise Agent Platform, Agent Runtime and ADK
 
