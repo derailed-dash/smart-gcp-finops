@@ -30,15 +30,11 @@ An agentic FinOps solution for Google Cloud Platform (GCP) created by [Dazbo](ht
 
 ## Features
 
-- **BigQuery Billing Integration**: Direct access to BigQuery billing exports for cross-project cost analysis.
-- **BigQuery ADK Integration**: Native dataset and table schema awareness using ADK's native `BigQueryToolset` with local query caching.
-- **Natural Language Chat Interface**: A React-based UI allowing users to query billing data and infrastructure state in plain English.
-- **FinOps Dashboard**: A centralised view for cost trends, anomaly reports, and optimisation progress.
-- **Zombie Resource Detection & Audit**: Proactively identifies cost waste such as unattached persistent disks using Cloud Asset Inventory. Correlates billing spikes with historical configuration changes.
-- **Multi-Project Analysis**: Ability to scope analysis to specific projects, billing accounts, or the entire Google Cloud Organisation.
-- **AI-powered Forecasting**: Predict future cloud consumption and budget requirements using historical data.
-- **Automated Anomaly Detection**: Proactively identify unusual billing spikes and cost inefficiencies.
-- **Actionable Recommendations**: Combine billing insights with architectural best practices for high-impact cost optimisation.
+*   **Cost Exploration & Forecasting**: BQ billing data analysis.
+*   **Zombie Asset Sweeps**: CAI-based scans of unattached disks and idle IPs.
+*   **AI-powered Rightsizing Recommendations**: Gemini Cloud Assist and Developer Knowledge grounded best practices.
+
+For detailed functional specifications, refer to the [Product Requirement Document](docs/PRODUCT.md).
 
 [![My Google FinOps AI Agent using ADK, BQ, Cloud Asset Inventory, and Google Developer Knowledge MCP](https://img.youtube.com/vi/zs_IRUxIx4E/maxresdefault.jpg)](https://youtu.be/zs_IRUxIx4E)
 
@@ -52,17 +48,9 @@ This repository is associated with a multi-part series of articles documenting t
 4. Authentication with IAP, Terraform, and CI/CD
 5. Observing, Evaluating & Tuning Our Agent with Gemini Enterprise Agent Platform
 
-## Target Audience
+## Target Audience & Success Metrics
 
-- **Cloud Platform Engineers**: Managing infrastructure and resource lifecycle.
-- **FinOps Practitioners**: Dedicated teams responsible for cloud financial governance.
-- **GCP Organisation Admins**: Overseeing cost and compliance across a large-scale cloud footprint.
-
-## Success Metrics
-
-- **Spend Reduction %**: Target reduction in unoptimised spend.
-- **Anomaly Detection Speed**: Minimise MTTD (Mean Time to Detect) for billing outliers.
-- **Forecasting Accuracy**: High precision in projected budget versus actual realisation.
+For details on user personas, organizational scopes, and key success metrics, see the [Product Requirement Document](docs/PRODUCT.md).
 
 ## Project Structure
 
@@ -87,6 +75,7 @@ smart-gcp-finops/
 ├── docs/                 # Project documentation
 │   ├── images/                # Diagrams and architectural visual assets
 │   ├── DESIGN.md              # Visual identity, components, and UI design
+│   ├── PRODUCT.md             # Product requirements, specifications, and success metrics
 │   ├── architecture-and-walkthrough.md # Solution blueprints, ADRs, and component data flows
 │   └── testing.md             # Testing strategy and verification instructions
 ├── frontend/             # React UI frontend

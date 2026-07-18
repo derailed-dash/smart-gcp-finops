@@ -62,15 +62,26 @@
   - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
   - [x] Blog part 1
   - [x] Blog part 2
-  - [ ] Blog part 3
+  - [~] Blog part 3
   - [ ] Blog part 4
   - [ ] Blog part 5
   - [ ] Blog part 6
   - [ ] Blog part 7
 [x] Convert arch diagrams to renders
 [x] Create a UI/BFF-only Dockerfile for Cloud Run; keep the unified for local
-[ ] Ensure best-practices query is always aligned to deployed services and costs; not generic
 [ ] Separate monolithic prompt with subagents
+  - [ ] Write unit/integration test harnesses for the coordinator and each subagent domain (TDD)
+  - [ ] Configure `use_interactions_api=True` on model adapters to enable stateful server-side sessions (update BFF to send only the new prompt and `session_id`, omitting the history array)
+  - [ ] Implement `FinOpsCoordinator` (Root router) delegating requests via auto-generated tools
+  - [ ] Implement `BillingExplorer` subagent (Mode: `task`) containing BQ tools and SQL caching logic
+  - [ ] Implement `InfrastructureAuditor` subagent (Mode: `task`) containing zombie resource scans and CAI tools
+  - [ ] Implement `CloudAdvisor` subagent (Mode: `task`) containing Gemini Cloud Assist MCP tools
+  - [ ] Implement `KnowledgeAssistant` subagent (Mode: `single_turn`) containing Developer Knowledge MCP tools
+  - [ ] Implement `RootCauseAnalyst` subagent (Mode: `task`) correlating BQ cost spike dates with CAI history
+  - [ ] Configure the coordinator to retrieve active service IDs, cost spikes, and project scopes from `session.state` to scope and align best-practices queries dynamically
+  - [ ] Co-ordinate `KnowledgeAssistant` and `CloudAdvisor` to generate optimization advice grounded in official GCP documentation and active resource metrics
+  - [ ] Instrument OpenTelemetry tracing to track subagent handoffs, token consumption, and model call execution paths
+  - [ ] Profile and tune system instructions and loop thresholds to minimize routing latency and prevent runaway token consumption
 [ ] Perform ADK best practices review
 [ ] Introduce ADK based evaluation, including trajectory.
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise
