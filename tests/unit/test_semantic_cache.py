@@ -8,7 +8,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from finops_agent.agent import (
+from finops_agent.callbacks import (
     _AGENT_QUERY_CACHE,
     after_agent_save_cache,
     before_agent_cache_lookup,
