@@ -12,7 +12,9 @@ We adopt a **Coordinator & Dispatcher** pattern at the root level. When complex 
 *   **ADK Collaboration Modes**: [ADK Collaborative Workflows](https://adk.dev/workflows/collaboration/index.md)
 *   **ADK Workflow Patterns**: [ADK Workflow Patterns](https://adk.dev/workflows/patterns/index.md)
 *   **ADK Plugins**: [ADK Plugins](https://adk.dev/plugins/index.md)
-*   **Gemini Interactions API**: [ADK Gemini Models (Interactions API)](https://adk.dev/agents/models/google-gemini/index.md#gemini-interactions-api)
+*   **Gemini Interactions API (Investigated & Incompatible)**: [ADK Gemini Models (Interactions API)](https://adk.dev/agents/models/google-gemini/index.md#gemini-interactions-api)
+*   **Interactions API (Investigated & Incompatible)**: [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview)
+*   **Migrate to Interactions API (Investigated & Incompatible)**: [Migrate from generate_content to Interactions API](https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
 
 ---
 
@@ -53,11 +55,15 @@ The system is split into one root coordinator and five specialized leaf subagent
 
 ---
 
-## 3. Stateful Optimization & Interactions API
+## 3. Design Decision: Standard Inference vs. Interactions API
 
-1.  **Interactions API**: Enable `use_interactions_api=True` on the Gemini model configuration inside [agent.py](../agent/finops_agent/agent.py).
-Before editing [agent.py](../agent/finops_agent/agent.py), create a new test file `tests/test_multiagent_split.py` to establish the contract:
-2.  **BFF Payload Optimization**: Since the session is held statefully server-side via the model's `interaction_id`, the FastAPI BFF must be refactored to send **only the new user message and the `session_id`** on each turn. Sending the full conversation history array over the network is completely disabled.
+1.  **Interactions API Attempt**: We initially planned to use the cloud-managed Interactions API (`use_interactions_api=True`) on Vertex AI to leverage server-side conversation history and reduce network payload size.
+2.  **Vertex AI Backend Limitation**: However, testing showed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects raw text models (like `gemini-3.5-flash` or `gemini-2.5-flash`) on the Interactions API route, returning:
+    ```json
+    Error code: 400 - {'error': {'message': 'Unsupported model interaction: gemini-3.5-flash', 'code': 'invalid_request'}}
+    ```
+    The Vertex AI Interactions API is restricted to specific media models (`lyria-3-*`) and managed agents (`deep-research-*`).
+3.  **Resolution**: We will adhere to standard stateless inference (`use_interactions_api=False`) and let the FastAPI BFF and ADK coordinate conversation history appending client-side. The existing unit test `tests/unit/test_interactions_api.py` enforces this constraint.
 
 ---
 

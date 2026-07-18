@@ -1764,7 +1764,22 @@ We surgically renamed and refactored the project's folder layout to improve read
 
 This brings clean semantic naming to our repository structure, with a self-evident `/agent`, `/bff`, and `/frontend` hierarchy! Hurrah!
 
+---
 
+### Designing with the Interactions API: Server-Side Stateful Sessions
+
+**Problem**:
+We initially planned to use the stateful, cloud-managed **Gemini Interactions API** (`use_interactions_api=True`) on Vertex AI to leverage server-side conversation history and reduce network payload size.
+
+**Backend Constraint**:
+However, testing proved that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects raw text models (like `gemini-3.5-flash` or `gemini-2.5-flash`) on the Interactions API route, returning:
+```json
+Error code: 400 - {'error': {'message': 'Unsupported model interaction: gemini-3.5-flash', 'code': 'invalid_request'}}
+```
+The Vertex AI Interactions API is restricted to specific media models (`lyria-3-*`) and managed agents (`deep-research-*`).
+
+**Resolution**:
+We rejected the Interactions API and reverted to standard stateless model inference (`use_interactions_api=False`), keeping the conversation history management in the FastAPI BFF/client. We established `tests/unit/test_interactions_api.py` as a test guard to prevent future attempts to enable this unsupported mode on Vertex AI.
 
 
 

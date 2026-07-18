@@ -603,11 +603,49 @@ class ConfiguredGemini(Gemini):
         return genai_client
 
 
+billing_explorer = Agent(
+    name="billing_explorer",
+    model=ConfiguredGemini(
+        model=settings.model,
+        retry_options=types.HttpRetryOptions(attempts=3),
+        use_interactions_api=False,
+    ),
+    instruction="""You are the BillingExplorer subagent.
+Use BQ tools to retrieve billing records, SKUs, daily/monthly spend aggregates, and cost forecasts.
+""",
+    tools=[
+        execute_cached_bigquery_sql,
+        bigquery_toolset,
+    ],
+    mode="task",
+)
+
+
+infrastructure_auditor = Agent(
+    name="infrastructure_auditor",
+    model=ConfiguredGemini(
+        model=settings.model,
+        retry_options=types.HttpRetryOptions(attempts=3),
+        use_interactions_api=False,
+    ),
+    instruction="""You are the InfrastructureAuditor subagent.
+Use CAI tools to scan for idle static IPs, unattached disks, and other zombie/waste resources.
+""",
+    tools=[
+        list_zombie_resources,
+        get_cai_metadata_for_resources,
+        get_cai_history_for_resource,
+    ],
+    mode="task",
+)
+
+
 root_agent = Agent(
     name="root_agent",
     model=ConfiguredGemini(
         model=settings.model,
         retry_options=types.HttpRetryOptions(attempts=3),
+        use_interactions_api=False,
     ),
     instruction=AGENT_INSTRUCTION,
     tools=[
@@ -618,6 +656,10 @@ root_agent = Agent(
         list_zombie_resources,
         get_cai_metadata_for_resources,
         get_cai_history_for_resource,
+    ],
+    sub_agents=[
+        billing_explorer,
+        infrastructure_auditor,
     ],
     before_agent_callback=[
         reset_tool_call_counter,
@@ -639,3 +681,4 @@ app = App(
     ),
     plugins=[DefensiveToolErrorPlugin()],
 )
+
