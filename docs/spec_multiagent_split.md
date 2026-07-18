@@ -9,7 +9,6 @@ This specification defines the implementation details for splitting the monolith
 We adopt a **Coordinator & Dispatcher** pattern at the root level. When complex investigations (such as cost spikes) are triggered, the coordinator delegates to a specialized subagent that handles multi-tool sequential or parallel analysis.
 
 *   **Walkthrough Architecture**: Detailed in [docs/architecture-and-walkthrough.md](architecture-and-walkthrough.md#multi-agent-collaborative-architecture)
-*   **Walkthrough Architecture**: Detailed in [docs/architecture-and-walkthrough.md](architecture-and-walkthrough.md#multi-agent-collaborative-architecture)
 *   **ADK Collaboration Modes**: [ADK Collaborative Workflows](https://adk.dev/workflows/collaboration/index.md)
 *   **ADK Workflow Patterns**: [ADK Workflow Patterns](https://adk.dev/workflows/patterns/index.md)
 *   **ADK Plugins**: [ADK Plugins](https://adk.dev/plugins/index.md)
