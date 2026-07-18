@@ -1,31 +1,8 @@
 # FinSavant
 
-## Project Goals
+## Project Goals and Requirements
 
-To create an agentic FinOps solution for GCP that:
-
-- Uses ADK for agent orchestration.
-- Is able to examine billing and cost data in BigQuery, based on billing exports.
-- Is able to understand Google Cloud infrasture and services across multiple Google projects associated with a billing account.
-- Considers projects associated with a particular Google Cloud organisation, associated with a billing account.
-- Leverages Google Developer Knowledge API MCP for grounding:  Google APIs, Google Cloud infrastructure, Google Cloud best practices.
-- Is able to detect cost anomalies and inefficiencies, and trends.
-- Is able to understand all deployed infra and services, and historical configuration changes, leveraging Google Cloud Asset Inventory
-- Is able to invoke Google Cloud Assist for immediate logs investigation, RCA and recommendations.
-- Is able to combine all of the above to provide actionable insights and recommendations to users.
-- Provides a UI for users, which includes:
-  - Dashboard of cost trends, billing data and anomalies
-  - Cost forecasting
-  - Cost analysis
-  - Anomaly detection
-  - Recommendations
-  - Cost optimisation suggestions
-  - A natural language chat interface
-- The UI should be based on React. Use skills you have available to leverage React best practices.
-- Leverage Google Stitch to design the UI, and use the Stitch MCP server to pull in the design, in order to convert to React.
-- The UI is connected to the agent via FastAPI.
-- The UI and API will be hosted in a single Cloud Run service. The service will be secured using IAP, using direct Cloud Run integration - no Load Balancer.
-- The Agent will be deployed to Agent Runtime in Gemini Enteprise Agent Platform.
+Refer to [docs/PRODUCT.md](file:///home/dazbo/localdev/smart-gcp-finops/docs/PRODUCT.md) for the complete Product Requirement Document containing the product vision, functional specifications, target audience, and success metrics.
 
 ## Tool Use: Skills, Gemini Enterprise Agent Platform, Agent Runtime and ADK
 
@@ -69,10 +46,11 @@ You will have additional skills available to you, but always check if the follow
 
 - README.md - Project README; the developer's front door
 - TODO.md - High level plan for the project
-- PRD.md - The product spec
-- architecture-and-walkthrough.md - The main architecture, including design decisions
-- DESIGN.md - Where we will capture the UI design
-- testing.md - Where we will document test strategy, summary of tests, testing instructions, any manual testing processes
+- docs/PRODUCT.md - The product spec
+- docs/architecture-and-walkthrough.md - The main architecture, including design decisions
+- docs/spec_multiagent_split.md - Technical specification for the multi-agent split phase
+- docs/DESIGN.md - Where we will capture the UI design
+- docs/testing.md - Where we will document test strategy, summary of tests, testing instructions, any manual testing processes
 - docs/blog.md - A blog post document we will build along the way
 - /deployment/README.md - Deployment and CI/CD documentation
 
@@ -111,6 +89,8 @@ As we go, document steps taken, experience and findings in docs/blog.md. Later, 
 - Capture notes / deep dives on these steps, any problems we faced, any lessons learned.
 - The deep dives should be comprehensive and detailed, and should include code snippets, screenshots, and other relevant information.
 - The deep dives should be added in the same sequence as the steps we took.
+
+As I build the individual blog parts, I'll pull from the main blog.md and eliminate the content blog.md as we go.
 
 You should update the `blog.md` after any significant investigations, changes or features.
 

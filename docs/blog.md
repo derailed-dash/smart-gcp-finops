@@ -20,6 +20,7 @@ We have Cloud Billing Exports into a BQ dataset.
 29. Optimized Cloud Asset Inventory scans by caching the results of `list_zombie_resources` inside `zombie_tools.py` using a global, thread-safe cache to accelerate both the REST dashboard and ADK tools.
 32. Implemented thread-safe, 5-minute TTL caching on get_cai_metadata_for_resources and get_cai_history_for_resource in cai_tools.py to accelerate asset metadata and history queries during cost spike analysis.
 34. Resolved critical PR #7 bugs: refactored GCP credentials into a centralized, reusable helper; fixed `types.Part` instantiation to conform to the new `google-genai` SDK; re-architected FastAPI SSE streaming to use a non-blocking `asyncio.Queue`; and implemented optional chaining across React KPI rendering to prevent UI crashes under dynamic payloads.
+35. Evaluated orchestration patterns (coordinator-dispatcher, parallel, hierarchical decomposition) for splitting the monolithic ADK agent into specialized subagents, and integrated the design, rationale, and a generated architecture diagram into the system walkthrough documentation.
 
 ## Deep Dives
 

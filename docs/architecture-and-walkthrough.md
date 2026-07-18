@@ -31,6 +31,8 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Object-Oriented State Managers** | Refactored mutable global module-level variables (caching and client states) into thread-safe object-oriented singleton managers. Rationale: Improves thread safety under concurrent requests, makes testing isolation straightforward, and structures state management logically. |
 | **Standard Native Logging** | Standardised all logging on Python's native `logging` library instead of direct vendor SDK client logging. Rationale: Integrates seamlessly with standard python tools, dynamically routes logs to Cloud Logging in production, and suppresses noisy third-party frameworks. |
 | **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
+| **Gemini Interactions API** | Enable the Interactions API via `use_interactions_api=True` on the Gemini model configuration. Rationale: Maintains stateful conversation sessions server-side, reducing round-trip payload serialization/deserialization and drastically cutting token overhead on long multi-turn sessions by avoiding sending full chat history back and forth. |
+| **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
 
 
 ## Solution Architecture
@@ -175,6 +177,84 @@ To prevent financial spikes (accumulating large BigQuery scan costs or excessive
   * **Dashboard Endpoint (`/api/dashboard`):** Limited to **10 requests per minute** and **100 per day**.
   * **Chat Stream Endpoint (`/api/chat/stream`):** Limited to **5 requests per minute** and **100 per day** to protect the backend background thread pool from execution starvation.
 * **Single-Instance Accuracy:** Because our Cloud Run setup is configured to run a maximum of 1 instance to control costs, a local in-memory token-bucket storage backend is fully accurate and requires no external Redis / Memorystore setup.
+
+
+## Multi-Agent Collaborative Architecture
+
+To scale our cognitive processing and prevent instruction bloat, we have evaluated splitting the monolithic agent into a coordinated multi-agent system. Below is the architecture options, design decisions, and rationale for this change.
+
+### Orchestration Evaluation
+
+1. **Coordinator and Dispatcher**:
+   * *Structure*: A central coordinator (`FinOpsCoordinator`) handles conversation flow and routes user queries to specialized leaf subagents.
+   * *Pros*: High scope isolation, clean context window per subagent, native task delegation/clarification using ADK `task` mode with automatic return to parent via `finish_task`.
+   * *Cons*: Minor routing latency on the first turn.
+2. **Parallel Fan-Out and Gather**:
+   * *Structure*: Runs multiple subagents concurrently (`ParallelAgent`) and combines their outputs via a subsequent synthesizer (`SequentialAgent`).
+   * *Pros*: Low latency when running multiple independent tools/network fetches.
+   * *Cons*: Subagents must run in `single_turn` mode; no user interaction or clarifications allowed.
+3. **Hierarchical Task Decomposition**:
+   * *Structure*: A deep, multi-level tree of agents recursively decomposing sub-tasks.
+   * *Pros*: Solves deep, complex planning problems.
+   * *Cons*: Excessive latency, token cost, and trace stacks; overkill for our flat domains.
+
+### Selected Design & Rationale
+
+We selected the **Coordinator and Dispatcher** pattern as the core layout, with a custom sequential-parallel fallback for complex root cause analysis (RCA). This isolates specialized tools (such as SQL query generation vs. Gemini Cloud Assist recommendations) to prevent model confusion and slashes input token count on every conversational turn.
+
+#### Schematic Architecture Diagram
+
+```mermaid
+graph TD
+    User([User]) <--> Root[FinOpsCoordinator]
+    Root -->|Delegate| Billing[BillingExplorer]
+    Root -->|Delegate| Auditor[InfrastructureAuditor]
+    Root -->|Delegate| Advisor[CloudAdvisor]
+    Root -->|Delegate| Knowledge[KnowledgeAssistant]
+    Root -->|Delegate| RCA[RootCauseAnalyst]
+    
+    Billing --> BQ[(BigQuery Billing)]
+    Auditor --> CAI[(Cloud Asset Inventory)]
+    Advisor --> CA[(Gemini Cloud Assist)]
+    Knowledge --> DK[(Dev Knowledge)]
+    RCA --> BQ
+    RCA --> CAI
+```
+
+![FinSavant Multi-Agent Collaborative Architecture](./images/illustrated_agent_architecture.png)
+
+* **`FinOpsCoordinator` (Root)**: Acts as the conversation router, exposing no direct tools but utilizing automatically generated delegation tools for its subagents.
+* **`BillingExplorer` (Mode: `task`)**: Specialized in spend queries, SQL generation via `execute_cached_bigquery_sql`, and generating A2UI cost explorer/dashboard payloads.
+* **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata.
+* **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimization using Gemini Cloud Assist MCP.
+* **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with Google Developer Knowledge MCP.
+* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates by running scoped queries on resource-level logs and cross-referencing CAI history logs.
+
+
+### State Sharing and Resiliency Guidelines
+
+Since users can invoke subagents directly (or via UI action chips) without a strict sequential order (e.g. clicking "Align with best practices" immediately upon opening a clean chat session), the system enforces two state-resiliency rules:
+
+1. **Bootstrap Project Discovery**:
+   The root `FinOpsCoordinator` executes `discover_projects_callback` during the initial connection handshake. This populates `session.state.allowed_projects` immediately on turn 1, establishing the tenant boundaries.
+2. **Lazy Context Hydration**:
+   If a subagent (such as `KnowledgeAssistant` or `CloudAdvisor`) is invoked but finds cost spikes or active service lists are missing from `session.state`, it must not fail or return generic suggestions. Instead, it lazily triggers a fast, cached lookup query to BigQuery to resolve the top cost-driving services for the allowed projects, populating the session state on-the-fly.
+3. **Global Plugin Observability and Error Interception**:
+   We register custom plugins subclassing `BasePlugin` globally on the ADK `App` runner container. Observability (OpenTelemetry logging/tracing) and defensive error handling (such as `DefensiveToolErrorPlugin`) are handled globally. Any tool execution failure in a subagent is automatically caught, logged, and returned to the BFF as a friendly user warning, maintaining session consistency.
+
+### Proposed Multi-Agent Orchestration Flows
+
+To design the decoupled execution paths, the table below maps each standard use case and UI chip action directly to the subagents invoked, tracing how session state is shared and how the final A2UI layout is generated:
+
+| User Intent / UI Action | Entrypoint (Root) | Subagent Invoked (Mode) | Data/State Updates | Final Output / UI Component |
+| :--- | :--- | :--- | :--- | :--- |
+| **Initial Dashboard Load / MTD Summary**<br>*(e.g. "Show MTD spend")* | `FinOpsCoordinator` | `BillingExplorer` (`task`) | Writes active service descriptions, total costs, and month-to-date metrics into `session.state`. | Renders `dashboard` A2UI payload with spend curves and MTD KPI indicators. |
+| **Zombie Asset Sweep**<br>*(e.g. "Scan for unused resources")* | `FinOpsCoordinator` | `InfrastructureAuditor` (`task`) | Scans CAI and populates `session.state` with details of unattached disks and idle IP configurations. | Renders `recommendations` A2UI payload showing individual zombie resources. |
+| **GCP Best Practices Chip**<br>*(e.g. "Align with best practices")* | `FinOpsCoordinator` | Combination: `KnowledgeAssistant` (`single_turn`) + `CloudAdvisor` (`task`) | Reads active services, cost spikes, and project scopes from `session.state`. Queries Cloud Assist for live recommendations and Developer Knowledge to ground the advice. | Renders rightsizing/configuration suggestions grounded in official GCP best practices. |
+| **Get Optimization Advice Chip**<br>*(e.g. "Optimize active resources")* | `FinOpsCoordinator` | `CloudAdvisor` (`task`) | Reads the user's active cloud project from state to scope Gemini Cloud Assist API queries. | Renders architectural/rightsizing suggestions for active infrastructure. |
+| **Investigate Cost Spike**<br>*(e.g. "Why did costs spike yesterday?")* | `FinOpsCoordinator` | `RootCauseAnalyst` (`task`) | 1. Queries BigQuery to detect largest cost-growth resource URIs.<br>2. Queries CAI history logs for those specific URIs around the spike window to locate drift. | Renders comparative SQL findings and correlated resource configuration logs. |
+
+---
 
 ## Agent Implementation Details
 

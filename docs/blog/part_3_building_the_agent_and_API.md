@@ -1,6 +1,5 @@
 # FinSavant Part 3: Building an Agentic FinOps Platform - Building the ADK Agent and API
 
-- Creating the tests
 - Leveraging MCPs/tools/APIs from the agent
 - Agent Code and Prompt
   - Multi-agent orchestration
@@ -8,5 +7,3 @@
 - Unit testing
 - Test as Docker containers
 - Make targets
-
-
