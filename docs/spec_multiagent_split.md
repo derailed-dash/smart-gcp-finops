@@ -57,7 +57,7 @@ The system is split into one root coordinator and five specialized leaf subagent
 ## 3. Stateful Optimization & Interactions API
 
 1.  **Interactions API**: Enable `use_interactions_api=True` on the Gemini model configuration inside [agent.py](../agent/finops_agent/agent.py).
-1.  **Interactions API**: Enable `use_interactions_api=True` on the Gemini model configuration inside [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/agent.py).
+Before editing [agent.py](../agent/finops_agent/agent.py), create a new test file `tests/test_multiagent_split.py` to establish the contract:
 2.  **BFF Payload Optimization**: Since the session is held statefully server-side via the model's `interaction_id`, the FastAPI BFF must be refactored to send **only the new user message and the `session_id`** on each turn. Sending the full conversation history array over the network is completely disabled.
 
 ---
