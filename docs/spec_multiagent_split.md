@@ -64,7 +64,7 @@ To comply with the rule of **minimizing latency** and **limiting high token usag
 
 ## 4. Test-Driven Development (TDD) Strategy
 
-Before editing [agent.py](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/agent.py), create a new test file `tests/test_multiagent_split.py` to establish the contract:
+Before editing [agent.py](../agent/finops_agent/agent.py), create a new test file `tests/test_multiagent_split.py` to establish the contract:
 *   **Router Mocking**: Mock the LLM's model calls to simulate routing from `FinOpsCoordinator` to `BillingExplorer` and `InfrastructureAuditor`.
 *   **Session State Assertions**: Verify that subagents successfully write active services, allowed projects, and cost drivers to `session.state`.
 *   **Modes & Handbacks**: Validate that `single_turn` subagents exit immediately with their result, and `task` subagents return control cleanly to the parent upon calling `finish_task`.
