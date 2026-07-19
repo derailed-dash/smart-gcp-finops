@@ -33,10 +33,37 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
 | **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.5-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.5-flash`). We stick to stateless model inference with client/BFF side history management. |
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
-| **Double-Temporal Partitioning** | Enforce double-temporal filtering on both `export_time` (partition key) and `usage_start_time` across all BigQuery billing export SQL queries. Rationale: Minimises table scans and processing costs by pruning partition segments efficiently. |
-| **Session-Bound State Caching** | Replaced the global process-level query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`). Rationale: Ensures multi-tenant session isolation and avoids memory leak overhead across requests. |
-| **Semantic Blackboard Pattern** | Implemented a shared blackboard (`tool_context.state`) with strict naming standards (`daily_service_costs_30d`, `sku_period_costs_60d`, `gcs_secret_waste`, `zombie_resources`, `rightsizing_recommendations`). Rationale: Allows subagents to proactively consult the blackboard before calling expensive external queries or APIs, reducing latency and operational spend. |
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
+
+
+## BigQuery Query Optimization
+
+To maintain sub-second response times and prevent high scan costs on massive billing export datasets (which contain millions of resource-level entries), the query execution wrapper (`execute_cached_bigquery_sql`) enforces the following optimization, caching, and security strategies:
+
+### 1. Partition Pruning (Double-Temporal Filtering)
+Standard Google Cloud Billing exports are partitioned by `export_time`. The query engine dynamically extracts temporal/partition filters (`export_time`, `usage_start_time`, and `usage_end_time`) from the agent's outer query and pushes them down directly into the inner scoping subqueries:
+```sql
+FROM (SELECT * FROM `table` WHERE project.id IN (...) AND export_time >= ... AND usage_start_time >= ...)
+```
+This forces BigQuery to prune partitions at the table-scan level, dropping execution time from over a minute to less than a second.
+
+### 2. Targeted Scoping (Project Filter Intersection)
+When the agent queries a single project, the scoping subquery is narrowed to that single project instead of listing all 38 allowed projects. The tool parses explicit project filters (`project.id = '...'` or `project.id IN (...)`) from the SQL query and intersects them with the user's `allowed_projects` context, accelerating clustering index lookups.
+
+### 3. Dynamic Table Routing
+Queries targeting the massive resource-level billing table (`gcp_billing_export_resource_v1_*`) that do not query or reference any `resource.` fields (e.g. general cost spikes or aggregations by project/SKU) are automatically rewritten at runtime to query the standard billing table (`gcp_billing_export_v1_*`). This instantly shrinks the scanned data footprint by ~100x.
+
+### 4. Defensive Temporal Guardrail
+If a query is issued with no date or partition filters on `export_time` (e.g. exploratory min/max date checks), the tool automatically injects a default partition constraint:
+```sql
+export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
+```
+This prevents unconstrained queries from scanning the full historical footprint of the table.
+
+### 5. Session-Bound Cache & Blackboard Auto-Caching
+- **Session-Bound Caching**: We replaced the global process-level query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`) to ensure multi-tenant session isolation and avoid memory leaks.
+- **Blackboard Auto-Caching**: Query execution results are automatically written to standard blackboard keys in python memory (`'daily_service_costs_30d'`, `'sku_period_costs_60d'`, and `'gcs_secret_waste'`). Subagents are instructed via prompt guidelines to consult the blackboard first and **not** call `set_session_value` with database results, completely eliminating the latency of the LLM generating large JSON lists.
+
 
 
 ## Solution Architecture
