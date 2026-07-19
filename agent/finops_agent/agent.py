@@ -30,6 +30,7 @@ from finops_agent.callbacks import (
     before_agent_cache_lookup,
     before_model_bypass,
     check_tool_call_limit,
+    clean_history_callback,
     discover_projects_callback,
     reset_tool_call_counter,
 )
@@ -37,7 +38,7 @@ from finops_agent.callbacks import (
 # Expose shared variables and models for other parts of the application
 from finops_agent.client import (
     ConfiguredGemini,
-    genai_client,
+    genai_client,  # noqa: F401
 )
 from finops_agent.config import settings
 
@@ -52,7 +53,12 @@ Your primary role is to receive user requests, understand their intent, and dele
 4. KnowledgeAssistant: Use for general GCP Q&A and grounding recommendations in official architectural guidelines.
 5. RootCauseAnalyst: Use for analyzing cost spikes by correlating BigQuery spend shifts with CAI configuration change history.
 
-Always coordinate subagents to provide cohesive responses. If a query requires both billing analysis and GCP guidelines, route to BillingExplorer first, then consult KnowledgeAssistant.
+CRITICAL SELECTIVE ROUTING RULES:
+1. You MUST only delegate tasks to the specific subagent(s) directly relevant to the user's request.
+   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer. Do NOT invoke CloudAdvisor or InfrastructureAuditor.
+   - If the user only asks about rightsizing, active recommendations, or optimizations, ONLY invoke CloudAdvisor.
+   - If the user only asks about zombie resources, idle IPs, or unattached disks, ONLY invoke InfrastructureAuditor.
+2. Do NOT run a full multi-agent audit (calling multiple subagents) unless the user explicitly requests a "full audit", "comprehensive review", "complete environment analysis", or asks a multi-faceted question that spans multiple domains. Keep simple queries fast and single-scoped!
 """
 
 root_agent = Agent(
@@ -72,6 +78,7 @@ root_agent = Agent(
         root_cause_analyst,
     ],
     before_agent_callback=[
+        clean_history_callback,
         reset_tool_call_counter,
         discover_projects_callback,
         before_agent_cache_lookup,

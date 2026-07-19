@@ -148,3 +148,45 @@ def test_list_zombie_resources_scoped_project(mock_search):
     mock_search.assert_called_once_with(
         scope="projects/my-scoped-project", category="UNATTACHED_DISKS"
     )
+
+
+@patch("finops_agent.app_utils.zombie_tools.search_zombie_resources")
+def test_list_zombie_resources_state_cache(mock_search):
+    import time
+    from unittest.mock import MagicMock
+
+    from google.adk.tools import ToolContext
+
+    mock_search.return_value = [{"name": "state_cached_disk"}]
+    mock_context = MagicMock(spec=ToolContext)
+    mock_context.user_id = "test-user"
+    mock_context.session_id = "test-session"
+    mock_context.state = {"allowed_projects": ["my-scoped-project"]}
+
+    # First call - cache miss
+    results1 = list_zombie_resources(
+        "UNATTACHED_DISKS",
+        project_id="my-scoped-project",
+        tool_context=mock_context
+    )
+    assert len(results1) == 1
+    assert results1[0]["name"] == "state_cached_disk"
+    mock_search.assert_called_once()
+
+    # Verify it was added to session state
+    state_key = "zombies_UNATTACHED_DISKS_my-scoped-project"
+    assert state_key in mock_context.state
+    expiry, data = mock_context.state[state_key]
+    assert data == results1
+    assert expiry > time.time()
+
+    # Second call - session state cache hit
+    mock_search.reset_mock()
+    results2 = list_zombie_resources(
+        "UNATTACHED_DISKS",
+        project_id="my-scoped-project",
+        tool_context=mock_context
+    )
+    assert results2 == results1
+    mock_search.assert_not_called()
+

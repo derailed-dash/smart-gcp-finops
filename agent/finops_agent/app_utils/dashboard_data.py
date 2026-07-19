@@ -8,18 +8,44 @@ import calendar
 import logging
 import re
 import statistics
+import threading
+import time
 from datetime import datetime, timedelta
 
 from google.auth import default
 from google.cloud import bigquery
 
-from finops_agent.app_utils.query_cache import execute_cached_query
 from finops_agent.app_utils.zombie_tools import list_zombie_resources
 from finops_agent.config import settings
 
-# Inherits effective log level from the root logger
-# configured in fast_api_app.py / agent_runtime_app.py
 logger = logging.getLogger(__name__)
+
+# Local query cache for dashboard data to avoid duplicate queries
+_DASHBOARD_QUERY_CACHE: dict[str, tuple[float, list]] = {}
+_DASHBOARD_CACHE_LOCK = threading.Lock()
+DASHBOARD_CACHE_TTL = 300  # 5 minutes
+
+
+def execute_dashboard_query(client: bigquery.Client, sql: str) -> list:
+    """Executes a query and caches the result locally for 5 minutes."""
+    now = time.time()
+    normalised_sql = re.sub(r"\s+", " ", sql).strip()
+
+    with _DASHBOARD_CACHE_LOCK:
+        if normalised_sql in _DASHBOARD_QUERY_CACHE:
+            expiry, result = _DASHBOARD_QUERY_CACHE[normalised_sql]
+            if now <= expiry:
+                logger.debug("Dashboard query cache hit.")
+                return result
+
+    logger.debug("Dashboard query cache miss. Executing query...")
+    job = client.query(sql)
+    result = list(job.result())
+
+    with _DASHBOARD_CACHE_LOCK:
+        _DASHBOARD_QUERY_CACHE[normalised_sql] = (now + DASHBOARD_CACHE_TTL, result)
+
+    return result
 
 
 def classify_project(project_id: str | None) -> str:
@@ -107,7 +133,7 @@ def get_actual_dashboard_metrics(
         {project_filter}
         LIMIT 1
         """
-        cur_results = execute_cached_query(client, currency_query)
+        cur_results = execute_dashboard_query(client, currency_query)
         if cur_results:
             currency = cur_results[0].currency or "GBP"
     except Exception as e:
@@ -134,7 +160,7 @@ def get_actual_dashboard_metrics(
     forecast = 0.0
 
     try:
-        month_results = execute_cached_query(client, month_query)
+        month_results = execute_dashboard_query(client, month_query)
 
         costs = {
             row.billing_month: float(row.monthly_cost or 0.0)
@@ -173,7 +199,7 @@ def get_actual_dashboard_metrics(
                 WHERE usage_start_time >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), MONTH))
                 {project_filter}
                 """
-                day_results = execute_cached_query(client, telemetry_day_query)
+                day_results = execute_dashboard_query(client, telemetry_day_query)
                 if day_results and day_results[0].max_day is not None:
                     elapsed_days = max(int(day_results[0].max_day), 1)
                     # Keep within bounds of the month's days
@@ -206,7 +232,7 @@ def get_actual_dashboard_metrics(
     anomalies_count = 0
 
     try:
-        daily_results = execute_cached_query(client, daily_query)
+        daily_results = execute_dashboard_query(client, daily_query)
 
         # First, aggregate total cost per service to find the top ones
         service_totals = {}
@@ -367,7 +393,7 @@ def get_actual_dashboard_metrics(
     ORDER BY monthly_cost DESC
     """
     try:
-        explorer_results = execute_cached_query(client, explorer_query)
+        explorer_results = execute_dashboard_query(client, explorer_query)
 
         # Group by (project_id, service_desc) -> {month: cost}
         explorer_data_map = {}

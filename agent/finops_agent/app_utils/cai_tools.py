@@ -202,14 +202,12 @@ def get_cai_history_for_resource(
         scope = f"organizations/{settings.google_cloud_organization}"
         history_results = get_asset_history(resource_name, scope, start_time, end_time)
 
-    if not history_results:
+    # Only fall back to scanning all projects if the resource name lacks a project identifier
+    if not history_results and not project_match:
         billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
 
-        queried_projects = {project_match.group(1)} if project_match else set()
         for project_id in project_ids:
-            if project_id in queried_projects:
-                continue
             scope = f"projects/{project_id}"
             history_results = get_asset_history(resource_name, scope, start_time, end_time)
             if history_results:

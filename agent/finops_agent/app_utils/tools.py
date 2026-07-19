@@ -15,7 +15,6 @@ import google.auth
 from google.adk.tools import ToolContext
 from google.cloud import bigquery
 
-from finops_agent.app_utils.query_cache import execute_cached_query
 from finops_agent.config import settings
 
 logger = logging.getLogger(__name__)
@@ -112,17 +111,61 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             standard_table = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_v1_{billing_suffix}"
             resource_table = f"{settings.google_cloud_billing_project}.{settings.billing_export_dataset}.gcp_billing_export_resource_v1_{billing_suffix}"
 
+            # Dynamic Table Routing: If the query references the resource table but does not query/filter
+            # on resource properties, route to the standard table to avoid scanning massive volumes.
+            if resource_table in sql and not re.search(r"\bresource\.", sql, re.IGNORECASE):
+                sql = sql.replace(resource_table, standard_table)
+                logger.info("Dynamically routed resource-level query to standard table (no resource fields referenced).")
+
             sanitized_projects = [p for p in allowed_projects if re.match(r"^[a-z0-9\-]+$", p)]
-            if not sanitized_projects:
+
+            # Intersect with any explicit project ID filters present in the original SQL
+            # to narrow down scoping filters and accelerate clustering scans.
+            explicit_projects = set()
+            eq_matches = re.findall(r"\bproject\.id\s*=\s*['\"]([a-z0-9\-]+)['\"]", sql, re.IGNORECASE)
+            for p in eq_matches:
+                explicit_projects.add(p)
+            in_matches = re.findall(r"\bproject\.id\s*IN\s*\(([^)]+)\)", sql, re.IGNORECASE)
+            for match in in_matches:
+                for p in re.findall(r"['\"]([a-z0-9\-]+)['\"]", match, re.IGNORECASE):
+                    explicit_projects.add(p)
+
+            if explicit_projects:
+                unauthorized_projects = explicit_projects - set(sanitized_projects)
+                if unauthorized_projects:
+                    logger.warning(
+                        "Security warning: User attempted to query projects they do not have access to: %s",
+                        list(unauthorized_projects),
+                    )
+                target_projects = [p for p in sanitized_projects if p in explicit_projects]
+            else:
+                target_projects = sanitized_projects
+
+            # Extract date and partition filters to push them down into the subqueries
+            nested_parens = r"\((?:[^()]*|\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))*\)"
+            date_filter_pattern = re.compile(
+                rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|['\"\w\d\-\s:]+)",
+                re.IGNORECASE
+            )
+            date_filters = date_filter_pattern.findall(sql)
+            extra_where = " AND ".join(date_filters)
+            if not extra_where:
+                extra_where = "export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))"
+                logger.warning("Defensively injected 90-day partition filter to prevent full historical scan.")
+
+            if not target_projects:
                 subquery_standard = f"(SELECT * FROM `{standard_table}` LIMIT 0)"
                 subquery_resource = f"(SELECT * FROM `{resource_table}` LIMIT 0)"
             else:
-                proj_list = ", ".join(f"'{p}'" for p in sanitized_projects)
+                proj_list = ", ".join(f"'{p}'" for p in target_projects)
+                where_clause = f"project.id IN ({proj_list})"
+                if extra_where:
+                    where_clause += f" AND {extra_where}"
                 subquery_standard = (
-                    f"(SELECT * FROM `{standard_table}` WHERE project.id IN ({proj_list}))"
+                    f"(SELECT * FROM `{standard_table}` WHERE {where_clause})"
                 )
                 subquery_resource = (
-                    f"(SELECT * FROM `{resource_table}` WHERE project.id IN ({proj_list}))"
+                    f"(SELECT * FROM `{resource_table}` WHERE {where_clause})"
                 )
 
             escaped_std = re.escape(standard_table)
@@ -135,14 +178,85 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
 
         logger.debug("Scoped BigQuery SQL query:\n%s", sql)
 
+        # Normalise SQL format to standardise cache keys
+        normalised_sql = re.sub(r"\s+", " ", sql).strip()
+
+        # Check in-session state cache
+        if state is not None and not isinstance(state, MagicMock):
+            bq_cache = state.setdefault("bq_cache", {})
+            if normalised_sql in bq_cache:
+                logger.debug("BQ Cache hit in session state for query: %s...", normalised_sql[:60])
+                return bq_cache[normalised_sql]
+
+        # Cache miss - execute the actual BigQuery query
+        logger.debug("BQ Cache miss in session state for query: %s...", normalised_sql[:60])
         client = _get_bq_client()
-        rows = execute_cached_query(client, sql)
-        # Convert Row objects to standard, GenAI-serialisable dicts safely
+        job = client.query(sql)
+        rows = list(job.result())
         result = [{k: _serialise_value(v) for k, v in row.items()} for row in rows]
         logger.debug("BigQuery returned %d rows.", len(result))
-        if result:
-            logger.debug("Snippet of first 3 BQ results: %s", result[:3])
+
+        # Write to in-session state cache
+        if state is not None and not isinstance(state, MagicMock):
+            state["bq_cache"][normalised_sql] = result
+
+            # Automatically populate standard blackboard keys to save the agent from writing huge lists back via set_session_value
+            if "resource" in normalised_sql.lower() and "secret manager" in normalised_sql.lower() and "cloud storage" in normalised_sql.lower():
+                state["gcs_secret_waste"] = result
+                logger.info("Automatically cached 'gcs_secret_waste' in session state blackboard.")
+            elif "usage_date" in normalised_sql.lower() or ("daily_cost" in normalised_sql.lower() and "usage_start_time" in normalised_sql.lower()):
+                state["daily_service_costs_30d"] = result
+                logger.info("Automatically cached 'daily_service_costs_30d' in session state blackboard.")
+            elif "is_current_period" in normalised_sql.lower() or "period_cost" in normalised_sql.lower():
+                state["sku_period_costs_60d"] = result
+                logger.info("Automatically cached 'sku_period_costs_60d' in session state blackboard.")
+
         return result
     except Exception as e:
         logger.error(f"Error in execute_cached_bigquery_sql tool: {e}", exc_info=True)
         raise e
+
+
+def get_session_value(key: str, tool_context: ToolContext) -> Any:
+    """Retrieves a cached value from the active session state if present.
+    Supported keys include:
+    - 'allowed_projects': list of allowed project IDs
+    - 'active_billing_projects': list of active billing projects
+    - 'gcs_secret_waste': list or dict containing cached GCS/Secret Manager waste resources
+    """
+    from unittest.mock import MagicMock
+    state = getattr(tool_context, "state", None)
+    if state is not None and not isinstance(state, MagicMock):
+        if key in state:
+            logger.debug(f"[BLACKBOARD HIT] Retrieved key '{key}' from session state, skipping external tool query.")
+            return state[key]
+    logger.debug(f"[BLACKBOARD MISS] Key '{key}' not found in session state.")
+    return None
+
+
+def set_session_value(key: str, value: Any, tool_context: ToolContext) -> str:
+    """Stores a value in the active session state for other agents to reuse in the current session.
+    For example, use this to store 'gcs_secret_waste' so other agents do not have to query it again.
+    """
+    from unittest.mock import MagicMock
+    state = getattr(tool_context, "state", None)
+    if state is not None and not isinstance(state, MagicMock):
+        state[key] = value
+        logger.debug(f"[BLACKBOARD WRITE] Stored key '{key}' in session state for other subagents to reuse.")
+        return f"Successfully stored key '{key}' in session state."
+    return "Error: Session state not available."
+
+
+BLACKBOARD_KEY_INSTRUCTIONS = """
+CRITICAL: SHARED SESSION BLACKBOARD PATTERN
+All subagents share a common session-scoped blackboard. Before calling external database queries, API calls, or MCP tools, you MUST check if the required data is already cached in the blackboard by calling `get_session_value(key)`. If it is present, use it directly.
+
+Note: To prevent long response delays, do NOT call `set_session_value` to write BigQuery query results (like costs or waste lists) back to the session state; the query tool automatically caches these results in the session state for you under the appropriate keys when executed. Only call `set_session_value` for non-database results.
+
+You MUST use these exact standardized keys:
+- 'daily_service_costs_30d': List of daily service cost aggregates (date, service, cost) over the last 30 days.
+- 'sku_period_costs_60d': List of SKU period costs (is_current_period, project, service, SKU, cost) over the last 60 days.
+- 'gcs_secret_waste': List of inactive storage buckets (GCS) and Secret Manager version replicas.
+- 'zombie_resources': List of idle static IPs and unattached boot/data disks.
+- 'rightsizing_recommendations': Cost, rightsizing, and performance optimization suggestions from Cloud Assist.
+"""

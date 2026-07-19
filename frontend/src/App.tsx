@@ -785,7 +785,7 @@ export default function App() {
         disabled: isSpikeQuestionDisabled
       },
       { label: 'Run Cost Forecast', text: 'Run a 3-month cost forecast and explain any projected anomalies.' },
-      { label: 'Compare Best Practices', text: 'Compare our current architecture against GCP best practices for storage and compute savings.' },
+      { label: 'Audit Best Practices', text: 'Assess the alignment of our currently deployed services against Google Cloud best practices for cost and resource optimization.' },
       { label: 'Last 30 Days', text: 'Show the utilisation over the last 30 days, showing most costly services.' }
     ]
   }, [recentSpikes, hasSpikes, maxIdx, isLoadingDashboard])

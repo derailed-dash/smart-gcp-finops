@@ -191,48 +191,25 @@ class FinOpsTelemetryPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> LlmResponse | None:
-        logger.info(
+        logger.debug(
             "Model Invocation for agent: %s, model: %s",
-            callback_context.node.name if callback_context.node else "Unknown",
+            callback_context.agent_name or "Unknown",
             llm_request.model,
         )
         return None
 
 
-def _override_llm_request_with_message(req: LlmRequest, message: str) -> None:
-    """Safely overrides the LLM request to force the model to output a specific message verbatim,
-    disabling all tool call capabilities and JSON output schema requirements.
-    """
-    req.contents = [
-        types.Content(role="user", parts=[types.Part(text="Output the system warning message.")])
-    ]
-    req.config.system_instruction = (
-        f"You must ignore all previous history and instructions. Immediately respond with the "
-        f"following message verbatim and nothing else. Do not invoke any tools. Message:\n\n{message}"
-    )
-    req.config.tools = []
-    req.config.response_schema = None
-    req.config.response_mime_type = "text/plain"
-    req.config.tool_config = None
-
-
 async def before_model_bypass(
     callback_context: CallbackContext,
-    request: LlmRequest | None = None,
-    llm_request: LlmRequest | None = None,
     **kwargs,
 ) -> LlmResponse | None:
     """If a cached response is present, or if access is denied/tool fails, bypass the LLM entirely and return immediately."""
     ctx = callback_context
-    req = llm_request or request
 
     # 1. Turn-level Cache lookup bypass
     if "cached_agent_response" in ctx.state:
         logger.debug("Bypassing ADK LLM call using cached agent response.")
         cached_msg = ctx.state["cached_agent_response"]
-        if req:
-            _override_llm_request_with_message(req, cached_msg)
-            return None
         part = types.Part(text=cached_msg)
         content = types.Content(role="model", parts=[part])
         return LlmResponse(content=content)
@@ -242,9 +219,6 @@ async def before_model_bypass(
     if not user_email:
         logger.warning("Access denied inside before_model_bypass: missing user_id.")
         auth_msg = "❌ Access Denied: Unauthenticated request. Please sign in via Identity-Aware Proxy (IAP)."
-        if req:
-            _override_llm_request_with_message(req, auth_msg)
-            return None
         part = types.Part(text=auth_msg)
         content = types.Content(role="model", parts=[part])
         return LlmResponse(content=content)
@@ -261,9 +235,6 @@ async def before_model_bypass(
             f"Please contact your administrator to verify that your account has been assigned "
             f"the appropriate project or billing viewer roles."
         )
-        if req:
-            _override_llm_request_with_message(req, auth_msg)
-            return None
         part = types.Part(text=auth_msg)
         content = types.Content(role="model", parts=[part])
         return LlmResponse(content=content)
@@ -280,9 +251,6 @@ async def before_model_bypass(
             f"The tool `{error_info['tool']}` encountered an issue: `{error_info['error']}`.\n\n"
             f"Please modify your query or temporal filters and try again."
         )
-        if req:
-            _override_llm_request_with_message(req, friendly_msg)
-            return None
         part = types.Part(text=friendly_msg)
         content = types.Content(role="model", parts=[part])
         return LlmResponse(content=content)
@@ -384,3 +352,166 @@ def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) ->
     if count > 25:
         logger.error("Defensive stop triggered: Tool call count exceeded limit of 25!")
         raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
+
+
+async def clean_history_callback(callback_context: CallbackContext, **kwargs) -> None:
+    """Cleans up the session history for the root coordinator:
+    1. At the start of a user turn, removes previous turns' tool pollution.
+    2. Mid-turn (when re-entered), strips subagents' internal tool calls/responses
+       to prevent ADK history alignment crashes.
+    """
+    ctx = callback_context
+    if not (ctx.session and hasattr(ctx.session, "events") and ctx.session.events):
+        return
+
+    events = ctx.session.events
+
+
+
+    # Main subagent tool names registered on root_agent
+    subagent_names = {
+        "billing_explorer",
+        "infrastructure_auditor",
+        "cloud_advisor",
+        "knowledge_assistant",
+        "root_cause_analyst",
+    }
+
+    last_event = events[-1]
+
+    # CASE 1: Start of a new user turn -> Clean up previous turns
+    if getattr(last_event, "role", None) == "user":
+        cleaned_events = []
+        for i, ev in enumerate(events):
+            # Always keep the last event (new user prompt)
+            if i == len(events) - 1:
+                cleaned_events.append(ev)
+                continue
+
+            role = getattr(ev, "role", None)
+            if role == "user":
+                cleaned_events.append(ev)
+            elif role == "model":
+                # Keep model responses only if they don't contain function calls
+                has_fc = False
+                if hasattr(ev, "get_function_calls") and ev.get_function_calls():
+                    has_fc = True
+                if not has_fc and ev.content and ev.content.parts:
+                    if any(getattr(p, "text", None) for p in ev.content.parts):
+                        cleaned_events.append(ev)
+
+        logger.debug(
+            "Start-of-turn cleanup for session %s: reduced to %d events.",
+            ctx.session.id,
+            len(cleaned_events),
+        )
+        ctx.session.events = cleaned_events
+        return
+
+    # CASE 2: Mid-turn re-entry -> Strip subagent internal tools (e.g. SQL queries, blackboard writes)
+    cleaned_events = []
+    for ev in events:
+        is_internal_tool = False
+
+        # Check function calls via helper method
+        if hasattr(ev, "get_function_calls"):
+            calls = ev.get_function_calls()
+            if calls and any(c.name not in subagent_names for c in calls):
+                is_internal_tool = True
+
+        # Check function responses via helper method
+        if hasattr(ev, "get_function_responses"):
+            resps = ev.get_function_responses()
+            if resps and any(r.name not in subagent_names for r in resps):
+                is_internal_tool = True
+
+        # Fallback check on content parts directly
+        if not is_internal_tool and ev.content and ev.content.parts:
+            for part in ev.content.parts:
+                if part.function_call and part.function_call.name not in subagent_names:
+                    is_internal_tool = True
+                    break
+                if part.function_response and part.function_response.name not in subagent_names:
+                    is_internal_tool = True
+                    break
+
+        if not is_internal_tool:
+            cleaned_events.append(ev)
+
+    logger.debug(
+        "Mid-turn cleanup for session %s: stripped internal subagent tools, reduced from %d to %d events.",
+        ctx.session.id,
+        len(events),
+        len(cleaned_events),
+    )
+
+    # CASE 3: Consolidate subagent results into the preceding user prompt event
+    # to maintain strict alternating roles (user -> model -> user).
+    final_cleaned = []
+    current_user_ev = None
+
+    for ev in cleaned_events:
+        # Keep track of the latest user prompt (not a tool response)
+        if getattr(ev, "author", None) == "user":
+            resps = ev.get_function_responses() if hasattr(ev, "get_function_responses") else []
+            if not resps and ev.content and ev.content.parts:
+                resps = [p.function_response for p in ev.content.parts if p.function_response]
+            if not resps:
+                current_user_ev = ev
+                final_cleaned.append(ev)
+                continue
+
+        # Strip the empty coordinator model event
+        if getattr(ev, "author", None) == "root_agent":
+            calls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
+            if not calls and ev.content and ev.content.parts:
+                calls = [p.function_call for p in ev.content.parts if p.function_call]
+            if not calls:
+                logger.debug("Stripped empty root_agent model event from history.")
+                continue
+            final_cleaned.append(ev)
+            continue
+
+        # Check if it's a subagent response
+        resps = ev.get_function_responses() if hasattr(ev, "get_function_responses") else []
+        if not resps and ev.content and ev.content.parts:
+            resps = [p.function_response for p in ev.content.parts if p.function_response]
+
+        is_subagent_resp = False
+        subagent_name = None
+        resp_data = None
+        for resp in resps:
+            r_name = getattr(resp, "name", None)
+            if r_name in subagent_names:
+                is_subagent_resp = True
+                subagent_name = r_name
+                resp_data = getattr(resp, "response", {})
+                break
+
+        if is_subagent_resp and subagent_name:
+            # Extract task result markdown
+            result_text = ""
+            if isinstance(resp_data, dict):
+                result_text = resp_data.get("task_result") or resp_data.get("result") or str(resp_data)
+            else:
+                result_text = str(resp_data)
+
+            # Consolidate directly into the preceding user prompt
+            if current_user_ev and current_user_ev.content:
+                from google.genai import types
+                if not current_user_ev.content.parts:
+                    current_user_ev.content.parts = []
+                current_user_ev.content.parts.append(
+                    types.Part(text=f"\n\n[Context: Subagent '{subagent_name}' returned result:\n{result_text}]")
+                )
+                logger.debug(
+                    "Consolidated subagent '%s' result directly into user prompt event.",
+                    subagent_name,
+                )
+            else:
+                logger.warning("Could not find preceding user event to consolidate subagent response.")
+            continue
+
+        final_cleaned.append(ev)
+
+    ctx.session.events = final_cleaned
