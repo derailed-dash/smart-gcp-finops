@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
-from finops_agent.app_utils.tools import execute_cached_bigquery_sql
+from finops_agent.app_utils.tools import execute_cached_bigquery_sql, get_precomputed_spend_analysis
 
 
 @pytest.fixture
@@ -258,6 +258,48 @@ def test_execute_cached_bigquery_sql_defensive_temporal(
         called_sql = mock_bq_client.query.call_args[0][0]
         # Should have injected the 90-day export_time filter defensively into the subquery
         assert "export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))" in called_sql
+    finally:
+        ALLOWED_PROJECTS_VAR.reset(token)
+
+
+def test_get_precomputed_spend_analysis_defaults(
+    mock_bq_client, mock_settings, mock_context
+):
+    """Verify that get_precomputed_spend_analysis generates 30/60 day intervals by default."""
+    token = ALLOWED_PROJECTS_VAR.set(None)
+    try:
+        res = get_precomputed_spend_analysis(tool_context=mock_context)
+        assert res["mtdChange"] == 100.0
+        assert mock_bq_client.query.call_count == 3
+
+        calls = [arg[0][0] for arg in mock_bq_client.query.call_args_list]
+        # Daily service costs query
+        assert "INTERVAL 30 DAY" in calls[0]
+        # Period/MTD SKU spend query (uses days * 2 = 60)
+        assert "INTERVAL 60 DAY" in calls[1]
+        # Waste query
+        assert "INTERVAL 30 DAY" in calls[2]
+    finally:
+        ALLOWED_PROJECTS_VAR.reset(token)
+
+
+def test_get_precomputed_spend_analysis_custom_days(
+    mock_bq_client, mock_settings, mock_context
+):
+    """Verify that get_precomputed_spend_analysis correctly propagates custom durations."""
+    token = ALLOWED_PROJECTS_VAR.set(None)
+    try:
+        res = get_precomputed_spend_analysis(days=45, tool_context=mock_context)
+        assert res["mtdChange"] == 100.0
+        assert mock_bq_client.query.call_count == 3
+
+        calls = [arg[0][0] for arg in mock_bq_client.query.call_args_list]
+        # Daily service costs query
+        assert "INTERVAL 45 DAY" in calls[0]
+        # Period/MTD SKU spend query (uses days * 2 = 90)
+        assert "INTERVAL 90 DAY" in calls[1]
+        # Waste query
+        assert "INTERVAL 45 DAY" in calls[2]
     finally:
         ALLOWED_PROJECTS_VAR.reset(token)
 

@@ -54,8 +54,8 @@ export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
 ```
 This prevents unconstrained queries from scanning the full historical footprint of the table.
 
-### 5. Session-Bound Cache & Blackboard Auto-Caching
-- **Session-Bound Caching**: We replaced the global process-level query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`) to ensure multi-tenant session isolation and avoid memory leaks.
+### 5. Private In-Memory Caching & Blackboard Auto-Caching
+- **Private In-Memory Caching (`_IN_MEMORY_BQ_CACHE`)**: Raw BigQuery SQL caches are kept in a private, thread-safe in-memory Python dictionary mapped by `session_id` rather than ADK `SessionState` (`tool_context.state`). Because `SessionState` is serialized and persisted to disk or network stores on every turn, keeping the heavy SQL rows in a private process-level map avoids significant database I/O, network latency, trace/telemetry log bloat, and framework deepcopy CPU spikes.
 - **Blackboard Auto-Caching**: Query execution results are automatically written to standard blackboard keys in python memory (`'daily_service_costs_30d'`, `'sku_period_costs_60d'`, and `'gcs_secret_waste'`). Subagents are instructed via prompt guidelines to consult the blackboard first and **not** call `set_session_value` with database results, completely eliminating the latency of the LLM generating large JSON lists.
 
 ### 6. Deterministic Python Precomputation & Subagent Tool Stripping

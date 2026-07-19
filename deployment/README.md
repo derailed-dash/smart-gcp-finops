@@ -252,6 +252,10 @@ To separate responsibilities and maintain security, the repository uses two dist
 | `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Gemini Enterprise Agent Platform connectivity. |
 | `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.5-flash`). |
 | `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.1-flash-lite`). |
+| `rca_cost_increase_threshold` | `vars.RCA_COST_INCREASE_THRESHOLD` | `RCA_COST_INCREASE_THRESHOLD` | BFF & Agent | Cost spike delta threshold (default `0.5` / £0.50) to filter background noise in RCA. |
+| `spend_analysis_daily_cost_threshold` | `vars.SPEND_ANALYSIS_DAILY_COST_THRESHOLD` | `SPEND_ANALYSIS_DAILY_COST_THRESHOLD` | BFF & Agent | Daily aggregated spend threshold (default `0.5` / £0.50) to filter negligible rows in spend analysis. |
+| `spend_analysis_period_cost_threshold` | `vars.SPEND_ANALYSIS_PERIOD_COST_THRESHOLD` | `SPEND_ANALYSIS_PERIOD_COST_THRESHOLD` | BFF & Agent | MTD/30-day aggregated spend threshold (default `2.0` / £2.00) to filter negligible rows in spend analysis. |
+| `spend_analysis_waste_cost_threshold` | `vars.SPEND_ANALYSIS_WASTE_COST_THRESHOLD` | `SPEND_ANALYSIS_WASTE_COST_THRESHOLD` | BFF & Agent | Aggregated monthly storage/secret waste threshold (default `0.2` / £0.20) to filter negligible idle resources in spend analysis. |
 | `cloud_run_staging_min_instances` | `vars.CLOUD_RUN_STAGING_MIN_INSTANCES`| N/A | Cloud Run Deploy | Minimum containers for Staging BFF. |
 | `cloud_run_staging_max_instances` | `vars.CLOUD_RUN_STAGING_MAX_INSTANCES`| N/A | Cloud Run Deploy | Maximum containers for Staging BFF. |
 | `agent_runtime_staging_min_instances` | `vars.AGENT_RUNTIME_STAGING_MIN_INSTANCES`| N/A | Agent Runtime Deploy | Minimum containers for Staging Agent. |

@@ -75,5 +75,12 @@ class Settings(BaseSettings):
     chat_rate_limit: str = "5/minute; 100/day"
     feedback_rate_limit: str = "20/minute; 500/day"
 
+    # Root Cause Analysis cost increase threshold (in currency units, e.g. GBP)
+    rca_cost_increase_threshold: float = 0.2
+
+    # Spend Analysis thresholds to filter negligible spend rows
+    spend_analysis_daily_cost_threshold: float = 0.5
+    spend_analysis_period_cost_threshold: float = 2.0
+    spend_analysis_waste_cost_threshold: float = 0.2
 
 settings = Settings()
