@@ -19,6 +19,10 @@ from finops_agent.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Global private in-memory query cache mapped by session_id to avoid serialising raw SQL caches into ADK SessionState
+_IN_MEMORY_BQ_CACHE: dict[str, dict[str, Any]] = {}
+
+
 
 class BigQueryClientManager:
     """Manages thread-safe lazy-initialisation of the shared BigQuery client."""
@@ -144,7 +148,7 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             # Extract date and partition filters to push them down into the subqueries
             nested_parens = r"\((?:[^()]*|\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))*\)"
             date_filter_pattern = re.compile(
-                rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|['\"\w\d\-\s:]+)",
+                rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|TIMESTAMP\s+['\"][^'\"]+['\"]|['\"][^'\"]+['\"]|\bCURRENT_DATE\b|\bCURRENT_TIMESTAMP\b)",
                 re.IGNORECASE
             )
             date_filters = date_filter_pattern.findall(sql)
@@ -181,33 +185,37 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
         # Normalise SQL format to standardise cache keys
         normalised_sql = re.sub(r"\s+", " ", sql).strip()
 
-        # Check in-session state cache
-        if state is not None and not isinstance(state, MagicMock):
-            bq_cache = state.setdefault("bq_cache", {})
-            if normalised_sql in bq_cache:
-                logger.debug("BQ Cache hit in session state for query: %s...", normalised_sql[:60])
-                return bq_cache[normalised_sql]
+        # Check in-memory query cache
+        session_id = tool_context.session.id if (tool_context.session and tool_context.session.id) else "default"
+        if session_id not in _IN_MEMORY_BQ_CACHE:
+            _IN_MEMORY_BQ_CACHE[session_id] = {}
+        bq_cache = _IN_MEMORY_BQ_CACHE[session_id]
+
+        if normalised_sql in bq_cache:
+            logger.debug("BQ Cache hit in memory for query: %s...", normalised_sql[:60])
+            return bq_cache[normalised_sql]
 
         # Cache miss - execute the actual BigQuery query
-        logger.debug("BQ Cache miss in session state for query: %s...", normalised_sql[:60])
+        logger.debug("BQ Cache miss in memory for query: %s...", normalised_sql[:60])
         client = _get_bq_client()
         job = client.query(sql)
         rows = list(job.result())
         result = [{k: _serialise_value(v) for k, v in row.items()} for row in rows]
         logger.debug("BigQuery returned %d rows.", len(result))
 
-        # Write to in-session state cache
-        if state is not None and not isinstance(state, MagicMock):
-            state["bq_cache"][normalised_sql] = result
+        # Write to in-memory query cache
+        bq_cache[normalised_sql] = result
 
-            # Automatically populate standard blackboard keys to save the agent from writing huge lists back via set_session_value
-            if "resource" in normalised_sql.lower() and "secret manager" in normalised_sql.lower() and "cloud storage" in normalised_sql.lower():
+        # Automatically populate standard blackboard keys in SessionState so other agents can read them
+        if state is not None and not isinstance(state, MagicMock):
+            norm_lower = normalised_sql.lower()
+            if "resource_name" in norm_lower and "cost" in norm_lower and ("secret manager" in norm_lower or "cloud storage" in norm_lower):
                 state["gcs_secret_waste"] = result
                 logger.info("Automatically cached 'gcs_secret_waste' in session state blackboard.")
-            elif "usage_date" in normalised_sql.lower() or ("daily_cost" in normalised_sql.lower() and "usage_start_time" in normalised_sql.lower()):
+            elif "usage_date" in norm_lower and "service_description" in norm_lower and "daily_cost" in norm_lower:
                 state["daily_service_costs_30d"] = result
                 logger.info("Automatically cached 'daily_service_costs_30d' in session state blackboard.")
-            elif "is_current_period" in normalised_sql.lower() or "period_cost" in normalised_sql.lower():
+            elif "is_current_period" in norm_lower and "sku_description" in norm_lower and "period_cost" in norm_lower:
                 state["sku_period_costs_60d"] = result
                 logger.info("Automatically cached 'sku_period_costs_60d' in session state blackboard.")
 
@@ -217,12 +225,175 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
         raise e
 
 
+def get_precomputed_spend_analysis(tool_context: ToolContext) -> dict[str, Any]:
+    """Pre-computes Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers,
+    daily cost spikes, and Secret Manager/GCS zombie waste in Python. Reuses cached BQ queries.
+    """
+    from finops_agent.client import resource_table_id, standard_table_id
+
+    # 1. Daily Service-level Costs (Last 30 Days)
+    q1 = f"""
+SELECT
+  DATE(usage_start_time) as usage_date,
+  service.description as service_description,
+  SUM(cost) as daily_cost,
+  currency
+FROM `{standard_table_id}`
+WHERE export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+  AND usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+GROUP BY 1, 2, 4
+HAVING daily_cost > 0.10
+ORDER BY usage_date ASC;
+"""
+
+    # 2. SKU-level Period Costs (Last 60 Days)
+    q2 = f"""
+SELECT
+  usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) as is_current_period,
+  project.id as project_id,
+  service.description as service_description,
+  sku.description as sku_description,
+  SUM(cost) as period_cost,
+  currency
+FROM `{standard_table_id}`
+WHERE export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY))
+  AND usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY))
+GROUP BY 1, 2, 3, 4, 6
+HAVING period_cost > 0.50;
+"""
+
+    # 3. Storage and Secret waste
+    q3 = f"""
+SELECT
+  project.id as project_id,
+  resource.name as resource_name,
+  service.description as service_description,
+  sku.description as sku_description,
+  SUM(cost) as cost
+FROM `{resource_table_id}`
+WHERE export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+  AND usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+  AND service.description IN ('Cloud Storage', 'Secret Manager')
+  AND (
+    service.description = 'Secret Manager'
+    OR (service.description = 'Cloud Storage' AND (sku.description LIKE '%Storage%' OR sku.description LIKE '%Operation%'))
+  )
+GROUP BY 1, 2, 3, 4
+HAVING cost > 0.1
+ORDER BY cost DESC;
+"""
+
+    res1 = execute_cached_bigquery_sql(sql=q1, tool_context=tool_context)
+    res2 = execute_cached_bigquery_sql(sql=q2, tool_context=tool_context)
+    res3 = execute_cached_bigquery_sql(sql=q3, tool_context=tool_context)
+
+    currency = "GBP"
+    if res2:
+        currency = res2[0].get("currency", "GBP")
+
+    mtd_spend = sum(float(row["period_cost"]) for row in res2 if row["is_current_period"])
+    prev_spend = sum(float(row["period_cost"]) for row in res2 if not row["is_current_period"])
+
+    if prev_spend > 0:
+        mtd_change = ((mtd_spend - prev_spend) / prev_spend) * 100.0
+    else:
+        mtd_change = 100.0
+
+    forecast = mtd_spend
+
+    drivers_curr = {}
+    drivers_prev = {}
+    for row in res2:
+        key = (row["project_id"], row["service_description"])
+        cost = float(row["period_cost"])
+        if row["is_current_period"]:
+            drivers_curr[key] = drivers_curr.get(key, 0.0) + cost
+        else:
+            drivers_prev[key] = drivers_prev.get(key, 0.0) + cost
+
+    top_drivers = []
+    for key, cost in drivers_curr.items():
+        proj, svc = key
+        prev = drivers_prev.get(key, 0.0)
+        chg = 100.0 if prev == 0 else ((cost - prev) / prev) * 100.0
+        top_drivers.append({
+            "project": proj,
+            "service": svc,
+            "cost": round(cost, 2),
+            "change": round(chg, 1),
+        })
+    top_drivers.sort(key=lambda x: x["cost"], reverse=True)
+
+    daily_groups = {}
+    services_seen = set()
+    for row in res1:
+        date_str = row["usage_date"]
+        if "-" in date_str:
+            parts = date_str.split("-")
+            date_formatted = f"{parts[1]}/{parts[2]}"
+        else:
+            date_formatted = date_str
+
+        svc = row["service_description"]
+        cost = float(row["daily_cost"])
+
+        if date_formatted not in daily_groups:
+            daily_groups[date_formatted] = {}
+        daily_groups[date_formatted][svc] = daily_groups[date_formatted].get(svc, 0.0) + cost
+        services_seen.add(svc)
+
+    recent_spikes = []
+    for dt, svcs in daily_groups.items():
+        total_day_cost = sum(svcs.values())
+        if total_day_cost > 0.50:
+            day_dict = {"date": dt}
+            for s in services_seen:
+                day_dict[s] = round(svcs.get(s, 0.0), 2)
+            recent_spikes.append(day_dict)
+    recent_spikes.sort(key=lambda x: x["date"])
+    recent_spikes = recent_spikes[-10:]
+
+    zombie_waste = 0.0
+    zombies = []
+    for row in res3:
+        cost = float(row["cost"])
+        zombie_waste += cost
+        zombies.append({
+            "resource": row["resource_name"],
+            "service": row["service_description"],
+            "cost": round(cost, 2),
+            "recommendation": "Review unused secret versions"
+            if row["service_description"] == "Secret Manager"
+            else "Clean up empty bucket storage",
+        })
+
+    return {
+        "currency": currency,
+        "mtdSpend": round(mtd_spend, 2),
+        "mtdChange": round(mtd_change, 1),
+        "forecast": round(forecast, 2),
+        "forecastLabel": "Projected end-of-month",
+        "anomaliesCount": len(
+            [s for s in recent_spikes if sum(v for k, v in s.items() if k != "date") > 2.0]
+        ),
+        "zombieWaste": round(zombie_waste, 2),
+        "top_drivers": top_drivers,
+        "recentSpikes": recent_spikes,
+        "zombies": zombies,
+    }
+
+
 def get_session_value(key: str, tool_context: ToolContext) -> Any:
     """Retrieves a cached value from the active session state if present.
     Supported keys include:
     - 'allowed_projects': list of allowed project IDs
     - 'active_billing_projects': list of active billing projects
     - 'gcs_secret_waste': list or dict containing cached GCS/Secret Manager waste resources
+    - 'daily_service_costs_30d'
+    - 'sku_period_costs_60d'
+    - 'zombie_resources'
+    - 'rightsizing_recommendations'
+    - 'spend_analysis'
     """
     from unittest.mock import MagicMock
     state = getattr(tool_context, "state", None)

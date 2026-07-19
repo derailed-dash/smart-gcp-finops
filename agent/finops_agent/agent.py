@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 Description: Agent orchestration and configuration.
 Why: Defines the ADK coordinator agent and sets up the global ADK App.
@@ -15,6 +16,10 @@ from google.adk.agents import Agent
 from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.apps import App
 from google.genai import types
+
+from finops_agent.app_utils.logging_and_telemetry import setup_logging_suppressions
+
+setup_logging_suppressions()
 
 from finops_agent.agents import (
     billing_explorer,

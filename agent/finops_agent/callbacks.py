@@ -160,6 +160,10 @@ class DefensiveToolErrorPlugin(BasePlugin):
             tool.name,
             error,
         )
+        if tool.name == "detect_anomalies":
+            logger.info("Gracefully handling detect_anomalies failure by returning empty anomalies list.")
+            return []
+
         # Store error info in session state so before_model_bypass can intercept the next turn
         tool_context.state["last_tool_error"] = {
             "tool": tool.name,
@@ -176,6 +180,13 @@ class FinOpsTelemetryPlugin(BasePlugin):
 
     def __init__(self, name: str = "finops_telemetry_plugin"):
         super().__init__(name)
+        log_level = settings.log_level.upper()
+        if log_level == "DEBUG":
+            logging.getLogger().setLevel(logging.DEBUG)
+            logging.getLogger("finops_agent").setLevel(logging.DEBUG)
+            logging.getLogger("google_adk").setLevel(logging.DEBUG)
+            for handler in logging.getLogger().handlers:
+                handler.setLevel(logging.DEBUG)
 
     async def before_agent_callback(
         self, *, agent: Any, callback_context: CallbackContext
@@ -191,19 +202,62 @@ class FinOpsTelemetryPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> LlmResponse | None:
+        agent_name = callback_context.agent_name or "Unknown"
         logger.debug(
             "Model Invocation for agent: %s, model: %s",
-            callback_context.agent_name or "Unknown",
+            agent_name,
             llm_request.model,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Model Request Payload for agent '%s':\n%s",
+                agent_name,
+                llm_request,
+            )
         return None
+
+    async def after_model_callback(
+        self, *, callback_context: CallbackContext, llm_response: LlmResponse
+    ) -> LlmResponse | None:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Model Response Payload for agent '%s':\n%s",
+                callback_context.agent_name or "Unknown",
+                llm_response,
+            )
+        return None
+
+    async def before_tool_callback(
+        self, *, tool: BaseTool, tool_context: ToolContext, **kwargs
+    ) -> dict[str, Any] | None:
+        if logger.isEnabledFor(logging.DEBUG):
+            args = kwargs.get("tool_args") or kwargs.get("args") or {}
+            logger.debug(
+                "Tool Execution [%s] invoked:\nArguments: %s",
+                tool.name,
+                args,
+            )
+        return None
+
+    async def after_tool_callback(
+        self, *, tool: BaseTool, tool_context: ToolContext, **kwargs
+    ) -> Any:
+        tool_response = kwargs.get("tool_response")
+        if logger.isEnabledFor(logging.DEBUG):
+            args = kwargs.get("tool_args") or kwargs.get("args") or {}
+            logger.debug(
+                "Tool Execution [%s] completed:\nArguments: %s\nResult: %s",
+                tool.name,
+                args,
+                tool_response,
+            )
+        return tool_response
 
 
 async def before_model_bypass(
     callback_context: CallbackContext,
     **kwargs,
 ) -> LlmResponse | None:
-    """If a cached response is present, or if access is denied/tool fails, bypass the LLM entirely and return immediately."""
     ctx = callback_context
 
     # 1. Turn-level Cache lookup bypass
@@ -254,6 +308,63 @@ async def before_model_bypass(
         part = types.Part(text=friendly_msg)
         content = types.Content(role="model", parts=[part])
         return LlmResponse(content=content)
+
+    # 5. Coordinator bypass: check if subagent response is consolidated or directly in history
+    if ctx.agent_name == "root_agent" and ctx.session and ctx.session.events:
+        last_ev = ctx.session.events[-1]
+
+        # Scenario A: Check if consolidated directly into the user event
+        if getattr(last_ev, "role", None) == "user" and last_ev.content and last_ev.content.parts:
+            for part in last_ev.content.parts:
+                if part.text and "[Context: Subagent '" in part.text and "' returned result:\n" in part.text:
+                    marker = "' returned result:\n"
+                    idx = part.text.find(marker)
+                    if idx != -1:
+                        res_text = part.text[idx + len(marker) :]
+                        if res_text.endswith("]"):
+                            res_text = res_text[:-1]
+                        if res_text.strip():
+                            logger.info(
+                                "Bypassing root_agent model call; passing through consolidated subagent response directly."
+                            )
+                            new_part = types.Part(text=res_text)
+                            content = types.Content(role="model", parts=[new_part])
+                            return LlmResponse(content=content)
+
+        # Scenario B: Check if there's a subagent response event in the history
+        resps = []
+        if hasattr(last_ev, "get_function_responses"):
+            resps = last_ev.get_function_responses()
+        if not resps and last_ev.content and last_ev.content.parts:
+            resps = [p.function_response for p in last_ev.content.parts if p.function_response]
+
+        subagent_names = {
+            "billing_explorer",
+            "infrastructure_auditor",
+            "cloud_advisor",
+            "knowledge_assistant",
+            "root_cause_analyst",
+        }
+        if resps and any(r.name in subagent_names for r in resps):
+            for r in resps:
+                if r.name in subagent_names:
+                    resp_val = r.response
+                    result_text = ""
+                    if isinstance(resp_val, dict):
+                        result_text = resp_val.get("result") or resp_val.get("output") or str(resp_val)
+                    elif isinstance(resp_val, str):
+                        result_text = resp_val
+                    else:
+                        result_text = str(resp_val)
+
+                    if result_text:
+                        logger.info(
+                            "Bypassing root_agent model call; passing through subagent '%s' response directly.",
+                            r.name,
+                        )
+                        new_part = types.Part(text=result_text)
+                        content = types.Content(role="model", parts=[new_part])
+                        return LlmResponse(content=content)
 
     return None
 
@@ -461,12 +572,15 @@ async def clean_history_callback(callback_context: CallbackContext, **kwargs) ->
                 final_cleaned.append(ev)
                 continue
 
-        # Strip the empty coordinator model event
+        # Strip the empty coordinator model event (only if it has no calls and no text)
         if getattr(ev, "author", None) == "root_agent":
             calls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
             if not calls and ev.content and ev.content.parts:
                 calls = [p.function_call for p in ev.content.parts if p.function_call]
-            if not calls:
+            has_text = False
+            if ev.content and ev.content.parts:
+                has_text = any(p.text and p.text.strip() for p in ev.content.parts)
+            if not calls and not has_text:
                 logger.debug("Stripped empty root_agent model event from history.")
                 continue
             final_cleaned.append(ev)

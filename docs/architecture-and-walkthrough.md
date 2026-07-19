@@ -8,7 +8,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 |-----|--------|-----------|
 | **Vite-React SPA Workspace** | Use an isolated, type-safe React + TypeScript SPA compiled via Vite. Rationale: Vite provides instant Hot Module Replacement (HMR) during dev; TypeScript ensures robust parsing of complex `application/json+a2ui` payloads; compiling to clean static assets maintains a tiny Python container footprint (no Node.js in production). |
 | **BFF Architecture** | Use FastAPI as a Backend for Frontend (BFF) to decouple agent logic from the React UI while serving static assets. |
-| **Unified Container for UI and BFF** | Pckage React and FastAPI into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. |
+| **For Dev: Unified Container for UI and BFF** | Pckage React and FastAPI into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. Only used in the local development environment. |
 | **ADK Orchestration** | Google ADK for robust multi-agent coordination, session management, and standardized tool calling. |
 | **A2UI Protocol** | Agent-driven rich UI generation (tables, charts, cards) to maintain a professional, information-dense UX. |
 | **Native IAP** | Identity-Aware Proxy directly on Cloud Run avoiding the cost and complexity of a Global Load Balancer while maintaining enterprise security. |
@@ -21,20 +21,14 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **CAI Zombie Detection** | Specialised Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
 | **Developer Knowledge MCP** | The remote Google Developer Knowledge MCP server (`https://developerknowledge.googleapis.com/mcp`) allows our agent to cross-reference identified infrastructure issues and cost spikes against official GCP best practices, and to provide grounding for general Google-related queries. Additionally, it is fully-managed by Google, so no MCP servers to deploy and manage ourselves. |
 | **Direct Table Binding**   | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. (_Potentially fragile?_) |
-| **Keep-Alive Heartbeat SSE** | I Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
-| **Vite 6 Tooling & Sandboxing** | Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
-| **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/finops_agent/app_utils/`. Rationale: Keeps the core `app/finops_agent/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
-| **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
-| **Semantic Caching** | I Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
-| **CI/CD Variable Sync** | I Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
-| **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Gemini Enterprise Agent Platform management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
-| **Object-Oriented State Managers** | Refactored mutable global module-level variables (caching and client states) into thread-safe object-oriented singleton managers. Rationale: Improves thread safety under concurrent requests, makes testing isolation straightforward, and structures state management logically. |
-| **Standard Native Logging** | Standardised all logging on Python's native `logging` library instead of direct vendor SDK client logging. Rationale: Integrates seamlessly with standard python tools, dynamically routes logs to Cloud Logging in production, and suppresses noisy third-party frameworks. |
+| **Keep-Alive Heartbeat SSE** | Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
+| **Context Caching** | Used `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
+| **Semantic Caching** | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
+| **Agent Runtime Hosting** | Gemini Enterprise Agent Runtime for agent execution. Provides our agent with the benefits of native Gemini Enterprise Agent Platform, with automatic registration/synchronisation in the central Google Cloud Console Agent Registry catalog. |
 | **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
 | **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.5-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.5-flash`). We stick to stateless model inference with client/BFF side history management. |
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
-
 
 ## BigQuery Query Optimization
 
@@ -63,8 +57,6 @@ This prevents unconstrained queries from scanning the full historical footprint 
 ### 5. Session-Bound Cache & Blackboard Auto-Caching
 - **Session-Bound Caching**: We replaced the global process-level query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`) to ensure multi-tenant session isolation and avoid memory leaks.
 - **Blackboard Auto-Caching**: Query execution results are automatically written to standard blackboard keys in python memory (`'daily_service_costs_30d'`, `'sku_period_costs_60d'`, and `'gcs_secret_waste'`). Subagents are instructed via prompt guidelines to consult the blackboard first and **not** call `set_session_value` with database results, completely eliminating the latency of the LLM generating large JSON lists.
-
-
 
 ## Solution Architecture
 
@@ -96,7 +88,7 @@ To facilitate seamless local development and robust managed execution, the syste
 
 ![FinSavant Component Architecture](./images/component_architecture.png)
 
-### Docker Containerization & Deployment Options
+### Docker Containerisation & Deployment Options
 
 To support clean isolation, local testing, and separate scaling in production, the workspace is structured with **three separate Dockerfiles**:
 

@@ -1898,5 +1898,30 @@ We implemented two automatic runtime query safety guardrails inside `execute_cac
 
 This keeps exploratory agent actions fast, cheap, and safe! Hurrah!
 
+---
+
+### Custom Event Payload Logging and Debug-Only Verbose Telemetry
+
+**Problem**:
+During local testing in the ADK Web playground, we could see rich runtime telemetry (such as agent state transitions, tool invocation arguments, event outputs, and model requests/responses). However, there was no way to capture these detailed payloads directly inside a log file (e.g. `playground.log`) for inspection, and exporting full prompt and tool inputs/outputs in production is highly noisy and presents a risk of leaking sensitive PII/billing data in standard application logs.
+
+**Resolution**:
+We implemented a custom, hook-based verbose logger using ADK's `BasePlugin` callback system:
+1. **Targeted Callback Implementations**: Extended the global `FinOpsTelemetryPlugin` to support model and tool callback lifecycles:
+   * `before_model_callback`: Captures the raw `LlmRequest` object (including prompts, system instructions, and tool schemas).
+   * `after_model_callback`: Captures the raw `LlmResponse` returned by the model.
+   * `before_tool_callback`: Captures the `BaseTool` execution arguments.
+   * `after_tool_callback`: Captures the return values of tool executions.
+2. **Debug-Only Guard**: Wrapped all detailed payload serialization statements in a performance-friendly level check:
+   ```python
+   if logger.isEnabledFor(logging.DEBUG):
+       logger.debug(...)
+   ```
+   This ensures that the expensive serialization and logging of complex payloads occurs **only** when the logging level is set to `DEBUG` (standard in local development), keeping staging and production logs clean, high-performance, and secure by default.
+3. **Validation**: Added unit tests to `tests/unit/test_multiagent.py` to verify that the telemetry plugin successfully processes model and tool events without throwing attribute errors.
+
+This provides the developer with standard, verbose event tracking in local development without bloat or leakage in production logs! Hurrah!
+
+
 
 
