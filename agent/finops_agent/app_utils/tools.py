@@ -225,6 +225,84 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
         raise e
 
 
+def get_precomputed_root_cause(date_str: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Runs the comparative cost spike query in Python for the given date, correlates it with
+    CAI configuration logs for any specific persistent resources, and returns the result.
+    """
+    import datetime
+
+    from finops_agent.app_utils.cai_tools import get_cai_history_for_resource
+    from finops_agent.client import resource_table_id
+
+    try:
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+    except Exception:
+        dt = datetime.date.today()
+    prev_dt = dt - datetime.timedelta(days=1)
+
+    date_formatted = dt.strftime("%Y-%m-%d")
+    prev_date_formatted = prev_dt.strftime("%Y-%m-%d")
+
+    q = f"""
+SELECT
+  resource.name,
+  SUM(CASE WHEN DATE(usage_start_time) = '{date_formatted}' THEN cost ELSE 0 END) as spike_day_cost,
+  SUM(CASE WHEN DATE(usage_start_time) = '{prev_date_formatted}' THEN cost ELSE 0 END) as prev_day_cost,
+  SUM(CASE WHEN DATE(usage_start_time) = '{date_formatted}' THEN cost ELSE 0 END) - SUM(CASE WHEN DATE(usage_start_time) = '{prev_date_formatted}' THEN cost ELSE 0 END) as cost_increase
+FROM `{resource_table_id}`
+WHERE export_time >= TIMESTAMP('{prev_date_formatted}')
+  AND export_time < TIMESTAMP_ADD(TIMESTAMP('{date_formatted}'), INTERVAL 1 DAY)
+  AND usage_start_time >= TIMESTAMP('{prev_date_formatted}')
+  AND usage_start_time < TIMESTAMP_ADD(TIMESTAMP('{date_formatted}'), INTERVAL 1 DAY)
+GROUP BY 1
+HAVING spike_day_cost > 0.1 AND cost_increase > 0.1
+ORDER BY cost_increase DESC
+LIMIT 5;
+"""
+
+    res = execute_cached_bigquery_sql(sql=q, tool_context=tool_context)
+
+    resource_spikes = []
+    has_persistent_resources = False
+
+    for row in res:
+        name = row.get("resource_name") or row.get("name")
+        spike_cost = float(row.get("spike_day_cost", 0.0))
+        prev_cost = float(row.get("prev_day_cost", 0.0))
+        increase = float(row.get("cost_increase", 0.0))
+
+        resource_info = {
+            "name": name,
+            "spike_day_cost": round(spike_cost, 2),
+            "prev_day_cost": round(prev_cost, 2),
+            "cost_increase": round(increase, 2),
+            "cai_history": [],
+        }
+
+        if name and name.strip() and name.lower() != "null" and "/" in name:
+            has_persistent_resources = True
+            try:
+                start_time_iso = f"{prev_date_formatted}T00:00:00Z"
+                end_time_iso = f"{date_formatted}T23:59:59Z"
+                cai_res = get_cai_history_for_resource(
+                    resource_name=name,
+                    start_time=start_time_iso,
+                    end_time=end_time_iso,
+                )
+                resource_info["cai_history"] = cai_res
+            except Exception as e:
+                logger.error(f"Error fetching CAI history for {name}: {e}")
+
+        resource_spikes.append(resource_info)
+
+    return {
+        "date": date_formatted,
+        "previous_date": prev_date_formatted,
+        "has_persistent_resources": has_persistent_resources,
+        "resource_spikes": resource_spikes,
+    }
+
+
 def get_precomputed_spend_analysis(tool_context: ToolContext) -> dict[str, Any]:
     """Pre-computes Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers,
     daily cost spikes, and Secret Manager/GCS zombie waste in Python. Reuses cached BQ queries.

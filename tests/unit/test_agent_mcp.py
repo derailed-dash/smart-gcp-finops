@@ -34,15 +34,15 @@ async def test_agent_has_native_bq_toolset():
 
 
 def test_agent_instruction_contains_billing_context():
-    """Verify that the BillingExplorer instruction mentions the billing dataset."""
+    """Verify that the BillingExplorer instruction mentions the billing tools/precomputation."""
     subagents = {sa.name: sa for sa in root_agent.sub_agents}
     billing_explorer = subagents["billing_explorer"]
     assert "billing" in billing_explorer.instruction.lower()
-    assert "dataset" in billing_explorer.instruction.lower()
+    assert "precomputed" in billing_explorer.instruction.lower()
 
 
 def test_agent_has_cai_tools():
-    """Verify that subagents are initialized with the correct CAI tools."""
+    """Verify that subagents are initialized with the correct CAI/precomputed tools."""
     subagents = {sa.name: sa for sa in root_agent.sub_agents}
 
     infra_auditor_tools = [
@@ -55,16 +55,16 @@ def test_agent_has_cai_tools():
     rca_tools = [
         t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in subagents["root_cause_analyst"].tools
     ]
-    assert "get_cai_history_for_resource" in rca_tools, (
-        "RootCauseAnalyst should have get_cai_history_for_resource tool"
+    assert "get_precomputed_root_cause" in rca_tools, (
+        "RootCauseAnalyst should have get_precomputed_root_cause tool"
     )
 
 
 def test_agent_instruction_contains_cai_context():
-    """Verify that the subagent instructions mention the CAI tools."""
+    """Verify that the subagent instructions mention the CAI/precomputed tools."""
     subagents = {sa.name: sa for sa in root_agent.sub_agents}
     assert "get_cai_metadata_for_resources" in subagents["infrastructure_auditor"].instruction
-    assert "get_cai_history_for_resource" in subagents["root_cause_analyst"].instruction
+    assert "get_precomputed_root_cause" in subagents["root_cause_analyst"].instruction
 
 
 def test_agent_instruction_contains_developer_knowledge_context():

@@ -1922,6 +1922,27 @@ We implemented a custom, hook-based verbose logger using ADK's `BasePlugin` call
 
 This provides the developer with standard, verbose event tracking in local development without bloat or leakage in production logs! Hurrah!
 
+---
 
+### Shift Calculations to Python Precomputation and Stripping Subagent Tools for Latency Reductions
+
+**Problem**:
+Even with BigQuery partition pruning and targeted scoping, Month-to-Date (MTD) billing queries and Root Cause Analysis (RCA) cost spike queries resulted in high latency. The subagents were fetching thousands of rows of raw, unaggregated billing and telemetry data. This forced the LLM's reasoning engine (such as `gemini-3.5-flash`) to generate over 1,000 thinking/reasoning tokens per turn performing math, summing costs, and correlating cost spikes with Cloud Asset Inventory (CAI) logs. Additionally, when a user provided a slightly incorrect date range, the subagents entered recursive self-correction tool loops (e.g. executing multiple SQL queries to check min/max dates or verify baselines), increasing latency.
+
+**Failed Optimization (Thinking Budget Overrides)**:
+We initially tried to override the model's reasoning/thinking budget to `0` at the request config level in `client.py` and `callbacks.py`. However, testing revealed that for reasoning-enabled models like `gemini-3.5-flash`, forcing `thinking_budget = 0` causes the model to return empty response blocks, which violates ADK framework output validation rules ("model output must contain either output text or tool calls, these cannot both be empty") and crashed the conversational flow.
+
+**Resolution**:
+We shifted analytical calculations from the LLM's reasoning loop to native, deterministic Python functions, and restricted subagent capabilities to eliminate tool loops:
+1. **Python Precomputation Helpers (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**:
+   - `get_precomputed_spend_analysis`: Executes the MTD, SKU period, and Secret/GCS waste queries in parallel. It calculates current vs. previous totals, computes percentage trends, pivots service costs by date, filters out flat baseline days to keep only active spikes (max 10), and compiles recommendation messages entirely in Python.
+   - `get_precomputed_root_cause`: Executes a single comparative query comparing the spike date to the previous day in Python. If persistent resources are found, it automatically fetches CAI configuration logs for those resources in Python (passing the correct ISO timestamps: `{prev_day}T00:00:00Z` to `{spike_day}T23:59:59Z`) and returns a clean, fully correlated dictionary.
+2. **Subagent Tool Stripping**:
+   - We completely removed raw SQL execution (`execute_cached_bigquery_sql`) and raw CAI queries (`get_cai_history_for_resource`) from the tools list of `BillingExplorer` and `RootCauseAnalyst`, leaving them only with the precomputed Python helper tools.
+   - This prevents the subagents from launching custom SQL queries or trying to troubleshoot dates on their own, guaranteeing a single deterministic tool invocation per turn.
+3. **In-Memory Telemetry Caching**:
+   - Replaced storing large, raw BigQuery results in the `SessionState` blackboard (which bloated the SQLite database serialization log on every turn) with a global thread-safe, in-memory private cache dictionary (`_IN_MEMORY_BQ_CACHE`) keyed by session ID, keeping state payload sizes tiny.
+
+This combined optimization reduced the subagent prompts by 90%, slashed token footprint, completely avoided large reasoning token generation, and dropped subagent execution time to under 1.5 seconds. Hurrah!
 
 

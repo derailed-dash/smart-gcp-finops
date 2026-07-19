@@ -777,7 +777,7 @@ export default function App() {
       }
     }
     return [
-      { label: 'Scan Zombie Resources', text: 'Run a Cloud Asset Inventory scan across all projects to detect zombie resources and unattached persistent disks.' },
+      { label: 'Scan Zombie Resources', text: 'Run a Cloud Asset Inventory scan across all projects to detect zombie resources, unattached persistent disks, and unused storage.' },
       { label: 'Show Top Cost Drivers', text: 'Query our BigQuery billing export to show the top 3 services driving our spend this month.' },
       { 
         label: isLoadingDashboard ? 'Resolving Spikes...' : 'Analyze Cost Spikes', 
