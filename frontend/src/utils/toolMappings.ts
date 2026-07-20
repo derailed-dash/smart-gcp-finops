@@ -32,6 +32,36 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('get_precomputed_root_cause')) {
     return 'Analysing Cost Spike Root Cause';
   }
+  if (clean.includes('billing_explorer')) {
+    return 'Consulting Billing Explorer';
+  }
+  if (clean.includes('infrastructure_auditor')) {
+    return 'Consulting Infrastructure Auditor';
+  }
+  if (clean.includes('cloud_advisor')) {
+    return 'Consulting Cloud Advisor';
+  }
+  if (clean.includes('knowledge_assistant')) {
+    return 'Consulting Knowledge Assistant';
+  }
+  if (clean.includes('root_cause_analyst')) {
+    return 'Consulting Root Cause Analyst';
+  }
+  if (clean.includes('get_session_value')) {
+    return 'Retrieving Session Context';
+  }
+  if (clean.includes('set_session_value')) {
+    return 'Saving Session Context';
+  }
+  if (clean.includes('ask_cloud_assist')) {
+    return 'Querying Gemini Cloud Assist';
+  }
+  if (clean.includes('search_documents')) {
+    return 'Searching GCP Architecture Documentation';
+  }
+  if (clean.includes('answer_query')) {
+    return 'Retrieving Grounded Architecture Answers';
+  }
 
   return clean;
 };
