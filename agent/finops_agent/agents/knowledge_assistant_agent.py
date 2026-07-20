@@ -20,7 +20,7 @@ knowledge_assistant = Agent(
     name="knowledge_assistant",
     description="Specialized subagent that queries the Developer Knowledge MCP to retrieve and ground cost optimization recommendations in official GCP architectural guidelines and best practices.",
     model=ConfiguredGemini(
-        model=settings.model,
+        model=settings.fast_model,
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),

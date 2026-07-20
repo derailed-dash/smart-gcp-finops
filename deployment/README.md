@@ -222,6 +222,7 @@ To support the FinOps cross-referencing logic, specific IAM roles are configured
     - **With Organization**: If `google_cloud_organization_id` is supplied, grants `roles/cloudasset.viewer` at the Organization level via `google_organization_iam_member`. This provides efficient visibility across the entire estate.
     - **Local Testing**: Users must ensure their personal Google Identity has `roles/cloudasset.viewer` on target projects to successfully run the agent via `make playground`, and `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the billing project to query billing data.
 3.  **BigQuery Cost Analysis**: Grants `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` on the centralized Billing Project via `google_project_iam_member`.
+4.  **Active Resource Optimisation**: Grants `roles/geminicloudassist.user` and `roles/cloudaicompanion.user` at the project level to query active resource recommendations via the Gemini Cloud Assist MCP.
 
 ## Environment Variable Configuration & Lifecycle
 
@@ -527,5 +528,37 @@ If your GCP billing account is associated with standalone ("orphaned") projects 
           fi
         done
         ```
+
+### Gemini Cloud Assist (403 Forbidden Errors)
+
+If the `cloud_advisor` subagent logs reveal an HTTP `403 Forbidden` from `https://geminicloudassist.googleapis.com/mcp` during execution:
+
+1.  **Verify API is Enabled**:
+    Ensure the API is enabled in your target project:
+    ```bash
+    gcloud services enable geminicloudassist.googleapis.com --project="$GOOGLE_CLOUD_PROJECT"
+    ```
+
+2.  **Grant IAM Permissions**:
+    The application service account (and your local developer credentials) must have the Gemini Cloud Assist User and Cloud AI Companion User roles:
+    ```bash
+    # Grant to Application Service Account
+    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+        --member="serviceAccount:$SERVICE_SA_EMAIL" \
+        --role="roles/geminicloudassist.user"
+    
+    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+        --member="serviceAccount:$SERVICE_SA_EMAIL" \
+        --role="roles/cloudaicompanion.user"
+
+    # Grant to Local Developer (for local CLI/playground testing)
+    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+        --member="user:$LOCAL_DEVELOPER_EMAIL" \
+        --role="roles/geminicloudassist.user"
+    
+    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+        --member="user:$LOCAL_DEVELOPER_EMAIL" \
+        --role="roles/cloudaicompanion.user"
+    ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).

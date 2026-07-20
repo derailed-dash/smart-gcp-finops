@@ -39,6 +39,8 @@ variable "app_sa_roles" {
     "roles/serviceusage.serviceUsageConsumer",
     "roles/bigquery.jobUser",
     "roles/cloudasset.viewer",
+    "roles/geminicloudassist.user",
+    "roles/cloudaicompanion.user",
   ]
 }
 

@@ -11,6 +11,16 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
+class SuppressMcpTracebackFilter(logging.Filter):
+    """Custom filter to keep WARNING messages from MCP tool runner but suppress tracebacks."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.ERROR:
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
 def setup_telemetry() -> str | None:
     """Configure GenAI prompt/response logging via OpenTelemetry."""
     import google.auth
@@ -81,9 +91,10 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("google_auth_httplib2").setLevel(logging.INFO)
     logging.getLogger("google.auth").setLevel(logging.INFO)
     logging.getLogger("google.genai").setLevel(logging.WARNING)
-    # logging.getLogger("google_adk").setLevel(logging.ERROR)
-    logging.getLogger("httpcore").setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.INFO)
+    logging.getLogger("google_genai").setLevel(logging.WARNING)
+    logging.getLogger("google_adk.google.adk.models").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # logging.getLogger("opentelemetry").setLevel(logging.INFO)
     logging.getLogger("mcp").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.INFO)
@@ -91,3 +102,13 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("watchdog").setLevel(logging.INFO)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)
+
+    mcp_filter = SuppressMcpTracebackFilter()
+    for name in [
+        "google_adk.google.adk.tools.mcp_tool.mcp_tool",
+        "google_adk.google.adk.tools.mcp_tool.session_context",
+    ]:
+        lgr = logging.getLogger(name)
+        lgr.setLevel(logging.WARNING)
+        if not any(isinstance(f, SuppressMcpTracebackFilter) for f in lgr.filters):
+            lgr.addFilter(mcp_filter)

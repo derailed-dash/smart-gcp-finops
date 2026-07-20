@@ -69,7 +69,7 @@ CRITICAL SELECTIVE ROUTING RULES:
 root_agent = Agent(
     name="root_agent",
     model=ConfiguredGemini(
-        model=settings.model,
+        model=settings.fast_model,
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
