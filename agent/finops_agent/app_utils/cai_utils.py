@@ -174,9 +174,6 @@ class CAIClientManager:
 
             response = request.execute()
             assets = response.get("assets", [])
-            logger.debug("batchGetAssetsHistory returned %d history records.", len(assets))
-            if assets:
-                logger.debug("Snippet of first asset history record: %s", assets[0])
             return assets
 
         except HttpError as e:

@@ -61,9 +61,19 @@ if otel_to_cloud:
         logging_client.setup_logging()
     except Exception:
         # Fallback to local basic configuration if Cloud Logging client fails
-        logging.basicConfig(level=log_level)
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s',
+            datefmt='%H:%M:%S',
+            force=True,
+        )
 else:
-    logging.basicConfig(level=log_level)
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%H:%M:%S',
+        force=True,
+    )
 
 logging.getLogger().setLevel(log_level)
 
@@ -320,6 +330,7 @@ async def chat_stream(request: Request):
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:
+                logger.exception("Error in background runner thread:")
                 loop.call_soon_threadsafe(event_queue.put_nowait, e)
             finally:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
@@ -431,19 +442,31 @@ async def chat_stream(request: Request):
 
             seconds_passed = 0
 
-            # Stream real-time text chunks
+            # Stream real-time text chunks (skip internal subagent delegation reasoning)
             is_partial = getattr(event, "partial", False)
             if hasattr(event, "content") and event.content:
-                parts = event.content.parts if hasattr(event.content, "parts") else []
-                text_chunk = "".join(
-                    part.text for part in parts if hasattr(part, "text") and part.text
-                )
-                if text_chunk:
-                    if is_partial:
-                        has_yielded_partial_text = True
-                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
-                    elif not has_yielded_partial_text:
-                        yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                has_subagent_call = False
+                if hasattr(event, "get_function_calls") and event.get_function_calls():
+                    subagents = {
+                        "billing_explorer",
+                        "infrastructure_auditor",
+                        "cloud_advisor",
+                        "knowledge_assistant",
+                        "root_cause_analyst",
+                    }
+                    has_subagent_call = any(c.name in subagents for c in event.get_function_calls())
+
+                if not has_subagent_call:
+                    parts = event.content.parts if hasattr(event.content, "parts") else []
+                    text_chunk = "".join(
+                        part.text for part in parts if hasattr(part, "text") and part.text
+                    )
+                    if text_chunk:
+                        if is_partial:
+                            has_yielded_partial_text = True
+                            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+                        elif not has_yielded_partial_text:
+                            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
 
             # Stream intermediate reasoning/tool status updates
             if hasattr(event, "status") and event.status:

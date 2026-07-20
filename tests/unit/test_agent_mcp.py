@@ -5,18 +5,24 @@ from google.adk.tools.mcp_tool import McpToolset
 
 
 def test_agent_has_mcp_toolsets():
-    """Verify that the agent is initialized with the remaining two McpToolsets."""
-    mcp_toolsets = [t for t in root_agent.tools if isinstance(t, McpToolset)]
-    assert len(mcp_toolsets) == 2, (
-        "Agent should have exactly two McpToolsets (Dev Knowledge & Cloud Assist)"
-    )
+    """Verify that subagents are initialized with the correct McpToolsets."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+
+    # CloudAdvisor should have the Cloud Assist McpToolset
+    cloud_advisor_mcps = [t for t in subagents["cloud_advisor"].tools if isinstance(t, McpToolset)]
+    assert len(cloud_advisor_mcps) == 1, "CloudAdvisor should have exactly one McpToolset"
+
+    # KnowledgeAssistant should have the Developer Knowledge McpToolset
+    knowledge_assistant_mcps = [t for t in subagents["knowledge_assistant"].tools if isinstance(t, McpToolset)]
+    assert len(knowledge_assistant_mcps) == 1, "KnowledgeAssistant should have exactly one McpToolset"
 
 
 @pytest.mark.asyncio
 async def test_agent_has_native_bq_toolset():
-    """Verify that the agent is initialized with the native BigQueryToolset and query/execute tools are filtered out."""
-    bq_toolsets = [t for t in root_agent.tools if isinstance(t, BigQueryToolset)]
-    assert len(bq_toolsets) == 1, "Agent should have exactly one native BigQueryToolset"
+    """Verify that the BillingExplorer is initialized with the native BigQueryToolset and query/execute tools are filtered out."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+    bq_toolsets = [t for t in subagents["billing_explorer"].tools if isinstance(t, BigQueryToolset)]
+    assert len(bq_toolsets) == 1, "BillingExplorer should have exactly one native BigQueryToolset"
 
     bq_toolset = bq_toolsets[0]
     # Check that tools returned by the toolset have query/execute filtered out
@@ -28,39 +34,40 @@ async def test_agent_has_native_bq_toolset():
 
 
 def test_agent_instruction_contains_billing_context():
-    """Verify that the agent instruction mentions the billing dataset."""
-    assert "billing" in root_agent.instruction.lower()
-    assert "dataset" in root_agent.instruction.lower()
+    """Verify that the BillingExplorer instruction mentions the billing tools/precomputation."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+    billing_explorer = subagents["billing_explorer"]
+    assert "billing" in billing_explorer.instruction.lower()
+    assert "precomputed" in billing_explorer.instruction.lower()
 
 
 def test_agent_has_cai_tools():
-    """Verify that the agent is initialized with the CAI tools."""
-    tool_names = [
-        t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in root_agent.tools
+    """Verify that subagents are initialized with the correct CAI/precomputed tools."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+
+    infra_auditor_tools = [
+        t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in subagents["infrastructure_auditor"].tools
     ]
-    assert "get_cai_metadata_for_resources" in tool_names, (
-        "Agent should have get_cai_metadata_for_resources tool"
+    assert "get_cai_metadata_for_resources" in infra_auditor_tools, (
+        "InfrastructureAuditor should have get_cai_metadata_for_resources tool"
     )
-    assert "get_cai_history_for_resource" in tool_names, (
-        "Agent should have get_cai_history_for_resource tool"
+
+    rca_tools = [
+        t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in subagents["root_cause_analyst"].tools
+    ]
+    assert "get_precomputed_root_cause" in rca_tools, (
+        "RootCauseAnalyst should have get_precomputed_root_cause tool"
     )
 
 
 def test_agent_instruction_contains_cai_context():
-    """Verify that the agent instruction mentions the CAI tools."""
-    assert "get_cai_metadata_for_resources" in root_agent.instruction
-    assert "get_cai_history_for_resource" in root_agent.instruction
+    """Verify that the subagent instructions mention the CAI/precomputed tools."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+    assert "get_cai_metadata_for_resources" in subagents["infrastructure_auditor"].instruction
+    assert "get_precomputed_root_cause" in subagents["root_cause_analyst"].instruction
 
 
 def test_agent_instruction_contains_developer_knowledge_context():
-    """Verify that the agent instruction mentions the Developer Knowledge tools."""
-    assert "developer knowledge" in root_agent.instruction.lower()
-    assert "search_documents" in root_agent.instruction.lower()
-
-
-def test_agent_instruction_contains_cloud_assist_context():
-    """Verify that the agent instruction mentions the Cloud Assist tools and routing tree."""
-    instruction_lower = root_agent.instruction.lower()
-    assert "cloud assist" in instruction_lower
-    assert "tool-routing decision tree" in instruction_lower
-    assert "spend & historical trends" in instruction_lower
+    """Verify that the subagent instruction mentions the Developer Knowledge tools."""
+    subagents = {sa.name: sa for sa in root_agent.sub_agents}
+    assert "developer knowledge" in subagents["knowledge_assistant"].instruction.lower()

@@ -8,7 +8,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 |-----|--------|-----------|
 | **Vite-React SPA Workspace** | Use an isolated, type-safe React + TypeScript SPA compiled via Vite. Rationale: Vite provides instant Hot Module Replacement (HMR) during dev; TypeScript ensures robust parsing of complex `application/json+a2ui` payloads; compiling to clean static assets maintains a tiny Python container footprint (no Node.js in production). |
 | **BFF Architecture** | Use FastAPI as a Backend for Frontend (BFF) to decouple agent logic from the React UI while serving static assets. |
-| **Unified Container for UI and BFF** | Pckage React and FastAPI into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. |
+| **For Dev: Unified Container for UI and BFF** | Pckage React and FastAPI into a single Cloud Run image to simplify CORS, authentication (IAP), and TCO. Only used in the local development environment. |
 | **ADK Orchestration** | Google ADK for robust multi-agent coordination, session management, and standardized tool calling. |
 | **A2UI Protocol** | Agent-driven rich UI generation (tables, charts, cards) to maintain a professional, information-dense UX. |
 | **Native IAP** | Identity-Aware Proxy directly on Cloud Run avoiding the cost and complexity of a Global Load Balancer while maintaining enterprise security. |
@@ -21,19 +21,48 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **CAI Zombie Detection** | Specialised Cloud Asset Inventory (CAI) queries as native ADK Python tools rather than using an MCP. This provides efficient, precise identification of unused resources like unattached disks. |
 | **Developer Knowledge MCP** | The remote Google Developer Knowledge MCP server (`https://developerknowledge.googleapis.com/mcp`) allows our agent to cross-reference identified infrastructure issues and cost spikes against official GCP best practices, and to provide grounding for general Google-related queries. Additionally, it is fully-managed by Google, so no MCP servers to deploy and manage ourselves. |
 | **Direct Table Binding**   | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. (_Potentially fragile?_) |
-| **Keep-Alive Heartbeat SSE** | I Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
-| **Vite 6 Tooling & Sandboxing** | Vite and esbuild are strictly development-only tools used to compile React static assets; they are never compiled, packaged, or executed inside the production Cloud Run Python container, ensuring zero runtime security risk. |
-| **Modularised Utilities** | I Extracted BQ/Developer Knowledge MCP connection details and authorisation providers into `mcp_config.py`, and isolated custom database executors (`execute_cached_bigquery_sql`) into `tools.py` under `app/finops_agent/app_utils/`. Rationale: Keeps the core `app/finops_agent/agent.py` focused purely on instructions and callback coordination, enhancing maintainability. |
-| **Context Caching** | I Configured `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
-| **Semantic Caching** | I Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
-| **CI/CD Variable Sync** | I Defined core GenAI, model, and scaling settings as Terraform variables, propagating them dynamically to Cloud Run environment variables and GitHub Actions variables. Rationale: Ensures complete configuration parity across local development, manual terraform runs, and automated GitHub Actions, preventing runtime mismatches and drift. |
-| **Agent Runtime Hosting** | I Adopted Gemini Enterprise Agent Runtime for agent execution, hosting only the static React UI and FastAPI BFF proxy in Cloud Run. Rationale: Decouples reasoning and tool invocation from the stateless web container, allowing independent scaling, enhanced security boundaries, native Gemini Enterprise Agent Platform management, and automatic registration/synchronization in the central Google Cloud Console Agent Registry catalog. |
-| **Object-Oriented State Managers** | Refactored mutable global module-level variables (caching and client states) into thread-safe object-oriented singleton managers. Rationale: Improves thread safety under concurrent requests, makes testing isolation straightforward, and structures state management logically. |
-| **Standard Native Logging** | Standardised all logging on Python's native `logging` library instead of direct vendor SDK client logging. Rationale: Integrates seamlessly with standard python tools, dynamically routes logs to Cloud Logging in production, and suppresses noisy third-party frameworks. |
+| **Keep-Alive Heartbeat SSE** | Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
+| **Context Caching** | Used `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
+| **Semantic Caching** | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
+| **Agent Runtime Hosting** | Gemini Enterprise Agent Runtime for agent execution. Provides our agent with the benefits of native Gemini Enterprise Agent Platform, with automatic registration/synchronisation in the central Google Cloud Console Agent Registry catalog. |
 | **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
-| **Gemini Interactions API** | Enable the Interactions API via `use_interactions_api=True` on the Gemini model configuration. Rationale: Maintains stateful conversation sessions server-side, reducing round-trip payload serialization/deserialization and drastically cutting token overhead on long multi-turn sessions by avoiding sending full chat history back and forth. |
+| **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.5-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.5-flash`). We stick to stateless model inference with client/BFF side history management. |
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
+| **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
 
+## BigQuery Query Optimization
+
+To maintain sub-second response times and prevent high scan costs on massive billing export datasets (which contain millions of resource-level entries), the query execution wrapper (`execute_cached_bigquery_sql`) enforces the following optimization, caching, and security strategies:
+
+### 1. Partition Pruning (Double-Temporal Filtering)
+Standard Google Cloud Billing exports are partitioned by `export_time`. The query engine dynamically extracts temporal/partition filters (`export_time`, `usage_start_time`, and `usage_end_time`) from the agent's outer query and pushes them down directly into the inner scoping subqueries:
+```sql
+FROM (SELECT * FROM `table` WHERE project.id IN (...) AND export_time >= ... AND usage_start_time >= ...)
+```
+This forces BigQuery to prune partitions at the table-scan level, dropping execution time from over a minute to less than a second.
+
+### 2. Targeted Scoping (Project Filter Intersection)
+When the agent queries a single project, the scoping subquery is narrowed to that single project instead of listing all 38 allowed projects. The tool parses explicit project filters (`project.id = '...'` or `project.id IN (...)`) from the SQL query and intersects them with the user's `allowed_projects` context, accelerating clustering index lookups.
+
+### 3. Dynamic Table Routing
+Queries targeting the massive resource-level billing table (`gcp_billing_export_resource_v1_*`) that do not query or reference any `resource.` fields (e.g. general cost spikes or aggregations by project/SKU) are automatically rewritten at runtime to query the standard billing table (`gcp_billing_export_v1_*`). This instantly shrinks the scanned data footprint by ~100x.
+
+### 4. Defensive Temporal Guardrail
+If a query is issued with no date or partition filters on `export_time` (e.g. exploratory min/max date checks), the tool automatically injects a default partition constraint:
+```sql
+export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
+```
+This prevents unconstrained queries from scanning the full historical footprint of the table.
+
+### 5. Private In-Memory Caching & Blackboard Auto-Caching
+- **Private In-Memory Caching (`_IN_MEMORY_BQ_CACHE`)**: Raw BigQuery SQL caches are kept in a private, thread-safe in-memory Python dictionary mapped by `session_id` rather than ADK `SessionState` (`tool_context.state`). Because `SessionState` is serialized and persisted to disk or network stores on every turn, keeping the heavy SQL rows in a private process-level map avoids significant database I/O, network latency, trace/telemetry log bloat, and framework deepcopy CPU spikes.
+- **Blackboard Auto-Caching**: Query execution results are automatically written to standard blackboard keys in python memory (`'daily_service_costs_30d'`, `'sku_period_costs_60d'`, and `'gcs_secret_waste'`). Subagents are instructed via prompt guidelines to consult the blackboard first and **not** call `set_session_value` with database results, completely eliminating the latency of the LLM generating large JSON lists.
+
+### 6. Deterministic Python Precomputation & Subagent Tool Stripping
+To completely eliminate model reasoning token generation and multi-turn conversational loop latency during heavy telemetry investigations:
+- **Python Precomputation Tools (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**: Heavy data analysis, cost summation, daily cost spike grouping, and Cloud Asset Inventory configuration log correlation are executed natively in Python. The LLM receives clean, pre-aggregated summary metrics instead of raw database rows, slashing subagent execution time to under 1.5 seconds.
+- **Subagent Tool Stripping**: By completely removing raw database/cai tools (`execute_cached_bigquery_sql` and `get_cai_history_for_resource`) from the `RootCauseAnalyst` and `BillingExplorer` subagents and exposing only the precomputed helpers, we force them to run a single deterministic precomputation query, eliminating redundant queries and self-correcting loop chains.
+- **Failed Optimization (Thinking Budget Overrides)**: We attempted to override the model's reasoning/thinking budget to `0` at the request config level. However, testing confirmed that for reasoning-enabled models like `gemini-3.5-flash`, forcing `thinking_budget = 0` causes the model to return empty response blocks, which violates ADK framework output validation rules ("model output must contain either output text or tool calls, these cannot both be empty"). We reverted request-level overrides and instead relied on shifting analytical calculations from the LLM reasoning loop to native Python to resolve reasoning token overhead.
 
 ## Solution Architecture
 
@@ -65,7 +94,7 @@ To facilitate seamless local development and robust managed execution, the syste
 
 ![FinSavant Component Architecture](./images/component_architecture.png)
 
-### Docker Containerization & Deployment Options
+### Docker Containerisation & Deployment Options
 
 To support clean isolation, local testing, and separate scaling in production, the workspace is structured with **three separate Dockerfiles**:
 
@@ -224,11 +253,11 @@ graph TD
 ![FinSavant Multi-Agent Collaborative Architecture](./images/illustrated_agent_architecture.png)
 
 * **`FinOpsCoordinator` (Root)**: Acts as the conversation router, exposing no direct tools but utilizing automatically generated delegation tools for its subagents.
-* **`BillingExplorer` (Mode: `task`)**: Specialized in spend queries, SQL generation via `execute_cached_bigquery_sql`, and generating A2UI cost explorer/dashboard payloads.
+* **`BillingExplorer` (Mode: `task`)**: Specialized in spend queries, invoking `get_precomputed_spend_analysis` to fetch MTD costs, trends, and waste metrics in a single precomputed call, and generating A2UI cost explorer/dashboard payloads.
 * **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata.
 * **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimization using Gemini Cloud Assist MCP.
 * **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with Google Developer Knowledge MCP.
-* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates by running scoped queries on resource-level logs and cross-referencing CAI history logs.
+* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates by calling `get_precomputed_root_cause` to perform comparative cost analysis and correlate configuration log drift in a single step.
 
 
 ### State Sharing and Resiliency Guidelines
@@ -248,11 +277,11 @@ To design the decoupled execution paths, the table below maps each standard use 
 
 | User Intent / UI Action | Entrypoint (Root) | Subagent Invoked (Mode) | Data/State Updates | Final Output / UI Component |
 | :--- | :--- | :--- | :--- | :--- |
-| **Initial Dashboard Load / MTD Summary**<br>*(e.g. "Show MTD spend")* | `FinOpsCoordinator` | `BillingExplorer` (`task`) | Writes active service descriptions, total costs, and month-to-date metrics into `session.state`. | Renders `dashboard` A2UI payload with spend curves and MTD KPI indicators. |
+| **Initial Dashboard Load / MTD Summary**<br>*(e.g. "Show MTD spend")* | `FinOpsCoordinator` | `BillingExplorer` (`task`) | Invokes `get_precomputed_spend_analysis` to aggregate MTD costs, PoP trends, spikes, and zombie waste. Writes descriptions, total costs, and metrics into `session.state`. | Renders `dashboard` A2UI payload with spend curves and MTD KPI indicators. |
 | **Zombie Asset Sweep**<br>*(e.g. "Scan for unused resources")* | `FinOpsCoordinator` | `InfrastructureAuditor` (`task`) | Scans CAI and populates `session.state` with details of unattached disks and idle IP configurations. | Renders `recommendations` A2UI payload showing individual zombie resources. |
 | **GCP Best Practices Chip**<br>*(e.g. "Align with best practices")* | `FinOpsCoordinator` | Combination: `KnowledgeAssistant` (`single_turn`) + `CloudAdvisor` (`task`) | Reads active services, cost spikes, and project scopes from `session.state`. Queries Cloud Assist for live recommendations and Developer Knowledge to ground the advice. | Renders rightsizing/configuration suggestions grounded in official GCP best practices. |
 | **Get Optimization Advice Chip**<br>*(e.g. "Optimize active resources")* | `FinOpsCoordinator` | `CloudAdvisor` (`task`) | Reads the user's active cloud project from state to scope Gemini Cloud Assist API queries. | Renders architectural/rightsizing suggestions for active infrastructure. |
-| **Investigate Cost Spike**<br>*(e.g. "Why did costs spike yesterday?")* | `FinOpsCoordinator` | `RootCauseAnalyst` (`task`) | 1. Queries BigQuery to detect largest cost-growth resource URIs.<br>2. Queries CAI history logs for those specific URIs around the spike window to locate drift. | Renders comparative SQL findings and correlated resource configuration logs. |
+| **Investigate Cost Spike**<br>*(e.g. "Why did costs spike yesterday?")* | `FinOpsCoordinator` | `RootCauseAnalyst` (`task`) | Invokes `get_precomputed_root_cause` to perform comparative cost analysis and correlate configuration logs for persistent resources in a single turn. | Renders comparative SQL findings and correlated resource configuration logs. |
 
 ---
 
@@ -297,9 +326,9 @@ The table below outlines how operational and financial use cases map to our inte
 
 | Use Case Category | Target Server / Tool | Key Capabilities | Why This Option? |
 |:---|:---|:---|:---|
-| **Financial Aggregation & Cost Trends** | **BigQuery native toolset**<br>`execute_cached_bigquery_sql` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Direct query access to the standard and resource-level billing export tables. Bypasses metadata overhead. |
+| **Financial Aggregation & Cost Trends** | **Precomputation helper**<br>`get_precomputed_spend_analysis` | • Month-to-Date (MTD) totals<br>• Project & service cost drivers<br>• Daily trend forecasting | Orchestrates BQ billing export queries and aggregates metrics in Python. Bypasses model-side math latency. |
 | **Active Resource Optimisation** | **Gemini Cloud Assist MCP**<br>`ask_cloud_assist` | • Live VM/DB rightsizing recommendations<br>• Deployed service cost & scaling recommendations | Queries live Google recommender engines and active resource telemetry in real-time. |
-| **Operational State Auditing & RCA** | **Local CAI & Zombie Tools**<br>`list_zombie_resources`<br>`get_cai_metadata_for_resources`<br>`get_cai_history_for_resource` | • Scanning for unattached disks / idle IPs<br>• Cross-referencing operational status<br>• Retrieving 35-day configuration change history | Accesses Cloud Asset Inventory (CAI) metadata directly. Essential for locating cost-spike causes (Root Cause Analysis). |
+| **Operational State Auditing & RCA** | **Precomputation & Zombie Helpers**<br>`get_precomputed_root_cause`<br>`list_zombie_resources` | • Scanning for unattached disks / idle IPs<br>• Correlating cost spikes with 35-day CAI history | Runs comparative cost query and performs CAI configuration log drift check in Python. |
 | **Best-Practice Reference Q&A** | **Developer Knowledge MCP**<br>`answer_query`<br>`search_documents` | • Autoclass vs Standard storage lookups<br>• Conceptual billing terms<br>• GCP architecture guidelines | Connects directly to Google's official product documentation and best-practices repository. |
 
 #### 2. Latency-Aware Agent Routing Flow
@@ -312,14 +341,14 @@ The agent evaluates the incoming prompt and routes it into one of four mutually 
 graph TD
     UserQuery[User Query] --> Classifier[Agent Intent Classifier]
     
-    Classifier -->|Route 1: Spend & Trends| Route1[BigQuery SQL Only]
-    Route1 --> BQTool[execute_cached_bigquery_sql]
+    Classifier -->|Route 1: Spend & Trends| Route1[Precomputed Spend Only]
+    Route1 --> BQTool[get_precomputed_spend_analysis]
     
     Classifier -->|Route 2: Resource Recommendations| Route2[Cloud Assist MCP Only]
     Route2 --> CATool[gemini-cloud-assist_ask_cloud_assist]
     
-    Classifier -->|Route 3: Asset Auditing & RCA| Route3[Local CAI/Zombie Tools Only]
-    Route3 --> CAITools[list_zombie_resources / get_cai_*]
+    Classifier -->|Route 3: Asset Auditing & RCA| Route3[Precomputed RCA & Zombie Only]
+    Route3 --> CAITools[get_precomputed_root_cause / list_zombie_resources]
     
     Classifier -->|Route 4: Conceptual Reference| Route4[Developer Knowledge MCP Only]
     Route4 --> DocTools[answer_query / search_documents]
@@ -327,9 +356,9 @@ graph TD
 
 ![Model Context Protocol (MCP) Routing Decision Tree](./images/mcp_routing_architecture.png)
 
-* **Route 1: Spend & Historical Trends**: Restricts execution strictly to `execute_cached_bigquery_sql`. Calls to CAI, Developer Knowledge, and Cloud Assist are explicitly banned.
+* **Route 1: Spend & Historical Trends**: Restricts execution strictly to `get_precomputed_spend_analysis`. Calls to CAI, Developer Knowledge, and Cloud Assist are explicitly banned.
 * **Route 2: Active Infrastructure Optimisation & Recommendations**: Invokes only the Gemini Cloud Assist MCP toolset. Calls to BigQuery, local CAI/zombie tools, and Developer Knowledge are banned.
-* **Route 3: Structured Asset Auditing, Config History & Drift**: Restricts execution to the local CAI and zombie scanning tools. Calls to BigQuery, Developer Knowledge, and Cloud Assist are banned.
+* **Route 3: Structured Asset Auditing, Config History & Drift**: Restricts execution to `get_precomputed_root_cause` and `list_zombie_resources`. Calls to BigQuery, Developer Knowledge, and Cloud Assist are banned.
 * **Route 4: Conceptual Reference Q&A**: Queries only the Developer Knowledge base. All database and operational asset tools are banned.
 
 ## Key User Journeys

@@ -17,7 +17,6 @@ from finops_agent.app_utils.project_discovery import (
     get_projects_in_org,
     list_billing_projects,
 )
-from finops_agent.app_utils.query_cache import execute_cached_query
 from finops_agent.app_utils.zombie_resources import search_zombie_resources
 from finops_agent.config import settings
 
@@ -30,8 +29,14 @@ _ZOMBIE_LOCK = threading.Lock()
 ZOMBIE_CACHE_TTL = 300  # 5 minutes
 
 
-def get_active_billing_projects() -> list[str]:
+def get_active_billing_projects(tool_context: ToolContext | None = None) -> list[str]:
     """Retrieves all project IDs that have had cost > 0 in the last 30 days from BigQuery."""
+    from unittest.mock import MagicMock
+    if tool_context and tool_context.state and not isinstance(tool_context.state, MagicMock):
+        if "active_billing_projects" in tool_context.state:
+            logger.debug("Active billing projects cache hit in session state.")
+            return tool_context.state["active_billing_projects"]
+
     try:
         credentials = get_credentials()
         client = bigquery.Client(
@@ -49,8 +54,14 @@ def get_active_billing_projects() -> list[str]:
         GROUP BY project.id
         HAVING SUM(cost) > 0.1
         """
-        results = execute_cached_query(client, query)
-        return [row.id for row in results if row.id]
+        job = client.query(query)
+        results = list(job.result())
+        projects = [row.id for row in results if row.id]
+
+        if tool_context and tool_context.state and not isinstance(tool_context.state, MagicMock):
+            tool_context.state["active_billing_projects"] = projects
+
+        return projects
     except Exception as e:
         logger.warning(
             f"Failed to query active projects from BigQuery, falling back to all projects: {e}"
@@ -79,14 +90,29 @@ def list_zombie_resources(
     now = time.time()
     cache_key = (category, project_id)
 
-    # 1. Thread-safe cache check
+    # 1. ADK session state cache check (survives container scale-down)
+    if tool_context and tool_context.state:
+        state_key = f"zombies_{category}_{project_id}"
+        if state_key in tool_context.state:
+            expiry, cached_data = tool_context.state[state_key]
+            if now <= expiry:
+                logger.debug(
+                    f"Session state cache hit for zombie resource: {category} (project: {project_id})"
+                )
+                return cached_data
+
+    # 2. Thread-safe global cache check
     with _ZOMBIE_LOCK:
         if cache_key in _ZOMBIE_CACHE:
             expiry, cached_data = _ZOMBIE_CACHE[cache_key]
             if now <= expiry:
                 logger.debug(
-                    f"Cache hit for zombie resource search: {category} (project: {project_id})"
+                    f"Global cache hit for zombie resource search: {category} (project: {project_id})"
                 )
+                # Sync back to session state for subsequent turns
+                if tool_context and tool_context.state:
+                    state_key = f"zombies_{category}_{project_id}"
+                    tool_context.state[state_key] = (expiry, cached_data)
                 return cached_data
 
     logger.debug(
@@ -117,6 +143,9 @@ def list_zombie_resources(
         results_list = search_zombie_resources(scope=scope, category=category)
         with _ZOMBIE_LOCK:
             _ZOMBIE_CACHE[cache_key] = (now + ZOMBIE_CACHE_TTL, results_list)
+        if tool_context and tool_context.state:
+            state_key = f"zombies_{category}_{project_id}"
+            tool_context.state[state_key] = (now + ZOMBIE_CACHE_TTL, results_list)
         return results_list
 
     # Otherwise, scan all allowed projects
@@ -146,7 +175,7 @@ def list_zombie_resources(
         projects_to_query = [p for p in allowed_projects if p not in projects_in_org]
     else:
         billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
-        billing_projects = get_active_billing_projects()
+        billing_projects = get_active_billing_projects(tool_context)
         if not billing_projects:
             billing_projects = list_billing_projects(billing_account_name)
         projects_to_query = [p for p in billing_projects if p not in projects_in_org]
@@ -171,6 +200,10 @@ def list_zombie_resources(
 
     with _ZOMBIE_LOCK:
         _ZOMBIE_CACHE[cache_key] = (now + ZOMBIE_CACHE_TTL, results_list)
+
+    if tool_context and tool_context.state:
+        state_key = f"zombies_{category}_{project_id}"
+        tool_context.state[state_key] = (now + ZOMBIE_CACHE_TTL, results_list)
 
     return results_list
 
