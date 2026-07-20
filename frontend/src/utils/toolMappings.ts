@@ -7,7 +7,7 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (!name) return 'Active Operation';
   const clean = name.replace(/_mcp_server/g, '').replace(/mcp_/g, '').trim();
   if (!clean) return 'Active Operation';
-  
+
   if (clean.includes('execute_sql') || clean.includes('execute_cached_bigquery_sql') || clean.includes('query')) {
     return 'Querying GCP Cost Database';
   }
@@ -18,7 +18,7 @@ export const mapToolNameToFriendlyName = (name: string): string => {
     return 'Retrieving Real-Time Asset Metadata';
   }
   if (clean.includes('get_cai_history')) {
-    return 'Auditing 30-Day Configuration History';
+    return 'Auditing Configuration History';
   }
   if (clean.includes('list_datasets')) {
     return 'Discovering BigQuery Datasets';
@@ -26,6 +26,12 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('list_tables')) {
     return 'Discovering Billing Tables';
   }
-  
+  if (clean.includes('get_precomputed_spend_analysis')) {
+    return 'Analysing Spend and Cost Trends';
+  }
+  if (clean.includes('get_precomputed_root_cause')) {
+    return 'Analysing Cost Spike Root Cause';
+  }
+
   return clean;
 };

@@ -27,6 +27,7 @@ locals {
     "telemetry.googleapis.com",
     "iap.googleapis.com",
     "cloudbilling.googleapis.com",
+    "recommender.googleapis.com",
     "cloudasset.googleapis.com",
     "developerknowledge.googleapis.com",
     "agentregistry.googleapis.com",
