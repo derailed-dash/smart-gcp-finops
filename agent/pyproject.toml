@@ -4,12 +4,13 @@
 
 [project]
 name = "finops-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = [{ name = "Darren 'Dazbo' Lester", email = "real.dazbo@gmail.com" }]
 
 dependencies = [
-    "google-adk[a2a]>=2.3.0,<3.0.0",
+    "google-genai>=2.12.1",
+    "google-adk[a2a]>=2.5.0,<3.0.0",
     "mcp>=1.28.0",
     "google-api-python-client>=2.198.0",
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
@@ -19,7 +20,7 @@ dependencies = [
     "google-cloud-logging>=3.16.0,<4.0.0",
     "google-cloud-dataplex>=2.20.0,<3.0.0",
     "google-cloud-aiplatform[evaluation,agent-engines]>=1.159.0",
-    "google-cloud-asset>=3.26.0,<4.0.0",
+    "google-cloud-asset>=4.4.0,<5.0.0",
     "gcsfs>=2026.6.0",
     "pydantic-settings",
 ]

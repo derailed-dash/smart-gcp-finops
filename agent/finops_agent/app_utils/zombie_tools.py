@@ -32,6 +32,7 @@ ZOMBIE_CACHE_TTL = 300  # 5 minutes
 def get_active_billing_projects(tool_context: ToolContext | None = None) -> list[str]:
     """Retrieves all project IDs that have had cost > 0 in the last 30 days from BigQuery."""
     from unittest.mock import MagicMock
+
     if tool_context and tool_context.state and not isinstance(tool_context.state, MagicMock):
         if "active_billing_projects" in tool_context.state:
             logger.debug("Active billing projects cache hit in session state.")

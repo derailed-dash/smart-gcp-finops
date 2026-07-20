@@ -30,6 +30,7 @@ def test_subagent_prompts_have_no_unresolved_placeholders():
     """
     import re
     import string
+
     subagents = root_agent.sub_agents
     formatter = string.Formatter()
 
@@ -115,18 +116,14 @@ async def test_telemetry_plugin_callbacks():
     mock_ctx.node = mock_agent
 
     # Test before_agent_callback
-    res_agent = await plugin.before_agent_callback(
-        agent=mock_agent,
-        callback_context=mock_ctx
-    )
+    res_agent = await plugin.before_agent_callback(agent=mock_agent, callback_context=mock_ctx)
     assert res_agent is None
 
     # Test before_model_callback
     mock_request = MagicMock(spec=LlmRequest)
     mock_request.model = "gemini-3.5-flash"
     res_model = await plugin.before_model_callback(
-        callback_context=mock_ctx,
-        llm_request=mock_request
+        callback_context=mock_ctx, llm_request=mock_request
     )
     assert res_model is None
 
@@ -142,7 +139,7 @@ def test_inter_agent_state_sharing():
     # Initialize a single, shared session state dictionary
     shared_state = {
         "allowed_projects": ["test-project"],
-        "zombies_UNATTACHED_DISKS_None": (time.time() + 300, [{"name": "shared_zombie_disk"}])
+        "zombies_UNATTACHED_DISKS_None": (time.time() + 300, [{"name": "shared_zombie_disk"}]),
     }
 
     # Simulate Agent 1 (InfrastructureAuditor) using ToolContext linked to the shared state
@@ -158,9 +155,7 @@ def test_inter_agent_state_sharing():
     # Verify Agent 2 hits the session cache set by Agent 1 (or manually injected) without running any query
     with patch("finops_agent.app_utils.zombie_tools.search_zombie_resources") as mock_search:
         results = list_zombie_resources(
-            category="UNATTACHED_DISKS",
-            project_id=None,
-            tool_context=ctx_agent2
+            category="UNATTACHED_DISKS", project_id=None, tool_context=ctx_agent2
         )
         assert len(results) == 1
         assert results[0]["name"] == "shared_zombie_disk"
@@ -229,6 +224,3 @@ def test_blackboard_dynamic_key_lookups():
         assert get_session_value(key, mock_context) is None
         set_session_value(key, value, mock_context)
         assert get_session_value(key, mock_context) == value
-
-
-

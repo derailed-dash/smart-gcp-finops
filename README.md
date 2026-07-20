@@ -99,6 +99,16 @@ smart-gcp-finops/
 └── TODO.md               # TODO list
 ```
 
+## Dependency Management
+
+> [!IMPORTANT]
+> **This repository maintains two separate `pyproject.toml` files:**
+*   **Root [pyproject.toml](./pyproject.toml)**: Governs the BFF (Backend-for-Frontend) container, serving FastAPI, Uvicorn, and client SDKs on Cloud Run.
+*   **Agent [agent/pyproject.toml](./agent/pyproject.toml)**: Governs the standalone ADK (Agent Development Kit) agent environment deployed to the managed Vertex AI Agent Runtime.
+> *   **Agent [agent/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/agent/pyproject.toml)**: Governs the standalone ADK (Agent Development Kit) agent environment deployed to the managed Vertex AI Agent Runtime.
+>
+> **Developers must maintain and synchronise both files** when adding or updating shared dependencies (such as `google-adk`, `google-genai`, or `google-cloud-asset`). After modifying either `pyproject.toml`, run `uv lock` in the project root to update the workspace-wide `uv.lock` file.
+
 ## Requirements
 
 Before you begin, ensure you have:

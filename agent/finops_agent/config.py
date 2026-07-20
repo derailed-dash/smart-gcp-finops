@@ -83,4 +83,5 @@ class Settings(BaseSettings):
     spend_analysis_period_cost_threshold: float = 2.0
     spend_analysis_waste_cost_threshold: float = 0.2
 
+
 settings = Settings()

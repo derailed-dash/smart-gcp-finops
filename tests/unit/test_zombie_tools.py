@@ -165,9 +165,7 @@ def test_list_zombie_resources_state_cache(mock_search):
 
     # First call - cache miss
     results1 = list_zombie_resources(
-        "UNATTACHED_DISKS",
-        project_id="my-scoped-project",
-        tool_context=mock_context
+        "UNATTACHED_DISKS", project_id="my-scoped-project", tool_context=mock_context
     )
     assert len(results1) == 1
     assert results1[0]["name"] == "state_cached_disk"
@@ -183,10 +181,7 @@ def test_list_zombie_resources_state_cache(mock_search):
     # Second call - session state cache hit
     mock_search.reset_mock()
     results2 = list_zombie_resources(
-        "UNATTACHED_DISKS",
-        project_id="my-scoped-project",
-        tool_context=mock_context
+        "UNATTACHED_DISKS", project_id="my-scoped-project", tool_context=mock_context
     )
     assert results2 == results1
     mock_search.assert_not_called()
-

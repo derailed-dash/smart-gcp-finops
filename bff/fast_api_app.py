@@ -63,15 +63,15 @@ if otel_to_cloud:
         # Fallback to local basic configuration if Cloud Logging client fails
         logging.basicConfig(
             level=log_level,
-            format='%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s',
-            datefmt='%H:%M:%S',
+            format="%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s",
+            datefmt="%H:%M:%S",
             force=True,
         )
 else:
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s',
-        datefmt='%H:%M:%S',
+        format="%(asctime)s.%(msecs)03d - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%H:%M:%S",
         force=True,
     )
 

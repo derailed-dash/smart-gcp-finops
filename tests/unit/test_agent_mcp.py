@@ -13,8 +13,12 @@ def test_agent_has_mcp_toolsets():
     assert len(cloud_advisor_mcps) == 1, "CloudAdvisor should have exactly one McpToolset"
 
     # KnowledgeAssistant should have the Developer Knowledge McpToolset
-    knowledge_assistant_mcps = [t for t in subagents["knowledge_assistant"].tools if isinstance(t, McpToolset)]
-    assert len(knowledge_assistant_mcps) == 1, "KnowledgeAssistant should have exactly one McpToolset"
+    knowledge_assistant_mcps = [
+        t for t in subagents["knowledge_assistant"].tools if isinstance(t, McpToolset)
+    ]
+    assert len(knowledge_assistant_mcps) == 1, (
+        "KnowledgeAssistant should have exactly one McpToolset"
+    )
 
 
 @pytest.mark.asyncio
@@ -46,14 +50,16 @@ def test_agent_has_cai_tools():
     subagents = {sa.name: sa for sa in root_agent.sub_agents}
 
     infra_auditor_tools = [
-        t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in subagents["infrastructure_auditor"].tools
+        t.__name__ if hasattr(t, "__name__") else type(t).__name__
+        for t in subagents["infrastructure_auditor"].tools
     ]
     assert "get_cai_metadata_for_resources" in infra_auditor_tools, (
         "InfrastructureAuditor should have get_cai_metadata_for_resources tool"
     )
 
     rca_tools = [
-        t.__name__ if hasattr(t, "__name__") else type(t).__name__ for t in subagents["root_cause_analyst"].tools
+        t.__name__ if hasattr(t, "__name__") else type(t).__name__
+        for t in subagents["root_cause_analyst"].tools
     ]
     assert "get_precomputed_root_cause" in rca_tools, (
         "RootCauseAnalyst should have get_precomputed_root_cause tool"

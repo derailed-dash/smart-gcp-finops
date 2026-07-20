@@ -82,6 +82,7 @@
   - [x] Coordinate `KnowledgeAssistant` and `CloudAdvisor` to generate optimization advice grounded in official GCP documentation and active resource metrics
   - [x] Instrument OpenTelemetry tracing to track subagent handoffs, token consumption, and model call execution paths
   - [x] Profile and tune system instructions and loop thresholds to minimize routing latency and prevent runaway token consumption
+[ ] n-day review is not updating the graph
 [ ] Perform ADK best practices review
 [ ] Introduce ADK-based evaluation, including trajectory.
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

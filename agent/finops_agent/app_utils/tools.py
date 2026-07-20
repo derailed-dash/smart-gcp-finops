@@ -142,7 +142,9 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             # on resource properties, route to the standard table to avoid scanning massive volumes.
             if resource_table in sql and not re.search(r"\bresource\.", sql, re.IGNORECASE):
                 sql = sql.replace(resource_table, standard_table)
-                logger.info("Dynamically routed resource-level query to standard table (no resource fields referenced).")
+                logger.info(
+                    "Dynamically routed resource-level query to standard table (no resource fields referenced)."
+                )
 
             sanitized_projects = [p for p in allowed_projects if re.match(r"^[a-z0-9\-]+$", p)]
 
@@ -159,7 +161,9 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             # Example Output Subquery:
             #   ... WHERE project.id IN ('proj-1') AND ...
             explicit_projects = set()
-            eq_matches = re.findall(r"\bproject\.id\s*=\s*['\"]([a-z0-9\-]+)['\"]", sql, re.IGNORECASE)
+            eq_matches = re.findall(
+                r"\bproject\.id\s*=\s*['\"]([a-z0-9\-]+)['\"]", sql, re.IGNORECASE
+            )
             for p in eq_matches:
                 explicit_projects.add(p)
             in_matches = re.findall(r"\bproject\.id\s*IN\s*\(([^)]+)\)", sql, re.IGNORECASE)
@@ -193,13 +197,15 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             nested_parens = r"\((?:[^()]*|\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))*\)"
             date_filter_pattern = re.compile(
                 rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|TIMESTAMP\s+['\"][^'\"]+['\"]|['\"][^'\"]+['\"]|\bCURRENT_DATE\b|\bCURRENT_TIMESTAMP\b)",
-                re.IGNORECASE
+                re.IGNORECASE,
             )
             date_filters = date_filter_pattern.findall(sql)
             extra_where = " AND ".join(date_filters)
             if not extra_where:
                 extra_where = "export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))"
-                logger.warning("Defensively injected 90-day partition filter to prevent full historical scan.")
+                logger.warning(
+                    "Defensively injected 90-day partition filter to prevent full historical scan."
+                )
 
             if not target_projects:
                 subquery_standard = f"(SELECT * FROM `{standard_table}` LIMIT 0)"
@@ -209,12 +215,8 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
                 where_clause = f"project.id IN ({proj_list})"
                 if extra_where:
                     where_clause += f" AND {extra_where}"
-                subquery_standard = (
-                    f"(SELECT * FROM `{standard_table}` WHERE {where_clause})"
-                )
-                subquery_resource = (
-                    f"(SELECT * FROM `{resource_table}` WHERE {where_clause})"
-                )
+                subquery_standard = f"(SELECT * FROM `{standard_table}` WHERE {where_clause})"
+                subquery_resource = f"(SELECT * FROM `{resource_table}` WHERE {where_clause})"
 
             escaped_std = re.escape(standard_table)
             pattern_std = re.compile(rf"`{escaped_std}`|{escaped_std}")
@@ -230,7 +232,11 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
         normalised_sql = re.sub(r"\s+", " ", sql).strip()
 
         # Check in-memory query cache
-        session_id = tool_context.session.id if (tool_context.session and tool_context.session.id) else "default"
+        session_id = (
+            tool_context.session.id
+            if (tool_context.session and tool_context.session.id)
+            else "default"
+        )
         if session_id not in _IN_MEMORY_BQ_CACHE:
             _IN_MEMORY_BQ_CACHE[session_id] = {}
         bq_cache = _IN_MEMORY_BQ_CACHE[session_id]
@@ -263,14 +269,26 @@ def execute_cached_bigquery_sql(sql: str, tool_context: ToolContext) -> list[dic
             interval_match = re.search(r"interval\s+(\d+)\s+day", norm_lower)
             days_suffix = f"_{interval_match.group(1)}d" if interval_match else ""
 
-            if "resource_name" in norm_lower and "cost" in norm_lower and ("secret manager" in norm_lower or "cloud storage" in norm_lower):
+            if (
+                "resource_name" in norm_lower
+                and "cost" in norm_lower
+                and ("secret manager" in norm_lower or "cloud storage" in norm_lower)
+            ):
                 state["gcs_secret_waste"] = result
                 logger.info("Automatically cached 'gcs_secret_waste' in session state blackboard.")
-            elif "usage_date" in norm_lower and "service_description" in norm_lower and "daily_cost" in norm_lower:
+            elif (
+                "usage_date" in norm_lower
+                and "service_description" in norm_lower
+                and "daily_cost" in norm_lower
+            ):
                 key = f"daily_service_costs{days_suffix or '_30d'}"
                 state[key] = result
                 logger.info(f"Automatically cached '{key}' in session state blackboard.")
-            elif "is_current_period" in norm_lower and "sku_description" in norm_lower and "period_cost" in norm_lower:
+            elif (
+                "is_current_period" in norm_lower
+                and "sku_description" in norm_lower
+                and "period_cost" in norm_lower
+            ):
                 key = f"sku_period_costs{days_suffix or '_60d'}"
                 state[key] = result
                 logger.info(f"Automatically cached '{key}' in session state blackboard.")
@@ -361,7 +379,9 @@ LIMIT 5;
     }
 
 
-def get_precomputed_spend_analysis(days: int = 30, tool_context: ToolContext = None) -> dict[str, Any]:
+def get_precomputed_spend_analysis(
+    days: int = 30, tool_context: ToolContext = None
+) -> dict[str, Any]:
     """Pre-computes Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers,
     daily cost spikes, and Secret Manager/GCS zombie waste in Python for the given duration.
     Reuses cached BQ queries.
@@ -455,12 +475,14 @@ ORDER BY cost DESC;
         proj, svc = key
         prev = drivers_prev.get(key, 0.0)
         chg = 100.0 if prev == 0 else ((cost - prev) / prev) * 100.0
-        top_drivers.append({
-            "project": proj,
-            "service": svc,
-            "cost": round(cost, 2),
-            "change": round(chg, 1),
-        })
+        top_drivers.append(
+            {
+                "project": proj,
+                "service": svc,
+                "cost": round(cost, 2),
+                "change": round(chg, 1),
+            }
+        )
     top_drivers.sort(key=lambda x: x["cost"], reverse=True)
 
     daily_groups = {}
@@ -497,14 +519,16 @@ ORDER BY cost DESC;
     for row in res3:
         cost = float(row["cost"])
         zombie_waste += cost
-        zombies.append({
-            "resource": row["resource_name"],
-            "service": row["service_description"],
-            "cost": round(cost, 2),
-            "recommendation": "Review unused secret versions"
-            if row["service_description"] == "Secret Manager"
-            else "Clean up empty bucket storage",
-        })
+        zombies.append(
+            {
+                "resource": row["resource_name"],
+                "service": row["service_description"],
+                "cost": round(cost, 2),
+                "recommendation": "Review unused secret versions"
+                if row["service_description"] == "Secret Manager"
+                else "Clean up empty bucket storage",
+            }
+        )
 
     return {
         "currency": currency,
@@ -535,10 +559,13 @@ def get_session_value(key: str, tool_context: ToolContext) -> Any:
     - 'spend_analysis'
     """
     from unittest.mock import MagicMock
+
     state = getattr(tool_context, "state", None)
     if state is not None and not isinstance(state, MagicMock):
         if key in state:
-            logger.debug(f"[BLACKBOARD HIT] Retrieved key '{key}' from session state, skipping external tool query.")
+            logger.debug(
+                f"[BLACKBOARD HIT] Retrieved key '{key}' from session state, skipping external tool query."
+            )
             return state[key]
     logger.debug(f"[BLACKBOARD MISS] Key '{key}' not found in session state.")
     return None
@@ -549,10 +576,13 @@ def set_session_value(key: str, value: Any, tool_context: ToolContext) -> str:
     For example, use this to store 'gcs_secret_waste' so other agents do not have to query it again.
     """
     from unittest.mock import MagicMock
+
     state = getattr(tool_context, "state", None)
     if state is not None and not isinstance(state, MagicMock):
         state[key] = value
-        logger.debug(f"[BLACKBOARD WRITE] Stored key '{key}' in session state for other subagents to reuse.")
+        logger.debug(
+            f"[BLACKBOARD WRITE] Stored key '{key}' in session state for other subagents to reuse."
+        )
         return f"Successfully stored key '{key}' in session state."
     return "Error: Session state not available."
 

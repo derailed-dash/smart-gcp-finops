@@ -42,6 +42,14 @@ There are distinct operational differences in how updates are delivered to each 
 
 ## Developer Environment Setup
 
+> [!IMPORTANT]
+> **Dual Python Project Configurations (`pyproject.toml`):**
+> This repository contains two distinct `pyproject.toml` files:
+> 1. Root [pyproject.toml](../pyproject.toml): Configures the BFF (Backend-for-Frontend) server serving the React UI and API endpoints.
+> 2. Agent [agent/pyproject.toml](../agent/pyproject.toml): Configures the standalone ADK agent environment deployed to Vertex AI Agent Runtime.
+>
+> When adding, upgrading, or removing shared dependencies (such as `google-adk`, `google-genai`, or `google-cloud-asset`), developers **must** update both configurations and execute `uv lock` in the root folder to update the lockfile.
+
 To enable the Gemini CLI agent to interact with BigQuery data locally, you must configure a workspace-specific settings file.
 
 ### 1. BigQuery MCP Configuration
