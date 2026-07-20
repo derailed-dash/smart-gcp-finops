@@ -262,12 +262,13 @@ IAP is enabled. Access the deployments via their respective custom domain URLs:
 
 ## IAM Permissions & Validation
 
-For the agent and the executive dashboard to discover GCP resources and projects, the querying developer's account (and the deployed application service account) must have the appropriate Cloud Asset Inventory permissions.
+For the agent and the executive dashboard to discover GCP resources, query active recommendations, and run cost audits, the querying developer's account (and the deployed application service account) must have the appropriate IAM roles and enabled APIs across all target projects and the organization.
 
 Please refer to the [IAM Permissions & Validation](deployment/README.md#iam-permissions--validation) section in the Deployment README for:
+- The **Consolidated IAM Setup Script** to apply Organization-level (Cloud Asset Viewer, Recommender Exporter, Recommender Viewer) and Project-level (Recommender Viewer, Cloud Asset Viewer) bindings in one block for users and service accounts.
+- Required API activation checklist (`cloudresourcemanager.googleapis.com`, `recommender.googleapis.com`, `geminicloudassist.googleapis.com`, `cloudaicompanion.googleapis.com`) on standalone/scratch projects.
+- Gemini Cloud Assist troubleshooting and manual roles configuration.
 - The validation command to verify your user's permissions.
-- `gcloud` commands to grant missing roles at the Organisation, Folder, or Project level.
-- Helper bash scripts to bulk-bind permissions to all projects or standalone (orphaned) projects linked to your billing account.
 
 ## Technical Architecture
 

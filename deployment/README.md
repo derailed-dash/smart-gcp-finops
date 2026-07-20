@@ -402,163 +402,119 @@ make deploy-cloud-run
 
 All of the deployment orchestration steps above are fully automated in our GitHub Actions workflows:
 - **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Gemini Enterprise Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
-- **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run.
+- **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run## IAM Permissions & Validation
 
-## IAM Permissions & Validation
+For the agent and the executive dashboard to discover GCP resources, query active recommendations, and run cost audits, the querying developer's account (and the deployed application service account) must have the appropriate IAM roles and enabled APIs across all target projects and the organization.
 
-For the agent and the executive dashboard to discover GCP resources and projects, the querying developer's account (and the deployed application service account) must have the appropriate Cloud Asset Inventory permissions.
+### 1. Consolidated IAM Setup Script
 
-### 1. Verification Command
+Use this single Bash script block to apply **all** required organization-level and project-level permissions for both your local developer user identity and the application service accounts (Dev and Prod).
 
-To verify that your local user has the required access to search IAM policies, run the following command (ensure you have sourced your environment first):
+Set the environment variables at the top of the block before running:
+
+```bash
+# ==============================================================================
+# Set your environment variables
+# ==============================================================================
+export ORG_ID="575085288570"                     # Your Google Cloud Organization ID
+export DEVELOPER_EMAIL="real.dazbo@gmail.com"     # Primary developer user email
+export DEVECO_EMAIL="derailed.dash@gmail.com"    # Backup/co-developer user email
+export DEV_PROJECT="finops-admin-dev"             # Staging/Dev project ID
+export PROD_PROJECT="finops-admin-prd"            # Production project ID
+export SCRATCH_PROJECT="scratch-dev-428715"       # Standalone scratch project ID
+
+# App Service Account emails (created by Terraform)
+export DEV_SA_EMAIL="smart-gcp-finops-app@${DEV_PROJECT}.iam.gserviceaccount.com"
+export PROD_SA_EMAIL="smart-gcp-finops-app@${PROD_PROJECT}.iam.gserviceaccount.com"
+
+# Arrays of members and projects for loops
+export MEMBERS=(
+  "user:${DEVELOPER_EMAIL}"
+  "user:${DEVECO_EMAIL}"
+  "serviceAccount:${DEV_SA_EMAIL}"
+  "serviceAccount:${PROD_SA_EMAIL}"
+)
+export PROJECTS=(
+  "${DEV_PROJECT}"
+  "${PROD_PROJECT}"
+  "${SCRATCH_PROJECT}"
+)
+
+# ==============================================================================
+# 1. Organization-Level Permissions
+# ==============================================================================
+# - Cloud Asset Viewer: Required for the agent to discover assets across the estate.
+# - Recommender Exporter: Required at the Org level to configure global recommendation exports.
+# - Recommender Viewer: Required to view/query recommendations at the Org scale.
+# ==============================================================================
+for member in "${MEMBERS[@]}"; do
+  echo "Binding Organization-level roles to $member..."
+  gcloud organizations add-iam-policy-binding "$ORG_ID" --member="$member" --role="roles/cloudasset.viewer"
+  gcloud organizations add-iam-policy-binding "$ORG_ID" --member="$member" --role="roles/recommender.exporter"
+  gcloud organizations add-iam-policy-binding "$ORG_ID" --member="$member" --role="roles/recommender.viewer"
+done
+
+# ==============================================================================
+# 2. Project-Level Permissions
+# ==============================================================================
+# - Recommender Viewer: Required to query/view active rightsizing recommendations.
+# - Cloud Asset Viewer: Fallback check for asset scanning in standalone projects.
+# ==============================================================================
+for proj in "${PROJECTS[@]}"; do
+  for member in "${MEMBERS[@]}"; do
+    echo "Binding Project-level roles to $member on $proj..."
+    gcloud projects add-iam-policy-binding "$proj" --member="$member" --role="roles/recommender.viewer" --condition=None
+    gcloud projects add-iam-policy-binding "$proj" --member="$member" --role="roles/cloudasset.viewer" --condition=None
+  done
+done
+```
+
+### 2. Required APIs Configuration
+
+Ensure the following APIs are enabled in your projects:
+- **Cloud Resource Manager API** (`cloudresourcemanager.googleapis.com`)
+- **Recommender API** (`recommender.googleapis.com`)
+- **Gemini Cloud Assist API** (`geminicloudassist.googleapis.com`)
+- **Cloud AI Companion API** (`cloudaicompanion.googleapis.com`)
+
+Staging and production projects managed by Terraform will automatically have these APIs enabled. For any standalone or scratch project (such as `scratch-dev-428715`), you must enable them manually:
+
+```bash
+# Enable required APIs on the scratch project
+gcloud services enable cloudresourcemanager.googleapis.com --project="scratch-dev-428715"
+gcloud services enable recommender.googleapis.com --project="scratch-dev-428715"
+gcloud services enable geminicloudassist.googleapis.com --project="scratch-dev-428715"
+gcloud services enable cloudaicompanion.googleapis.com --project="scratch-dev-428715"
+```
+
+### 3. Gemini Cloud Assist Permissions & Troubleshooting
+
+If the `cloud_advisor` subagent logs reveal an HTTP `403 Forbidden` from `https://geminicloudassist.googleapis.com/mcp` during execution, ensure the following project-level roles are assigned to the querying identity (already configured automatically for SAs by Terraform):
+
+* **Gemini Cloud Assist User** (`roles/geminicloudassist.user`)
+* **Cloud AI Companion User** (`roles/cloudaicompanion.user`)
+
+You can apply them manually for local testing:
+
+```bash
+# Grant to Local Developer User on Dev project
+gcloud projects add-iam-policy-binding "finops-admin-dev" \
+    --member="user:real.dazbo@gmail.com" \
+    --role="roles/geminicloudassist.user"
+
+gcloud projects add-iam-policy-binding "finops-admin-dev" \
+    --member="user:real.dazbo@gmail.com" \
+    --role="roles/cloudaicompanion.user"
+```
+
+### 4. Verification Command
+
+To verify that your local user has the required access to search IAM policies, run:
 
 ```bash
 gcloud asset search-all-iam-policies \
     --scope="organizations/$GOOGLE_CLOUD_ORGANIZATION" \
     --query="policy:$LOCAL_DEVELOPER_EMAIL"
 ```
-
-> [!NOTE]
-> Make sure your active project is set to a project where the `cloudasset.googleapis.com` API is enabled (e.g. `$GOOGLE_CLOUD_PROJECT`). Otherwise, `gcloud` will fail with an API-not-enabled error. You can set the quota project via:
-> `gcloud config set billing/quota_project "$GOOGLE_CLOUD_PROJECT"`
-
-#### 2. Granting Missing Roles
-
-If you receive a permission error, you must grant the `roles/cloudasset.viewer` (Cloud Asset Viewer) role at the appropriate level.
-
-*   **Organization level** (required for organization-wide searches):
-    *   **For Developer Account**:
-        ```bash
-        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
-            --member="user:$LOCAL_DEVELOPER_EMAIL" \
-            --role="roles/cloudasset.viewer"
-        ```
-    *   **For Application Service Account**:
-        ```bash
-        gcloud organizations add-iam-policy-binding "$GOOGLE_CLOUD_ORGANIZATION" \
-            --member="serviceAccount:$SERVICE_SA_EMAIL" \
-            --role="roles/cloudasset.viewer"
-        ```
-*   **Folder level** (if scope is restricted to a folder):
-    *   **For Developer Account**:
-        ```bash
-        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
-            --member="user:$LOCAL_DEVELOPER_EMAIL" \
-            --role="roles/cloudasset.viewer"
-        ```
-    *   **For Application Service Account**:
-        ```bash
-        gcloud resource-manager folders add-iam-policy-binding "FOLDER_ID" \
-            --member="serviceAccount:$SERVICE_SA_EMAIL" \
-            --role="roles/cloudasset.viewer"
-        ```
-*   **Project level** (if scope is restricted to a project):
-    *   **For Developer Account**:
-        ```bash
-        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-            --member="user:$LOCAL_DEVELOPER_EMAIL" \
-            --role="roles/cloudasset.viewer" \
-            --condition=None
-        ```
-    *   **For Application Service Account**:
-        ```bash
-        gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-            --member="serviceAccount:$SERVICE_SA_EMAIL" \
-            --role="roles/cloudasset.viewer" \
-            --condition=None
-        ```
-
-### 3. Bulk Binding Standalone (Orphaned) Projects
-
-If your GCP billing account is associated with standalone ("orphaned") projects that do not inherit from your primary organization policy, you must retrieve and bind permissions to them in bulk:
-
-> [!IMPORTANT]
-> **Developer vs. Service Account Access**: You must run the bulk-binding commands for **both** your local developer user (for local testing via `make playground`) and the application service account (for deployed environments on Cloud Run). Failing to bind permissions for the service account will result in `403 Forbidden` errors in your staging and production logs.
-
-*   **Option A: Bind to all projects linked to the billing account (Simplest)**:
-    *   **For Developer Account**:
-        ```bash
-        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
-          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-              --member="user:$LOCAL_DEVELOPER_EMAIL" \
-              --role="roles/cloudasset.viewer" \
-              --condition=None
-        done
-        ```
-    *   **For Application Service Account**:
-        ```bash
-        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-          echo "Binding roles/cloudasset.viewer to $PROJECT_ID..."
-          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-              --member="serviceAccount:$SERVICE_SA_EMAIL" \
-              --role="roles/cloudasset.viewer" \
-              --condition=None
-        done
-        ```
-
-*   **Option B: Filter and bind only to standalone projects (not in the organisation)**:
-    *   **For Developer Account**:
-        ```bash
-        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
-          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
-          
-          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
-            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
-            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-                --member="user:$LOCAL_DEVELOPER_EMAIL" \
-                --role="roles/cloudasset.viewer" \
-                --condition=None
-          fi
-        done
-        ```
-    *   **For Application Service Account**:
-        ```bash
-        for PROJECT_ID in $(gcloud billing projects list --billing-account="$GOOGLE_CLOUD_BILLING_ACCOUNT" --format="value(projectId)"); do
-          PARENT_TYPE=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.type)")
-          PARENT_ID=$(gcloud projects describe "$PROJECT_ID" --format="value(parent.id)")
-          
-          if [ "$PARENT_TYPE" != "organization" ] || [ "$PARENT_ID" != "$GOOGLE_CLOUD_ORGANIZATION" ]; then
-            echo "Project $PROJECT_ID is standalone. Binding roles/cloudasset.viewer..."
-            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-                --member="serviceAccount:$SERVICE_SA_EMAIL" \
-                --role="roles/cloudasset.viewer" \
-                --condition=None
-          fi
-        done
-        ```
-
-### Gemini Cloud Assist (403 Forbidden Errors)
-
-If the `cloud_advisor` subagent logs reveal an HTTP `403 Forbidden` from `https://geminicloudassist.googleapis.com/mcp` during execution:
-
-1.  **Verify API is Enabled**:
-    Ensure the API is enabled in your target project:
-    ```bash
-    gcloud services enable geminicloudassist.googleapis.com --project="$GOOGLE_CLOUD_PROJECT"
-    ```
-
-2.  **Grant IAM Permissions**:
-    The application service account (and your local developer credentials) must have the Gemini Cloud Assist User and Cloud AI Companion User roles:
-    ```bash
-    # Grant to Application Service Account
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="serviceAccount:$SERVICE_SA_EMAIL" \
-        --role="roles/geminicloudassist.user"
-    
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="serviceAccount:$SERVICE_SA_EMAIL" \
-        --role="roles/cloudaicompanion.user"
-
-    # Grant to Local Developer (for local CLI/playground testing)
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/geminicloudassist.user"
-    
-    gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-        --member="user:$LOCAL_DEVELOPER_EMAIL" \
-        --role="roles/cloudaicompanion.user"
-    ```
 
 For more details on the agent logic, refer to the [Architecture Guide](../docs/architecture-and-walkthrough.md).

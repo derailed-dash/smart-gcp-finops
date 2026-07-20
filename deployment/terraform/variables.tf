@@ -41,6 +41,7 @@ variable "app_sa_roles" {
     "roles/cloudasset.viewer",
     "roles/geminicloudassist.user",
     "roles/cloudaicompanion.user",
+    "roles/recommender.viewer",
   ]
 }
 
