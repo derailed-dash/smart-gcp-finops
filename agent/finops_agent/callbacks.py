@@ -622,8 +622,6 @@ async def clean_history_callback(callback_context: CallbackContext, **kwargs) ->
 
             # Consolidate directly into the preceding user prompt
             if current_user_ev and current_user_ev.content:
-                from google.genai import types
-
                 if not current_user_ev.content.parts:
                     current_user_ev.content.parts = []
                 current_user_ev.content.parts.append(
