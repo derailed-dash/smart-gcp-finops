@@ -403,7 +403,9 @@ make deploy-cloud-run
 All of the deployment orchestration steps above are fully automated in our GitHub Actions workflows:
 - **Continuous Integration (Staging)**: Triggers automatically on pushes or merges to `main`. It runs tests, deploys the agent logic to the staging Gemini Enterprise Agent Runtime, extracts the generated runtime ID, and deploys the container to the staging Cloud Run service. (Pull requests against branches only execute quality checks, like linting and pytest tests, but do not trigger any deployments).
 - **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run## IAM Permissions & Validation
+- **Continuous Delivery (Production)**: Triggers manually via the Actions tab. It deploys the verified codebase to the production Agent Runtime, extracts the runtime ID, and deploys the BFF to Production Cloud Run.
 
+## IAM Permissions & Validation
 For the agent and the executive dashboard to discover GCP resources, query active recommendations, and run cost audits, the querying developer's account (and the deployed application service account) must have the appropriate IAM roles and enabled APIs across all target projects and the organization.
 
 ### 1. Consolidated IAM Setup Script
