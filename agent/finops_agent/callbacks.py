@@ -99,6 +99,7 @@ async def before_agent_cache_lookup(callback_context: CallbackContext, **kwargs)
 
     try:
         from finops_agent.agent import genai_client
+
         client = genai_client
 
         prompt = f"""You are a high-speed caching coordinator.
@@ -161,7 +162,9 @@ class DefensiveToolErrorPlugin(BasePlugin):
             error,
         )
         if tool.name == "detect_anomalies":
-            logger.info("Gracefully handling detect_anomalies failure by returning empty anomalies list.")
+            logger.info(
+                "Gracefully handling detect_anomalies failure by returning empty anomalies list."
+            )
             return []
 
         # Store error info in session state so before_model_bypass can intercept the next turn
@@ -295,7 +298,8 @@ async def before_model_bypass(
 
     # 4. Defensive check: Graceful halt on tool error
     if "last_tool_error" in ctx.state:
-        error_info = ctx.state.pop("last_tool_error")
+        error_info = ctx.state["last_tool_error"]
+        del ctx.state["last_tool_error"]
         logger.warning(
             "Graceful tool error intercept inside before_model_bypass: tool '%s' failed.",
             error_info["tool"],
@@ -316,7 +320,11 @@ async def before_model_bypass(
         # Scenario A: Check if consolidated directly into the user event
         if getattr(last_ev, "role", None) == "user" and last_ev.content and last_ev.content.parts:
             for part in last_ev.content.parts:
-                if part.text and "[Context: Subagent '" in part.text and "' returned result:\n" in part.text:
+                if (
+                    part.text
+                    and "[Context: Subagent '" in part.text
+                    and "' returned result:\n" in part.text
+                ):
                     marker = "' returned result:\n"
                     idx = part.text.find(marker)
                     if idx != -1:
@@ -351,7 +359,9 @@ async def before_model_bypass(
                     resp_val = r.response
                     result_text = ""
                     if isinstance(resp_val, dict):
-                        result_text = resp_val.get("result") or resp_val.get("output") or str(resp_val)
+                        result_text = (
+                            resp_val.get("result") or resp_val.get("output") or str(resp_val)
+                        )
                     elif isinstance(resp_val, str):
                         result_text = resp_val
                     else:
@@ -476,8 +486,6 @@ async def clean_history_callback(callback_context: CallbackContext, **kwargs) ->
         return
 
     events = ctx.session.events
-
-
 
     # Main subagent tool names registered on root_agent
     subagent_names = {
@@ -606,24 +614,31 @@ async def clean_history_callback(callback_context: CallbackContext, **kwargs) ->
             # Extract task result markdown
             result_text = ""
             if isinstance(resp_data, dict):
-                result_text = resp_data.get("task_result") or resp_data.get("result") or str(resp_data)
+                result_text = (
+                    resp_data.get("task_result") or resp_data.get("result") or str(resp_data)
+                )
             else:
                 result_text = str(resp_data)
 
             # Consolidate directly into the preceding user prompt
             if current_user_ev and current_user_ev.content:
                 from google.genai import types
+
                 if not current_user_ev.content.parts:
                     current_user_ev.content.parts = []
                 current_user_ev.content.parts.append(
-                    types.Part(text=f"\n\n[Context: Subagent '{subagent_name}' returned result:\n{result_text}]")
+                    types.Part(
+                        text=f"\n\n[Context: Subagent '{subagent_name}' returned result:\n{result_text}]"
+                    )
                 )
                 logger.debug(
                     "Consolidated subagent '%s' result directly into user prompt event.",
                     subagent_name,
                 )
             else:
-                logger.warning("Could not find preceding user event to consolidate subagent response.")
+                logger.warning(
+                    "Could not find preceding user event to consolidate subagent response."
+                )
             continue
 
         final_cleaned.append(ev)

@@ -678,7 +678,7 @@ wheels = [
 
 [[package]]
 name = "finops-agent"
-version = "0.1.0"
+version = "0.1.1"
 source = { virtual = "agent" }
 dependencies = [
     { name = "gcsfs" },
@@ -688,6 +688,7 @@ dependencies = [
     { name = "google-cloud-asset" },
     { name = "google-cloud-dataplex" },
     { name = "google-cloud-logging" },
+    { name = "google-genai" },
     { name = "mcp" },
     { name = "opentelemetry-exporter-gcp-logging" },
     { name = "opentelemetry-exporter-gcp-monitoring" },
@@ -718,14 +719,15 @@ dev = [
 requires-dist = [
     { name = "codespell", marker = "extra == 'lint'", specifier = ">=2.2.0,<3.0.0" },
     { name = "gcsfs", specifier = ">=2026.6.0" },
-    { name = "google-adk", extras = ["a2a"], specifier = ">=2.3.0,<3.0.0" },
+    { name = "google-adk", extras = ["a2a"], specifier = ">=2.5.0,<3.0.0" },
     { name = "google-adk", extras = ["eval"], marker = "extra == 'eval'", specifier = ">=2.0.0,<3.0.0" },
     { name = "google-api-python-client", specifier = ">=2.198.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation"], marker = "extra == 'eval'", specifier = ">=1.156.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation", "agent-engines"], specifier = ">=1.159.0" },
-    { name = "google-cloud-asset", specifier = ">=3.26.0,<4.0.0" },
+    { name = "google-cloud-asset", specifier = ">=4.4.0,<5.0.0" },
     { name = "google-cloud-dataplex", specifier = ">=2.20.0,<3.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.16.0,<4.0.0" },
+    { name = "google-genai", specifier = ">=2.12.1" },
     { name = "mcp", specifier = ">=1.28.0" },
     { name = "opentelemetry-exporter-gcp-logging", specifier = ">=0.38b0" },
     { name = "opentelemetry-exporter-gcp-monitoring", specifier = ">=0.38b0" },
@@ -849,7 +851,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "2.3.0"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -877,9 +879,9 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/cd/b17f7a7574870642be5af42bad831b3800e51529ed2dcdc10493a0a0db23/google_adk-2.3.0.tar.gz", hash = "sha256:4b95c99865a9a6b56e8abd3d3b816935f0db1cebbef328736a269b6537bd1df7", size = 3426370, upload-time = "2026-06-18T18:47:08.4Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/8b/d014c98e987ed3a95ac3740d2b5c8e8e891bfd88c3ac2253fca9547f3b1f/google_adk-2.5.0.tar.gz", hash = "sha256:55b88cac9d5072d511fd3224e5f334e57fb2b0ae567507e531e03fdfb60c82c2", size = 3608134, upload-time = "2026-07-16T20:43:06.464Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/fe/58024a25902d4c6401388515205990d2706901d23634c97f1c8710934fb4/google_adk-2.3.0-py3-none-any.whl", hash = "sha256:961a08ce50bdc99aaf57e487bae4cc48ed9ee361f15e93562342d4bc3b75739b", size = 3967294, upload-time = "2026-06-18T18:47:06.323Z" },
+    { url = "https://files.pythonhosted.org/packages/52/fe/699d21edebd1305b6d23fd570140cf0cf921f34f66e4611d840684717c3a/google_adk-2.5.0-py3-none-any.whl", hash = "sha256:d247ca3639921a54a86feb797a88d08c1d2c9a60c3f5ff2805e49beb29a9cb8d", size = 4169976, upload-time = "2026-07-16T20:43:04.647Z" },
 ]
 
 [package.optional-dependencies]
@@ -1060,7 +1062,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-asset"
-version = "3.30.1"
+version = "4.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core", extra = ["grpc"] },
@@ -1069,12 +1071,13 @@ dependencies = [
     { name = "google-cloud-org-policy" },
     { name = "google-cloud-os-config" },
     { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
     { name = "proto-plus" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/49/9b4105bf2363748618bdf74fdfaf2066e35db2900737eb623fdd03ce88d8/google_cloud_asset-3.30.1.tar.gz", hash = "sha256:a0f0249bfcbc44ef7f8980b621424de7cfe29588d2dac90cb58cccc810d053cc", size = 316572, upload-time = "2025-05-08T20:45:55.526Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/d4/92b37789e99dc416b2d17f6d3be5a32a50049ffe6c350953abda85c4a0fd/google_cloud_asset-4.4.0.tar.gz", hash = "sha256:350d564db6edb2d9521d4776fc44d559765fecd06bdb7284017cf24261039c8d", size = 305139, upload-time = "2026-06-03T14:52:44.763Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/69/93134bd9f355abbb8f7341b9781d4d74d956e35b0c0f1702b838d2b0c498/google_cloud_asset-3.30.1-py3-none-any.whl", hash = "sha256:a2692d0aa250cfd6697ec1114cd0e36cab0d60fccc36f6d79b600d50522f6c25", size = 307578, upload-time = "2025-05-08T20:45:53.037Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/be/0b5e6e4b0b9622380a0f2b2e4e8c577c52fe1047e4ecbaabd9398459ad14/google_cloud_asset-4.4.0-py3-none-any.whl", hash = "sha256:8b1c5916939995ad3e42210b189785056d80fa6fa3c2109fece3ba2b462ae49d", size = 284169, upload-time = "2026-06-03T14:52:00.824Z" },
 ]
 
 [[package]]
@@ -1311,7 +1314,7 @@ wheels = [
 
 [[package]]
 name = "google-genai"
-version = "2.10.0"
+version = "2.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1325,9 +1328,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/fe/b796087493c3c55371aa58b9f264841ace5bfdf8c668cafa7afa33c44bec/google_genai-2.10.0.tar.gz", hash = "sha256:77912cd558cd7dfd5b75c25fd1c609e78d7954dde583331104022a46ea90f9ee", size = 600039, upload-time = "2026-06-24T01:33:18.157Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/59/9ea84cbeb8f09694564d3b0ee9dd59003551b308d47b61f251415df93982/google_genai-2.12.1.tar.gz", hash = "sha256:78c25217885d63dc430ca7c4526853512b164a25a93a8a0d0af5b85971aa1db0", size = 636710, upload-time = "2026-07-16T16:15:02.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/39/00bcfd94de255d24249401efff4f48d77bf6066b46447e519fa193c0c299/google_genai-2.10.0-py3-none-any.whl", hash = "sha256:d5350311567ae660c24cbc1752aee4b3d660f89c0106d2dcd2a69978c35afe1e", size = 957974, upload-time = "2026-06-24T01:33:16.296Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/b4/1369fb413fc2ba7f78acace5590b6e9990c52ab5d1d166aafaa1ae2c28c8/google_genai-2.12.1-py3-none-any.whl", hash = "sha256:686d5ec39bda345151d3ed1bac3915f01f49138b1ea519af2eb98f11cc55ebc4", size = 1023403, upload-time = "2026-07-16T16:14:59.79Z" },
 ]
 
 [[package]]
@@ -3494,6 +3497,7 @@ dependencies = [
     { name = "google-cloud-asset" },
     { name = "google-cloud-dataplex" },
     { name = "google-cloud-logging" },
+    { name = "google-genai" },
     { name = "mcp" },
     { name = "opentelemetry-exporter-gcp-logging" },
     { name = "opentelemetry-exporter-gcp-monitoring" },
@@ -3533,13 +3537,14 @@ requires-dist = [
     { name = "codespell", marker = "extra == 'lint'", specifier = ">=2.2.0,<3.0.0" },
     { name = "fastapi", specifier = ">=0.136.0,<1.0.0" },
     { name = "gcsfs", specifier = ">=2026.5.0" },
-    { name = "google-adk", extras = ["a2a"], specifier = ">=2.3.0,<3.0.0" },
+    { name = "google-adk", extras = ["a2a"], specifier = ">=2.5.0,<3.0.0" },
     { name = "google-adk", extras = ["eval"], marker = "extra == 'eval'", specifier = ">=2.1.0,<3.0.0" },
     { name = "google-api-python-client", specifier = ">=2.198.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation", "agent-engines"], specifier = ">=1.159.0" },
-    { name = "google-cloud-asset", specifier = ">=3.26.0,<4.0.0" },
+    { name = "google-cloud-asset", specifier = ">=4.4.0,<5.0.0" },
     { name = "google-cloud-dataplex", specifier = ">=2.20.0,<3.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.16.0,<4.0.0" },
+    { name = "google-genai", specifier = ">=2.12.1" },
     { name = "jupyter", marker = "extra == 'jupyter'", specifier = ">=1.0.0,<2.0.0" },
     { name = "mcp", specifier = ">=1.28.0" },
     { name = "opentelemetry-exporter-gcp-logging", specifier = ">=0.38b0" },

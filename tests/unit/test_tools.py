@@ -39,9 +39,7 @@ def mock_context():
     return ctx
 
 
-def test_execute_cached_bigquery_sql_no_restriction(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_no_restriction(mock_bq_client, mock_settings, mock_context):
     """Test that query is not modified when ALLOWED_PROJECTS_VAR is None (no restriction)."""
     token = ALLOWED_PROJECTS_VAR.set(None)
     try:
@@ -54,9 +52,7 @@ def test_execute_cached_bigquery_sql_no_restriction(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_execute_cached_bigquery_sql_with_restriction(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_with_restriction(mock_bq_client, mock_settings, mock_context):
     """Test that query is rewritten to restrict projects to the user's allowed list."""
     token = ALLOWED_PROJECTS_VAR.set({"allowed-project-1", "allowed-project-2"})
     try:
@@ -134,9 +130,7 @@ def test_execute_cached_bigquery_sql_dynamic_resolution(
     assert "project.id IN ('allowed-project-1')" in called_sql
 
 
-def test_execute_cached_bigquery_sql_session_caching(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_session_caching(mock_bq_client, mock_settings, mock_context):
     """Verify that execute_cached_bigquery_sql caches query results in session state and skips BQ on subsequent runs."""
     token = ALLOWED_PROJECTS_VAR.set(None)
     try:
@@ -161,9 +155,7 @@ def test_execute_cached_bigquery_sql_session_caching(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_execute_cached_bigquery_sql_filter_pushdown(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_filter_pushdown(mock_bq_client, mock_settings, mock_context):
     """Verify that temporal and partition filters are parsed from the outer query and pushed down into the scoping subquery."""
     token = ALLOWED_PROJECTS_VAR.set({"allowed-project-1"})
     try:
@@ -180,16 +172,19 @@ def test_execute_cached_bigquery_sql_filter_pushdown(
         called_sql = mock_bq_client.query.call_args[0][0]
 
         # Check that the subquery standard table contains BOTH project scoping and the pushed-down date filters
-        assert "WHERE project.id IN ('allowed-project-1') AND export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) AND usage_start_time >= TIMESTAMP('2026-07-01')" in called_sql
+        assert (
+            "WHERE project.id IN ('allowed-project-1') AND export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) AND usage_start_time >= TIMESTAMP('2026-07-01')"
+            in called_sql
+        )
     finally:
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_execute_cached_bigquery_sql_targeted_scoping(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_targeted_scoping(mock_bq_client, mock_settings, mock_context):
     """Verify that explicit project filters in the SQL are intersected with allowed_projects to narrow the scoping filter."""
-    token = ALLOWED_PROJECTS_VAR.set({"allowed-project-1", "allowed-project-2", "allowed-project-3"})
+    token = ALLOWED_PROJECTS_VAR.set(
+        {"allowed-project-1", "allowed-project-2", "allowed-project-3"}
+    )
     try:
         mock_bq_client.query.return_value.result.return_value = []
 
@@ -222,9 +217,7 @@ def test_execute_cached_bigquery_sql_targeted_scoping(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_execute_cached_bigquery_sql_dynamic_routing(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_execute_cached_bigquery_sql_dynamic_routing(mock_bq_client, mock_settings, mock_context):
     """Verify that queries targeting the resource table are routed to the standard table if no resource properties are referenced."""
     token = ALLOWED_PROJECTS_VAR.set({"allowed-project-1"})
     try:
@@ -262,9 +255,7 @@ def test_execute_cached_bigquery_sql_defensive_temporal(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_get_precomputed_spend_analysis_defaults(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_get_precomputed_spend_analysis_defaults(mock_bq_client, mock_settings, mock_context):
     """Verify that get_precomputed_spend_analysis generates 30/60 day intervals by default."""
     token = ALLOWED_PROJECTS_VAR.set(None)
     try:
@@ -283,9 +274,7 @@ def test_get_precomputed_spend_analysis_defaults(
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_get_precomputed_spend_analysis_custom_days(
-    mock_bq_client, mock_settings, mock_context
-):
+def test_get_precomputed_spend_analysis_custom_days(mock_bq_client, mock_settings, mock_context):
     """Verify that get_precomputed_spend_analysis correctly propagates custom durations."""
     token = ALLOWED_PROJECTS_VAR.set(None)
     try:
@@ -302,7 +291,3 @@ def test_get_precomputed_spend_analysis_custom_days(
         assert "INTERVAL 45 DAY" in calls[2]
     finally:
         ALLOWED_PROJECTS_VAR.reset(token)
-
-
-
-
