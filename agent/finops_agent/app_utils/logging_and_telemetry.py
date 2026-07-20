@@ -11,6 +11,16 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
+class SuppressMcpTracebackFilter(logging.Filter):
+    """Custom filter to keep WARNING messages from MCP tool runner but suppress tracebacks."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.ERROR:
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
 def setup_telemetry() -> str | None:
     """Configure GenAI prompt/response logging via OpenTelemetry."""
     import google.auth
@@ -93,14 +103,6 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("watchdog").setLevel(logging.INFO)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)
 
-    # Custom filter to keep WARNING messages from MCP tool runner but suppress tracebacks
-    class SuppressMcpTracebackFilter(logging.Filter):
-        def filter(self, record):
-            if record.levelno < logging.ERROR:
-                record.exc_info = None
-                record.exc_text = None
-            return True
-
     mcp_filter = SuppressMcpTracebackFilter()
     for name in [
         "google_adk.google.adk.tools.mcp_tool.mcp_tool",
@@ -108,4 +110,5 @@ def setup_logging_suppressions() -> None:
     ]:
         lgr = logging.getLogger(name)
         lgr.setLevel(logging.WARNING)
-        lgr.addFilter(mcp_filter)
+        if not any(isinstance(f, SuppressMcpTracebackFilter) for f in lgr.filters):
+            lgr.addFilter(mcp_filter)
