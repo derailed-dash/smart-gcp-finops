@@ -81,9 +81,10 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("google_auth_httplib2").setLevel(logging.INFO)
     logging.getLogger("google.auth").setLevel(logging.INFO)
     logging.getLogger("google.genai").setLevel(logging.WARNING)
-    # logging.getLogger("google_adk").setLevel(logging.ERROR)
-    logging.getLogger("httpcore").setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.INFO)
+    logging.getLogger("google_genai").setLevel(logging.WARNING)
+    logging.getLogger("google_adk.google.adk.models").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # logging.getLogger("opentelemetry").setLevel(logging.INFO)
     logging.getLogger("mcp").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.INFO)
@@ -91,3 +92,20 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("watchdog").setLevel(logging.INFO)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)
+
+    # Custom filter to keep WARNING messages from MCP tool runner but suppress tracebacks
+    class SuppressMcpTracebackFilter(logging.Filter):
+        def filter(self, record):
+            if record.levelno < logging.ERROR:
+                record.exc_info = None
+                record.exc_text = None
+            return True
+
+    mcp_filter = SuppressMcpTracebackFilter()
+    for name in [
+        "google_adk.google.adk.tools.mcp_tool.mcp_tool",
+        "google_adk.google.adk.tools.mcp_tool.session_context",
+    ]:
+        lgr = logging.getLogger(name)
+        lgr.setLevel(logging.WARNING)
+        lgr.addFilter(mcp_filter)

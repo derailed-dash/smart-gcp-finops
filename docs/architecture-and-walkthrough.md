@@ -29,6 +29,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.5-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.5-flash`). We stick to stateless model inference with client/BFF side history management. |
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
+| **Hybrid Model Routing** | Switch the root coordinator (`FinOpsCoordinator`) and lightweight proxy/RAG subagents (`CloudAdvisor` and `KnowledgeAssistant`) to `gemini-3.1-flash-lite`, while keeping reasoning-intensive subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`) on `gemini-3.5-flash`. Rationale: Drastically reduces turn latency and token consumption/costs for orchestration, RAG documentation lookups, and tool proxying. |
 
 ## BigQuery Query Optimization
 
@@ -252,12 +253,12 @@ graph TD
 
 ![FinSavant Multi-Agent Collaborative Architecture](./images/illustrated_agent_architecture.png)
 
-* **`FinOpsCoordinator` (Root)**: Acts as the conversation router, exposing no direct tools but utilizing automatically generated delegation tools for its subagents.
-* **`BillingExplorer` (Mode: `task`)**: Specialized in spend queries, invoking `get_precomputed_spend_analysis` to fetch MTD costs, trends, and waste metrics in a single precomputed call, and generating A2UI cost explorer/dashboard payloads.
-* **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata.
-* **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimization using Gemini Cloud Assist MCP.
-* **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with Google Developer Knowledge MCP.
-* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates by calling `get_precomputed_root_cause` to perform comparative cost analysis and correlate configuration log drift in a single step.
+* **`FinOpsCoordinator` (Root)**: Acts as the conversation router, utilising `gemini-3.1-flash-lite` for low routing and delegation latency. Exposes no direct tools but routes prompts via auto-generated delegation tools.
+* **`BillingExplorer` (Mode: `task`)**: Specialised in spend queries, running on `gemini-3.5-flash` to query SQL safely, calculate costs, and output exact A2UI cost explorer/dashboard payloads.
+* **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata, running on `gemini-3.5-flash`.
+* **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimisation, running on `gemini-3.1-flash-lite` to rapidly and cheaply proxy prompts to the Gemini Cloud Assist MCP.
+* **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with the Developer Knowledge MCP, running on `gemini-3.1-flash-lite` for fast document summarisation (RAG) and low latency.
+* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates, running on `gemini-3.5-flash` to perform logical cause-and-effect correlation between cost increases and configuration drift.
 
 
 ### State Sharing and Resiliency Guidelines

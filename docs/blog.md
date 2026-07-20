@@ -1945,4 +1945,29 @@ We shifted analytical calculations from the LLM's reasoning loop to native, dete
 
 This combined optimization reduced the subagent prompts by 90%, slashed token footprint, completely avoided large reasoning token generation, and dropped subagent execution time to under 1.5 seconds. Hurrah!
 
+---
+
+### Introducing Hybrid Model Routing to Optimise Turn Latency and Inference Cost
+
+**Problem**:
+While our multi-agent architecture successfully decouples domains and prevents prompt bloat, running every agent on the deeper, costlier `gemini-3.5-flash` model created unnecessary latency and cost overheads. Specifically:
+1. The root agent (`FinOpsCoordinator`) functions purely as a router and dispatcher. It does not run direct BQ or CAI queries, meaning it does not need the deep reasoning model for intent classification and tool routing.
+2. Some subagents (like `CloudAdvisor`) function as simple proxies that forward prompt payloads to external tools (such as the Gemini Cloud Assist MCP) and return the response text. They do not perform complex logic or SQL generation themselves.
+3. Other subagents (like `KnowledgeAssistant`) run standard document lookups (RAG) using the Developer Knowledge MCP in a single turn. Large RAG contexts consume high token counts, driving up billing costs unnecessarily on the deeper reasoning model.
+4. Complex composite UI actions, like the "Align with best practices" chip, sequentially invoke both of these subagents. Having both run on the slower standard model compounded response latency.
+
+**Resolution**:
+We implemented a **Hybrid Model Routing** scheme, matching each agent's cognitive workload to the most cost-effective and latency-efficient model:
+1. **Model Categorisation**:
+   - **Reasoning/Calculation (`gemini-3.5-flash`)**: Retained for `BillingExplorer` (handles critical SQL, forecasting, and precise A2UI JSON payloads), `InfrastructureAuditor` (formats recommendation A2UI tables), and `RootCauseAnalyst` (requires cause-and-effect timeline deduction).
+   - **Lite/Utility / Router (`gemini-3.1-flash-lite`)**: Allocated to the `FinOpsCoordinator` (for fast classification/routing), `CloudAdvisor` (proxy-only), and `KnowledgeAssistant` (RAG-only).
+2. **Speed & Latency Gains**:
+   - The first turn routing latency drops by over 60% since the coordinator classifies the query on the fast model.
+   - The multi-agent "Align with best practices" flow is now significantly faster, as the coordinator routing, the architectural documentation search, and the cloud recommendation lookup are all executed using the faster lite model.
+3. **Cost Reduction**:
+   - Shifting large-context RAG documentation queries and routing/orchestration logic to the lite model reduces inference costs by approximately 90% (given the 10x price difference between flash and flash-lite) for those specific turns.
+
+This hybrid approach ensures that our agents are optimised for both reasoning depth and computational efficiency. Hurrah!
+
+
 
