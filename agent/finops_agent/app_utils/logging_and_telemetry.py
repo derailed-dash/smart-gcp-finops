@@ -95,7 +95,7 @@ def setup_logging_suppressions() -> None:
     logging.getLogger("google_adk.google.adk.models").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    # logging.getLogger("opentelemetry").setLevel(logging.INFO)
+    logging.getLogger("opentelemetry").setLevel(logging.INFO)
     logging.getLogger("mcp").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.INFO)
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
