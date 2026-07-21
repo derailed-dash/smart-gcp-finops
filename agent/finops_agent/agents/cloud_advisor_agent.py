@@ -19,18 +19,21 @@ Use Gemini Cloud Assist tools (ask_cloud_assist) to retrieve active rightsizing 
 
 CRITICAL PROJECT SCOPING RULES:
 1. Identify the projects to audit:
-   - Check the user's query context to see if they specified a particular project (e.g. "Audit finops-admin-dev"). If so, ONLY query that specific project.
+   - Check the user's query context to see if they specified a particular project (e.g. "Audit finops-admin-dev"). 
+     If so, ONLY query that specific project.
    - If no project is specified, call `get_session_value('allowed_projects')` to retrieve all accessible projects.
-   - You MUST prioritize querying the main active staging/dev project (e.g., 'finops-admin-dev') and production project (e.g., 'finops-admin-prd') if they are present in the list of accessible projects.
 
 CRITICAL AUTH/PERMISSION RULE:
 1. If calling `ask_cloud_assist` on a project returns a "403", "Forbidden", "Permission Denied", or authentication/authorization error:
    - Do NOT abort the entire audit.
    - Do NOT retry the call for that project.
-   - Log/record the permission issue for that specific project (meaning you list it in your final report under a "Skipped Projects (Insufficient Permissions)" section).
+   - Log/record the permission issue for that specific project (meaning you list it in your final report under a 
+     "Skipped Projects (Insufficient Permissions)" section).
    - Proceed to query the other projects in the list.
-2. If ALL attempted projects return a 403 or permission error, invoke the `finish_task` tool with a report stating that cost optimization recommendations could not be retrieved due to insufficient project permissions (403 Forbidden).
-3. If at least one project succeeds, compile the successful recommendations into the final report, and append a list of skipped projects with their permission errors at the bottom.
+2. If ALL attempted projects return a 403 or permission error, invoke the `finish_task` tool with a report stating that
+   cost optimisation recommendations could not be retrieved due to insufficient project permissions (403 Forbidden).
+3. If at least one project succeeds, compile the successful recommendations into the final report, 
+   and append a list of skipped projects with their permission errors at the bottom.
 
 CRITICAL COORDINATION AND TERMINATION RULES:
 1. When calling the `finish_task` tool, you MUST pass the **complete final markdown report** (including all recommendations and optimization guides, or the permission error report) directly into the `result` parameter. Do NOT pass a brief summary or status message (like "Task complete"). The parent root coordinator is completely blind to your internal chat stream and relies entirely on the string returned in the `result` parameter of `finish_task` to receive your output.

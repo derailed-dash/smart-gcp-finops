@@ -39,14 +39,18 @@ _FinSavant_ is a FinOps solution that needs to do many different things. We coul
 - The prompt becomes unwieldy.
 - It's too complicated to manage the possible journeys and workflows the prompt needs to manage.
 - The agent is more likely to not follow the rules.
-- We would have to give our single agent access to many tools, which can lead to the agent getting confused as to which tool it should use.
 - The agent is ultimately less reliable and less consistent.
+
+![The Monolithic Agent Antipattern](../images/monolithic_agent_tool_tidal_wave.png)
+*The Monolithic Agent Antipattern — What happens when you give a single agent every tool in the repository.*
 
 A much better approach is to have individual agents that each have a clear purpose, and which each have a limited set of tools they can use. We can then have a root agent that orchestrates the agents and decides which agent to use for each task.
 
 Something like this:
 
 ![Multi-agent design](../images/illustrated_agent_architecture.png)
+
+So this is what we're going to build!
 
 ## Agent Directory Structure
 
@@ -88,17 +92,25 @@ You might be wondering about the directory naming here — why do we have `agent
 
 It might look a bit repetitive at first glance, but there's clear structural logic behind it:
 
-1. **`agent/` (Component Directory)**: This is our top-level monorepo component folder, sitting alongside `/bff`, `/frontend`, and `/deployment`. It houses all build manifests (`pyproject.toml`, `Dockerfile`) and dependencies specific to the agent backend. This will be important later when we deploy to the Agent Runtime.
-2. **`finops_agent/` (Python Package)**: This is the actual Python package directory. By using a distinct package name rather than `agent`, we avoid Python module name collisions and allow clean, explicit imports (e.g. `from finops_agent.agent import root_agent`). This is also the standard layout expected by ADK's `agents-cli` tooling.
-3. **`agents/` (Subagent Module)**: This nested directory houses our individual subagent definitions (`billing_explorer_agent.py`, `cloud_advisor_agent.py`, etc.). Separating them into their own module keeps the subagents isolated from the root coordinator (`agent.py`), global callbacks (`callbacks.py`), and utilities (`app_utils/`).
+1. **`agent/`**:
 
-## The Specialized Agents & Their Tools
+    This is our top-level monorepo component folder, sitting alongside `/bff`, `/frontend`, and `/deployment`. It houses all build manifests (`pyproject.toml`, `Dockerfile`) and dependencies specific to the agent backend. This will be important later when we deploy to the Agent Runtime.
+
+2. **`finops_agent/`**:
+
+    This is the actual Python package directory. By using a distinct package name rather than `agent`, we avoid Python module name collisions and allow clean, explicit imports (e.g. `from finops_agent.agent import root_agent`). This is also the standard layout expected by ADK's `agents-cli` tooling.
+
+3. **`agents/`**:
+
+    This nested directory houses our individual subagent definitions (`billing_explorer_agent.py`, `cloud_advisor_agent.py`, etc.). Separating them into their own module keeps the subagents isolated from the root coordinator (`agent.py`), global callbacks (`callbacks.py`), and utilities (`app_utils/`).
+
+## The Specialised Agents & Their Tools
 
 With our directory structure in place, let's look at each of our agents in detail:
 
 ### 1. `FinOpsCoordinator` (Root Agent)
 
-- **Name**: Serves as the central router and front door for all user queries.
+- **Name**: Serves as the front door and central router for all user queries.
 - **Model**: `gemini-3.1-flash-lite`.
 - **Tools**: Exposes **zero direct tools** (no SQL or Cloud Asset Inventory access). Its sole capability is delegating to specialized subagents using ADK's native agent routing mechanisms.
 - **Selective Routing Rules**: Prompt instructions strictly enforce selective delegation. For example, if the user asks solely about costs, it delegates exclusively to `BillingExplorer`, avoiding wasteful multi-agent sweeps.
@@ -162,6 +174,51 @@ app = App(
 )
 ```
 
+There's a few interesting things to note about this agent:
+
+- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to `gemini-3.1-flash-lite`. We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
+- We tell the root agent about all the **subagents** it can delegate to in the `sub_agents` parameter.
+- It has **no tools**!
+- Native Gemini **context caching** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
+- There are **agent callbacks** (defined on `root_agent`) and **global application plugins** (defined on `App`) for managing lifecycle hooks across the execution loop.
+
+### Quick Aside: ADK Callbacks vs. App Plugins
+
+In ADK, lifecycle hooks allow deterministic Python functions to execute at specific points in the execution pipeline (before/after an agent runs, before/after a model call, or before/after a tool executes). However, there is an important distinction between **Agent-level Callbacks** and **App-level Plugins**:
+
+1. **Agent-Level Callbacks (`before_agent_callback`, etc)**:
+
+    Attached to a specific agent (like `root_agent`). These fire **once** when that specific agent initiates its execution. For instance, `discover_projects_callback` runs on the `root_agent` at the very start of a user turn. It calls the Cloud Billing API (`billingAccounts.projects.list`) to retrieve all linked GCP project IDs and populates `session.state['allowed_projects']`. Because this happens before delegating, every subagent can simply read `allowed_projects` from session state. We don't re-run the API call for subagents!
+
+2. **App-Level Plugins (`BasePlugin`)**: 
+    
+    Registered globally on the `App` container via `App(plugins=[...])`. Plugins subclass `BasePlugin` and hook into **every** agent turn and tool call across the entire hierarchy (root coordinator and subagents alike).
+
+Here are a few concrete examples of how we leverage callbacks and plugins in _FinSavant_:
+
+- **Dynamic Project Discovery (`discover_projects_callback`)**: Attached to `root_agent`. Fires once at turn start to discover live GCP project IDs and write them to `session.state['allowed_projects']`.
+- **Subagent History Cleaning (`clean_history_callback`)**: Attached to `root_agent`. Fires before the root agent processes a subagent's return, converting subagent `finish_task` responses into plain-text user context.
+- **Turn-Level Response Caching (`before_agent_cache_lookup` & `after_agent_save_cache`)**: Attached to `root_agent`. This checks the current issued prompt before execution. It uses the fast model to determine if this prompt is semantically very similar to a previous prompt in the conversation. If it is, we can return a response from the cached responses.
+- **Tool Call Limiting (`check_tool_call_limit`)**: Attached to `root_agent`. This plugin enforces a tool ceiling per turn, ensuring that we don't end up with runaway subagent loops that try to make tool calls dozens of times.
+
+```python
+def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    """Defensive callback to count and limit tool calls in a single turn to prevent runaways."""
+    count = tool_context.state.get("_turn_tool_call_count", 0) + 1
+    tool_context.state["_turn_tool_call_count"] = count
+    logger.debug(
+        "Tool call #%d in this turn: executing %s with arguments: %s",
+        count,
+        tool.name,
+        args,
+    )
+    if count > CALL_LIMIT:
+        logger.error("Defensive stop triggered: Tool call count exceeded limit of %d!", CALL_LIMIT)
+        raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
+```
+
+Neat, right?
+
 ### 2. `BillingExplorer` (Spend Aggregation & Dashboards)
 
 - **Model**: `gemini-3.5-flash`.
@@ -186,7 +243,7 @@ BILLING_EXPLORER_INSTRUCTION = """You are the BillingExplorer subagent.
 Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics.
 Do NOT attempt to run standard SQL queries or other cache functions directly if `get_precomputed_spend_analysis` is available, as it provides pre-aggregated and filtered cost results in a single call.
 
-< trimmed for readabilty >
+< trimmed for readability >
 
 CRITICAL: CONCISE SYNTHESIS RULE
 Write your report in a highly concise style. Keep the markdown text under 250 words total.
@@ -216,6 +273,27 @@ billing_explorer = Agent(
 )
 ```
 
+Some notes about this agent...
+
+- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. Here you see another benefit of using separate subagents: we can use different models and parameters for each one.
+- It has **no subagents**, but it has several **tools**.
+- Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
+- The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts.
+- Whereas `get_precomputed_spend_analysis` is a bespoke tool that performs some specific SQL queries. I've provided the queries I want it to execute in the function, since this is more token-efficient (and reliable) than getting Gemini to craft a SQL query for me in real-time. It's also **much faster**! My first implementation just used natural language prompts to fetch the required data using the `bigquery_toolset`. But I found this to be painfully slow.
+
+The tools description looks like this:
+
+```python
+def get_precomputed_spend_analysis(
+    days: int = 30, tool_context: ToolContext = None
+) -> dict[str, Any]:
+    """Pre-computes Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers,  daily cost spikes, and Secret Manager/GCS zombie waste in Python for the given duration.
+    Reuses cached BQ queries.
+    """
+```
+
+It's **very important** that all of our custom tools have **good descriptions** - as docstrings - like this. This helps our agent always pick the right tool for a given task.
+
 ### 3. `InfrastructureAuditor` (Waste & Zombie Resource Auditing)
 
 - **Model**: `gemini-3.5-flash`.
@@ -233,6 +311,8 @@ billing_explorer = Agent(
 - **Model**: `gemini-3.1-flash-lite`.
 - **Tools**: `dev_knowledge_mcp_toolset` (Google Developer Knowledge MCP: `answer_query`, `search_documents`).
 - **Responsibilities**: Grounds cost optimisation and architecture advice directly in official Google Cloud developer and architecture framework documentation, returning authoritative citations.
+
+The code for this agent is very simple; it's basically just the prompt and the use of the Google Developer Knowledge MCP toolset.
 
 ```python
 KNOWLEDGE_ASSISTANT_INSTRUCTION = """You are the KnowledgeAssistant subagent.
@@ -265,27 +345,28 @@ knowledge_assistant = Agent(
 
 ## Multi-Agent Orchestration Patterns
 
-When designing multi-agent architectures, several standard patterns exist:
+When designing multi-agent architectures, several standard [workflow patterns](https://adk.dev/workflows/patterns/) exist for how we can coordinate them. Here are just some of those patterns:
 
-1. **Coordinator-Dispatcher**: A central root agent acts as an intelligent router, delegating tasks to dedicated subagents based on intent.
-2. **Sequential Pipeline**: Output from Agent A is piped sequentially into Agent B, then Agent C (like an ETL pipeline).
-3. **Hierarchical Decomposition**: Complex tasks are recursively broken down by tier-1 coordinators, tier-2 managers, and tier-3 execution workers.
-4. **Parallel Collaborative Mesh**: Multiple agents run concurrently on a shared state space, exchanging messages asynchronously.
+1. **Coordinator-Dispatcher**: A central root agent acts as an intelligent router, delegating tasks to dedicated subagents based on intent. The root agent makes the decisions.
+2. **Sequential Pipeline**: Output from Agent A is piped sequentially into Agent B, then Agent C (like an ETL pipeline). Here we use deterministic workflow agents, so a model is not actually making any routing decisions.
+3. **Parallel Fan-Out and Gather**: Multiple agents run in parallel, and their results are gathered together at the end. Again, this uses deterministic workflow agents.
+4. **Graph-Based Agent Workflows**: where each agent is a node in a graph, and complex routing between agents is defined declaratively. This is a routing pattern that was introduced with ADK 2.x.
 
-For _FinSavant_, we selected the **Coordinator-Dispatcher** pattern combined with **Hybrid Model Routing**:
+For _FinSavant_, we selected the **Coordinator-Dispatcher** pattern. We give the root agent (our coordinator) a bunch of subagents, and let the root agent decide which agent to delegate to, based on the user's latest prompt and the information that has already been gathered in the session.
 
-### Why Coordinator-Dispatcher?
-- **Domain Isolation**: Financial analytics (BigQuery), operational waste (CAI), and architectural guidance (RAG) require vastly different toolsets and system instructions. Combining them confuses the LLM's tool-selection heuristics.
-- **Single-Turn Efficiency**: Most user queries only target one domain (e.g. *"Show my MTD spend"*). The coordinator immediately delegates to `BillingExplorer` and exits, keeping turn latency low.
-- **Selective Multi-Agent Audits**: When a user explicitly requests a *"full environment audit"*, the coordinator invokes `BillingExplorer`, `InfrastructureAuditor`, and `CloudAdvisor` sequentially, synthesizing their reports into a unified executive summary.
+I should also mention the [collaboration modes](https://adk.dev/workflows/collaboration/) used by each agent. These determine the behaviour of a subagent that has been delegated to. There are three modes we can choose from:
 
-### Hybrid Model Routing Strategy
+- **Chat**: Full user interaction. I.e. the user can continue to have a conversation with that subagent, and control only returns to the calling agent when a specific criterion (such as an instruction from the user) is met.
+- **Task**: Here, the subagent performs a specific task, but is allowed to seek clarification from the user in order to complete it. Once the task is complete, control returns to the calling agent.
+- **Single-turn**: Here, the subagent simply performs a task, but is not allowed to interact with the user. Control returns immediately back to the calling agent. This is useful for asynchronous workflows, such as when calling multiple subagents in parallel.
 
-To balance inference speed and cost against analytical reasoning depth:
-- **Routing & RAG Agents** (`FinOpsCoordinator`, `CloudAdvisor`, `KnowledgeAssistant`): Powered by **`gemini-3.1-flash-lite`**. This slashes orchestration latency and token cost for simple intent classification and RAG lookups.
-- **Reasoning & Data Agents** (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`): Powered by **`gemini-3.5-flash`**. This provides high analytical precision for complex SQL generation, data aggregation, and anomaly correlation.
+The `mode` is defined as a property as part of each subagent definition. So we've got:
 
----
+1. `BillingExplorer`: `task`
+2. `InfrastructureAuditor`: `task`
+3. `CloudAdvisor`: `task`
+4. `KnowledgeAssistant`: `single_turn`
+5. `RootCauseAnalyst`: `task`
 
 ## Handling Cross-Cutting Concerns across Agents
 
