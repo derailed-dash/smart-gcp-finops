@@ -57,9 +57,9 @@ credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
 
 def bq_tool_filter(tool: Any, ctx: Any = None) -> bool:
-    """Excludes SQL execution and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql."""
+    """Excludes SQL execution, BQ ML forecast, and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql and get_precomputed_spend_analysis."""
     name = tool.name.lower()
-    return "execute" not in name and "query" not in name
+    return "execute" not in name and "query" not in name and "forecast" not in name and "anomalies" not in name
 
 
 bigquery_toolset = BigQueryToolset(

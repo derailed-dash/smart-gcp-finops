@@ -308,10 +308,20 @@ def get_precomputed_root_cause(date_str: str, tool_context: ToolContext) -> dict
     from finops_agent.app_utils.cai_tools import get_cai_history_for_resource
     from finops_agent.client import resource_table_id
 
+    target_date_str = date_str
+    if not target_date_str or target_date_str.lower() in ("latest", "auto", "unknown", "today", "none", "null"):
+        session_spikes = get_session_value("recentSpikes", tool_context)
+        if session_spikes and isinstance(session_spikes, list) and len(session_spikes) > 0:
+            peak_item = max(
+                session_spikes,
+                key=lambda item: sum(v for k, v in item.items() if k != "date" and isinstance(v, (int, float))),
+            )
+            target_date_str = peak_item.get("date", "")
+
     try:
-        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        dt = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     except Exception:
-        dt = datetime.date.today()
+        dt = datetime.date.today() - datetime.timedelta(days=1)
     prev_dt = dt - datetime.timedelta(days=1)
 
     date_formatted = dt.strftime("%Y-%m-%d")
@@ -371,11 +381,18 @@ LIMIT 5;
 
         resource_spikes.append(resource_info)
 
+    summary_note = (
+        f"Correlated {len(resource_spikes)} persistent resource spikes with CAI config logs."
+        if has_persistent_resources
+        else f"No resource-level cost spikes found for {date_formatted} compared to {prev_date_formatted}. Spend delta is attributable to general service/SKU-level usage."
+    )
+
     return {
         "date": date_formatted,
         "previous_date": prev_date_formatted,
         "has_persistent_resources": has_persistent_resources,
         "resource_spikes": resource_spikes,
+        "summary_note": summary_note,
     }
 
 
@@ -448,17 +465,39 @@ ORDER BY cost DESC;
     if res2:
         currency = res2[0].get("currency", "GBP")
 
-    mtd_spend = sum(float(row["period_cost"]) for row in res2 if row["is_current_period"])
+    # MTD Spend is calculated over the standard 30-day / current month window to keep card metrics consistent regardless of chart history days.
+    import calendar
+    import datetime
+
+    today = datetime.date.today()
+    cutoff_30d = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+
+    # 30-day MTD spend from daily breakdown
+    mtd_spend = sum(
+        float(row["daily_cost"])
+        for row in res1
+        if row.get("usage_date") and str(row["usage_date"]) >= cutoff_30d
+    )
+
     prev_spend = sum(float(row["period_cost"]) for row in res2 if not row["is_current_period"])
 
-    # Calculate period-over-period percentage change, with defensive division-by-zero
-    # handling for new projects/environments that had zero spend in the previous period.
     if prev_spend > 0:
         mtd_change = ((mtd_spend - prev_spend) / prev_spend) * 100.0
     else:
         mtd_change = 100.0
 
-    forecast = mtd_spend
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    elapsed_days = max(today.day, 1)
+    daily_run_rate = mtd_spend / elapsed_days
+    eom_forecast = mtd_spend + (daily_run_rate * (days_in_month - elapsed_days))
+
+    if days > 30:
+        months_count = max(days // 30, 1)
+        forecast = eom_forecast * months_count
+        forecast_label = f"Projected {months_count}-Month Forecast"
+    else:
+        forecast = eom_forecast
+        forecast_label = "Projected end-of-month"
 
     drivers_curr = {}
     drivers_prev = {}
@@ -488,15 +527,15 @@ ORDER BY cost DESC;
     daily_groups = {}
     services_seen = set()
     for row in res1:
-        date_str = row["usage_date"]
+        date_str = str(row["usage_date"])
+        svc = row["service_description"]
+        cost = float(row["daily_cost"])
+
         if "-" in date_str:
             parts = date_str.split("-")
             date_formatted = f"{parts[1]}/{parts[2]}"
         else:
             date_formatted = date_str
-
-        svc = row["service_description"]
-        cost = float(row["daily_cost"])
 
         if date_formatted not in daily_groups:
             daily_groups[date_formatted] = {}
@@ -534,7 +573,7 @@ ORDER BY cost DESC;
         "mtdSpend": round(mtd_spend, 2),
         "mtdChange": round(mtd_change, 1),
         "forecast": round(forecast, 2),
-        "forecastLabel": "Projected end-of-month",
+        "forecastLabel": forecast_label,
         "anomaliesCount": len(
             [s for s in recent_spikes if sum(v for k, v in s.items() if k != "date") > 2.0]
         ),
