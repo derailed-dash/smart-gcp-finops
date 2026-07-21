@@ -512,7 +512,6 @@ ORDER BY cost DESC;
                 day_dict[s] = round(svcs.get(s, 0.0), 2)
             recent_spikes.append(day_dict)
     recent_spikes.sort(key=lambda x: x["date"])
-    recent_spikes = recent_spikes[-10:]
 
     zombie_waste = 0.0
     zombies = []

@@ -46,11 +46,13 @@ https://github.com/derailed-dash/smart-gcp-finops
 
 Let's see where we are in this series.
 
-1. Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions. **📍 You are here.**
-2. Dev Environment Setup with Google Antigravity, ADK, Agents CLI, MCP & Skills
-3. Building the dynamic UI with A2UI
-4. Authentication with IAP, Terraform, and CI/CD
-5. Observing, Evaluating & Tuning Our Agent with Gemini Enterprise Agent Platform
+1. [Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions.](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0?postPublishedType=repub) **📍 You are here.**
+2. [Dev Environment Setup with Google Antigravity, ADK, Agents CLI, MCP & Skills](https://medium.com/google-cloud/finsavant-part-2-building-an-agentic-finops-platform-development-environment-setup-google-dd12b8b84ba0)
+3. Building the ADK Agent and API
+4. Designing and Building the UI with Google Stitch and A2UI
+5. Deployment with Gemini Enterprise Agent Platform, Agent Runtime, Cloud Run and IAP
+6. Automating Deployment with CI/CD and Terraform
+7. Agent Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
 
 ## FinSavant: How Does It Work?
 

@@ -28,7 +28,7 @@ import google.auth
 import google.cloud.logging
 from a2a.server.tasks import InMemoryTaskStore  # type: ignore
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from finops_agent.app_utils import services
@@ -236,6 +236,7 @@ def get_dashboard(
     request: Request,
     clientDay: int | None = None,
     clientMonthDays: int | None = None,
+    days: int = Query(default=30, ge=1, le=365),
 ) -> dict:
     """Returns actual real-time executive dashboard metrics from BQ and CAI."""
     from finops_agent.app_utils.dashboard_data import get_actual_dashboard_metrics
@@ -247,6 +248,7 @@ def get_dashboard(
             allowed_projects=allowed_projects,
             client_day=clientDay,
             client_month_days=clientMonthDays,
+            days=days,
         )
     except Exception as e:
         logger.error(f"Error compiling dashboard metrics: {e}")
