@@ -1,8 +1,16 @@
-"""
-Description: Cloud Asset Inventory (CAI) utility functions.
-Why: Provides low-level connection managers and client setup helpers for CAI API requests.
-How: Sets up thread-local API discovery clients to ensure thread-safe resource queries
-and handles fallback scope detections.
+"""Cloud Asset Inventory (CAI) client connection and API utilities.
+
+What:
+    Provides thread-safe client initialization, low-level API connection management, and helper
+    functions for querying Google Cloud Asset Inventory (CAI).
+
+Why:
+    Abstracts discovery service setup and error handling (such as permission denied on organization scopes),
+    ensuring robust, thread-safe access to CAI APIs across agent tool calls and FastAPI request threads.
+
+How:
+    Maintains thread-local discovery client instances via ``CAIClientManager``, provides fallback scope
+    detection when organization-level access is restricted, and formats IAM/asset historical data.
 """
 
 import logging

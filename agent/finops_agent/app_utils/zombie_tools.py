@@ -1,7 +1,16 @@
-"""
-Description: Zombie resources custom tools.
-Why: Exposes cached zombie asset list queries to both the FastAPI BFF and the ADK agent.
-How: Scans projects using CAI, checks unattached resources (disks/IPs), calculates potential savings, and applies cache logic.
+"""Zombie resource detection tools and cost estimation utilities.
+
+What:
+    Provides ADK agent tools and dashboard helpers to discover orphaned GCP resources, calculate estimated monthly
+    savings, and format recommendations.
+
+Why:
+    Surfaces actionable cost reduction recommendations to both the LLM agent and the React dashboard UI with
+    performance-optimized caching.
+
+How:
+    Scans project scopes using ``search_zombie_resources``, cross-references recent BigQuery billing rates to estimate
+    cost waste per resource, and caches results in a thread-safe in-memory cache.
 """
 
 import logging

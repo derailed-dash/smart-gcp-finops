@@ -1,7 +1,15 @@
-"""
-Description: Utility for discovering projects linked to a billing account.
-Why: Enables the agent to understand the full infrastructure footprint.
-How: Uses the Cloud Billing API to list projects associated with a billing account.
+"""Google Cloud project discovery and IAM permission resolution utilities.
+
+What:
+    Discovers Google Cloud projects linked to billing accounts or accessible to a specific user principal.
+
+Why:
+    Enables the agent and dashboard to discover the user's full Google Cloud infrastructure footprint and enforce
+    strict permission-based access boundaries.
+
+How:
+    Uses the Cloud Billing API to list billing-linked projects, queries Cloud Asset Inventory IAM policy searches
+    for user email permissions, and maintains thread-safe TTL caches for project lists via ``ProjectDiscoveryManager``.
 """
 
 import logging

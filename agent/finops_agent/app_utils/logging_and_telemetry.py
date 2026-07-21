@@ -1,7 +1,16 @@
-"""
-Description: Logging and telemetry configuration for the application.
-Why: Ensures consistent log configurations, warning filters, monitoring, and tracing.
-How: Suppresses noisy third-party debug outputs and hooks OpenTelemetry to export to Cloud Trace / GCS.
+"""Logging, warning filters, and OpenTelemetry tracing configuration.
+
+What:
+    Configures application logging filters, suppresses noisy third-party log outputs, and sets up OpenTelemetry
+    tracing for Google Cloud ADK agent executions.
+
+Why:
+    Provides clear, actionable observability for agent interactions and backend services while exporting
+    telemetry to Google Cloud Trace / Cloud Logging for production diagnostics.
+
+How:
+    Defines custom log filters (e.g. ``SuppressMcpTracebackFilter``), suppresses duplicate deprecation warnings,
+    and initializes ADK instrumentation libraries and OpenTelemetry Cloud Trace exporters via ``setup_telemetry``.
 """
 
 import logging

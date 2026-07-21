@@ -1,7 +1,16 @@
-"""
-Description: Model Context Protocol (MCP) toolsets and authentication providers.
-Why: Isolates MCP server configurations and authorisation loops from agent orchestration.
-How: Uses `google-adk` to define and configure MCP toolsets for Developer Knowledge and Gemini Cloud Assist.
+"""Model Context Protocol (MCP) toolsets and OAuth2 auth providers.
+
+What:
+    Configures MCP toolsets (such as Developer Knowledge and Gemini Cloud Assist) and authentication handlers
+    for use by the ADK agent.
+
+Why:
+    Extends the agent's knowledge and diagnostic capabilities with external MCP servers while ensuring secure,
+    refreshed OAuth2 token handling.
+
+How:
+    Defines custom OAuth2 header providers (e.g. ``DevKnowledgeAuthProvider``) and instantiates ADK ``McpToolset``
+    instances configured with HTTP stream connection parameters.
 """
 
 import logging

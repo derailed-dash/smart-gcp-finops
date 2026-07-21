@@ -1,16 +1,17 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Pydantic schemas and data models for application feedback and subagent outputs.
+
+What:
+    Defines shared Pydantic models (such as ``Feedback`` and ``TaskOutput``) used across the API backend
+    and subagent task execution workflows.
+
+Why:
+    Provides explicit data validation, structured schema definitions, and typing contracts for API request/response
+    bodies and subagent completion responses.
+
+How:
+    Extends Pydantic's ``BaseModel`` with field defaults, type hints, and descriptions tailored for feedback logging
+    and task mode outputs.
+"""
 
 import uuid
 from typing import (

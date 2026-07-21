@@ -1,7 +1,17 @@
-"""
-Description: Custom application tools for the ADK agent.
-Why: Isolates custom database tools and utility functions from agent orchestration.
-How: Defines the cached BigQuery SQL execution tool using the Google BigQuery Python client.
+"""Custom BigQuery and FinOps tools for the ADK agent.
+
+What:
+    Defines ADK agent tools for executing BigQuery SQL queries, retrieving billing schema metadata, running cost
+    forecasts, and analyzing spending trends.
+
+Why:
+    Provides the primary data query interface for the FinOps agent, enabling natural language questions to be
+    translated into optimized BigQuery queries with built-in security, caching, and result formatting.
+
+How:
+    Implements ``run_bigquery_query`` with thread-safe client management via ``BigQueryClientManager``, enforces
+    user-accessible project filtering, converts complex data types to JSON-serializable structures, and caches
+    query results in session state.
 """
 
 import logging

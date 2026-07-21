@@ -1,7 +1,15 @@
-"""
-Description: Utility for finding 'zombie' resources using Cloud Asset Inventory.
-Why: Helps identify cost waste such as unattached disks or idle IPs.
-How: Uses the Cloud Asset API's searchAllResources method.
+"""Cloud Asset Inventory search queries for idle and orphaned ('zombie') GCP resources.
+
+What:
+    Queries Google Cloud Asset Inventory (CAI) for unused, unattached, or idle infrastructure resources
+    (such as unattached Compute Engine disks and idle reserved IP addresses).
+
+Why:
+    Identifies immediate cost optimization opportunities by surfacing wasted assets across configured project scopes.
+
+How:
+    Executes CAI ``searchAllResources`` queries using predefined resource filter configurations and uses CAI REST
+    clients to return raw asset dictionaries.
 """
 
 import logging

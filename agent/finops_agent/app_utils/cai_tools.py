@@ -1,8 +1,17 @@
-"""
-Description: Cloud Asset Inventory (CAI) custom tools.
-Why: Exposes project, resource, and history scanning capabilities to the agent.
-How: Integrates with CAI REST APIs using the Google API Python client,
-providing cached discovery and temporal configuration drift checks.
+"""Cloud Asset Inventory (CAI) custom tools for ADK agents.
+
+What:
+    Defines ADK agent tools for searching Cloud Asset Inventory (CAI) resources, auditing IAM access
+    policies across projects/organizations, and examining temporal asset modification history.
+
+Why:
+    Exposes resource discovery, access footprint analysis, and configuration drift detection tools
+    directly to the ADK agent, enabling intelligent FinOps security and resource auditing.
+
+How:
+    Wraps Google Cloud Asset Inventory REST API calls with thread-safe client helpers, enforces user
+    permission scoping boundaries, caches asset metadata in memory, and converts API responses into
+    agent-consumable dicts/text.
 """
 
 import logging

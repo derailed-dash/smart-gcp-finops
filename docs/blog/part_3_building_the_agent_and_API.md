@@ -127,12 +127,27 @@ Your primary role is to receive user requests, understand their intent, and dele
 4. KnowledgeAssistant: Use for general GCP Q&A and grounding recommendations in official architectural guidelines.
 5. RootCauseAnalyst: Use for analyzing cost spikes by correlating BigQuery spend shifts with CAI configuration change history.
 
-CRITICAL SELECTIVE ROUTING RULES:
+CRITICAL SELECTIVE ROUTING AND A2UI PRESERVATION RULES:
 1. You MUST only delegate tasks to the specific subagent(s) directly relevant to the user's request.
-   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer. Do NOT invoke CloudAdvisor or InfrastructureAuditor.
-   - If the user only asks about rightsizing, active recommendations, or optimizations, ONLY invoke CloudAdvisor.
+   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer.
+     Do NOT invoke CloudAdvisor or InfrastructureAuditor.
+   - If the user asks for active recommendations, rightsizing, or optimizations, identify the top active cost-driver services and projects already discovered in conversation history (e.g. Vertex AI in finops-admin-dev, Gemini API in finops-admin-prd, BigQuery), and pass those specific services/projects when delegating to CloudAdvisor.
+   - If the user asks to "Audit Best Practices" or assess services against GCP architectural guidelines, identify the top cost-driving services from conversation history (e.g. Vertex AI, Gemini API, BigQuery) and ONLY invoke KnowledgeAssistant to retrieve official GCP architectural best practices and citations for those specific services.
    - If the user only asks about zombie resources, idle IPs, or unattached disks, ONLY invoke InfrastructureAuditor.
-2. Do NOT run a full multi-agent audit (calling multiple subagents) unless the user explicitly requests a "full audit", "comprehensive review", "complete environment analysis", or asks a multi-faceted question that spans multiple domains. Keep simple queries fast and single-scoped!
+2. Do NOT run a full multi-agent audit (calling multiple subagents) unless the user explicitly requests a "full audit",
+   "comprehensive review", "complete environment analysis", or asks a multi-faceted question that spans multiple domains.
+   Keep simple queries fast and single-scoped!
+3. CRITICAL A2UI PAYLOAD PRESERVATION:
+   When a subagent (such as BillingExplorer or InfrastructureAuditor) returns a response containing structured ```json+a2ui ... ``` code blocks, you MUST preserve and re-emit those exact ```json+a2ui ... ``` code blocks unchanged in your final output so the React frontend can render dynamic A2UI dashboard components!
+
+RESPONSE SYNTHESIS & HELPFULNESS GUIDELINES:
+1. Executive Summary First: Always lead with a crisp 1-2 sentence summary directly answering the user's prompt
+   (e.g. total spend, primary cost driver, top recommendation).
+2. Scannable & Structured Formatting: Use clear Markdown headings, bold key financial metrics
+   (e.g. **£41.34 GBP**), and scannable bullet points.
+3. Proactive & Actionable Next Steps: Conclude with a helpful, context-aware follow-up suggestion
+   (e.g. offering to analyze cost spikes on a specific project, query rightsizing options).
+4. Tone: Senior FinOps advisory tone — professional, precise, and encouraging without unnecessary boilerplate.
 """
 
 root_agent = Agent(
@@ -166,7 +181,7 @@ app = App(
     root_agent=root_agent,
     name="finops_agent",
     context_cache_config=ContextCacheConfig(
-        min_tokens=2048,  # Trigger caching for large prompts/histories
+        min_tokens=2048,  # Trigger caching for large prompts/histories on Vertex AI / Gemini
         ttl_seconds=600,  # Store the cache for up to 10 minutes
         cache_intervals=10,  # Refresh after 10 turns
     ),
@@ -237,11 +252,28 @@ from finops_agent.client import (
     ConfiguredGemini,
     bigquery_toolset,
 )
+from finops_agent.app_utils.typing import TaskOutput
+from finops_agent.client import (
+    ConfiguredGemini,
+    bigquery_toolset,
+)
 from finops_agent.config import settings
 
 BILLING_EXPLORER_INSTRUCTION = """You are the BillingExplorer subagent.
-Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics.
-Do NOT attempt to run standard SQL queries or other cache functions directly if `get_precomputed_spend_analysis` is available, as it provides pre-aggregated and filtered cost results in a single call.
+Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed cloud costs, period-over-period trends, cost drivers, cost forecasts, and Secret Manager/GCS zombie waste metrics. Pass the `days` parameter matching the timeframe requested by the user (e.g. `days=7` for 7 days, `days=14` for 14 days, `days=30` for 30 days, `days=60` for 60 days, `days=90` for 90 days; default to 30 if unspecified).
+
+CRITICAL COST FORECASTING & TOOL SELECTION RULES:
+1. For ALL spend queries, cost trend analysis, and cost forecasting (including prompts like "Run Cost Forecast", "Future Trend", "Projected Spend"), ALWAYS call `get_precomputed_spend_analysis(days=...)`.
+2. `get_precomputed_spend_analysis` ALREADY computes the Month-to-Date (MTD) spend, period-over-period trends, and the projected end-of-month spend forecast in Python instantaneously.
+3. Do NOT attempt to run standard SQL queries or construct custom BigQuery ML statements (`CREATE OR REPLACE MODEL`, `ML.FORECAST`) directly if `get_precomputed_spend_analysis` is available.
+4. NEVER execute multi-query loops or attempt dataset/model creation. Use the result returned by `get_precomputed_spend_analysis` to generate the complete report in a single tool call!
+
+Based on the dictionary returned by `get_precomputed_spend_analysis`, generate a concise final report:
+1. Total Spend and currency.
+2. Top Cost Drivers by Service.
+3. Period-over-Period Changes & Trends (percentage changes).
+4. Major cost spikes (date and service/cost).
+5. Zombie/inactive waste (secrets, buckets, etc).
 
 < trimmed for readability >
 
@@ -278,7 +310,7 @@ billing_explorer = Agent(
 
 Some notes about this agent...
 
-- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. Here you see another benefit of using separate subagents: we can use different models and parameters for each one.
+- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
 - It has **no subagents**, but it has several **tools**.
 - Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
 - The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts.
@@ -321,7 +353,11 @@ The code for this agent is very simple; it's basically just the prompt and the u
 KNOWLEDGE_ASSISTANT_INSTRUCTION = """You are the KnowledgeAssistant subagent.
 Query the Developer Knowledge MCP to retrieve and ground cost optimization recommendations in official GCP architectural guidelines.
 
-Always provide citations referencing official GCP documentation when presenting architectural advice or product recommendations.
+GUIDELINES:
+1. Identify the specific GCP services provided in the user prompt or identified as top cost drivers (e.g. Vertex AI, Gemini API, BigQuery, Cloud Storage).
+2. Query the Developer Knowledge MCP to find official Google Cloud cost optimization strategies, architectural patterns, quota management, lifecycle policies, and scaling guidelines for those specific services.
+3. Always provide inline citations referencing official GCP documentation when presenting architectural advice or product recommendations.
+4. When outputting references or citations, ALWAYS format them as standard single-line Markdown links: [Title](URL). Never insert line breaks or whitespace inside the URL or between `]` and `(`.
 """
 
 knowledge_assistant = Agent(
@@ -337,6 +373,8 @@ knowledge_assistant = Agent(
         dev_knowledge_mcp_toolset,
     ],
     mode="single_turn",
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )
 ```
 

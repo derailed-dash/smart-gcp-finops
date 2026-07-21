@@ -34,7 +34,7 @@ Based on the dictionary returned by `get_precomputed_spend_analysis`, generate a
 2. Top Cost Drivers by Service.
 3. Period-over-Period Changes & Trends (percentage changes).
 4. Major cost spikes (date and service/cost).
-5. Zombie/inactive waste (secrets, buckets, etc.).
+5. Zombie/inactive waste (secrets, buckets, etc).
 
 CRITICAL A2UI PROTOCOL INTEGRATION:
 You MUST include two structured JSON payloads wrapped in 'json+a2ui' markdown code blocks at the very end of your response:

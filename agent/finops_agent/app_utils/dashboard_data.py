@@ -1,7 +1,16 @@
-"""
-Description: Dashboard metrics and telemetry compiler.
-Why: Calculates aggregated cost data, forecasting curves, anomaly lists, and zombie assets for the React UI.
-How: Executes optimized BigQuery SQL queries, applies user project security scoping filters, and merges Cloud Asset Inventory data.
+"""Dashboard metrics aggregation and telemetry compiler for the FinOps UI.
+
+What:
+    Compiles summary metrics, cost trends, spending forecasts, budget alerts, cost anomalies, and zombie
+    resource breakdowns for display in the React frontend dashboard.
+
+Why:
+    Serves the Backend for Frontend (BFF) API with aggregated, pre-filtered FinOps data so the UI can quickly
+    render rich visual charts and action cards without executing complex SQL logic client-side.
+
+How:
+    Executes optimized BigQuery SQL queries against GCP billing export tables, enforces user project permission
+    scoping filters via context variables, caches query results in memory, and merges Cloud Asset Inventory data.
 """
 
 import calendar

@@ -1,22 +1,15 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Process-wide ADK session and artifact service factory.
 
-"""Process-wide ADK session/artifact services shared by every serving surface.
+What:
+    Provides cached, process-wide instances of ADK session services and artifact storage services.
 
-Registered under ``shared://`` so the ADK web routes, the A2A path, and the
-reasoning_engine adapter share one instance: a session created on any surface
-is visible to the others.
+Why:
+    Ensures that all serving surfaces (FastAPI/ADK web routes, A2A protocol handlers, and Reasoning Engine adapters)
+    share identical session state and artifact storage registered under standard URIs (``shared://session``, ``shared://artifact``).
+
+How:
+    Uses ``@functools.cache`` to lazily instantiate and register ADK session and artifact services based on environment
+    variables (GCS bucket URIs, Vertex AI session settings, or local SQLite/in-memory fallbacks).
 """
 
 from __future__ import annotations
