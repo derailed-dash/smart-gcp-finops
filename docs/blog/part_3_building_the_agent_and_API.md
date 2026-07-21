@@ -18,6 +18,8 @@ In this part we're going to take a close look at the agent code. We'll be lookin
 - Building a FastAPI _Backend-for-Frontend_
 - Creating and running a local Docker container
 
+I'll explain concepts and provide code snippets as we go. But don't forget: you can always refer to the full code in the [repo](https://github.com/derailed-dash/smart-gcp-finops).
+
 Let's get cracking!
 
 ## Series Orientation
@@ -167,12 +169,12 @@ root_agent = Agent(
         root_cause_analyst,
     ],
     before_agent_callback=[
-        clean_history_callback,
-        reset_tool_call_counter,
-        discover_projects_callback,
+        before_agent_clean_history,
+        before_agent_reset_tool_call_counter,
+        before_agent_discover_projects,
         before_agent_cache_lookup,
     ],
-    before_tool_callback=check_tool_call_limit,
+    before_tool_callback=before_tool_check_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,
 )
@@ -197,27 +199,32 @@ There's a few interesting things to note about this agent:
 - Native Gemini **context caching** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
 - There are **agent callbacks** (defined on `root_agent`) and **global application plugins** (defined on `App`) for managing lifecycle hooks across the execution loop.
 
-### Quick Aside: ADK Callbacks vs. App Plugins
+### Quick Aside: ADK Callbacks vs App Plugins
 
-In ADK, lifecycle hooks allow deterministic Python functions to execute at specific points in the execution pipeline (before/after an agent runs, before/after a model call, or before/after a tool executes). However, there is an important distinction between **Agent-level Callbacks** and **App-level Plugins**:
+In ADK, lifecycle hooks allow deterministic Python functions to execute at specific points in the execution pipeline, i.e. before/after an agent runs, before/after a model call, or before/after a tool executes. 
 
-1. **Agent-Level Callbacks (`before_agent_callback`, etc)**:
+However, there is an important distinction between **Agent-level Callbacks** and **App-level Plugins**:
 
-    Attached to a specific agent (like `root_agent`). These fire **once** when that specific agent initiates its execution. For instance, `discover_projects_callback` runs on the `root_agent` at the very start of a user turn. It calls the Cloud Billing API (`billingAccounts.projects.list`) to retrieve all linked GCP project IDs and populates `session.state['allowed_projects']`. Because this happens before delegating, every subagent can simply read `allowed_projects` from session state. We don't re-run the API call for subagents!
+1. **Agent-Level Callbacks**:
+
+    Attached to a specific agent (like `root_agent`). These fire **once** when that specific agent initiates its execution. For instance, `before_agent_discover_projects` runs on the `root_agent` at the very start of a user turn. It calls the Cloud Billing API (`billingAccounts.projects.list`) to retrieve all linked GCP project IDs and populates `session.state['allowed_projects']`. Because this happens before delegating, every subagent can simply read `allowed_projects` from session state. We don't re-run the API call for subagents!
 
 2. **App-Level Plugins (`BasePlugin`)**: 
     
-    Registered globally on the `App` container via `App(plugins=[...])`. Plugins subclass `BasePlugin` and hook into **every** agent turn and tool call across the entire hierarchy (root coordinator and subagents alike).
+    These are registered globally on the `App` container via `App(plugins=[...])`. They subclass `BasePlugin` and hook into **every** agent turn and tool call across the entire hierarchy (root coordinator and subagents alike).
 
 Here are a few concrete examples of how we leverage callbacks and plugins in _FinSavant_:
 
-- **Dynamic Project Discovery (`discover_projects_callback`)**: Attached to `root_agent`. Fires once at turn start to discover live GCP project IDs and write them to `session.state['allowed_projects']`.
-- **Subagent History Cleaning (`clean_history_callback`)**: Attached to `root_agent`. Fires before the root agent processes a subagent's return, converting subagent `finish_task` responses into plain-text user context.
+- **Error Handling (`DefensiveToolErrorPlugin`)**: Globally intercepts unhandled tool exceptions across any subagent, storing formatted errors in session state so the coordinator can inform the user gracefully without crashing the process.
+- **Logging and Telemetry (`FinOpsTelemetryPlugin`)**: Automatically instruments OpenTelemetry spans; logs agent handoffs, model execution latency, and token consumption across all turns.
+- **Dynamic Project Discovery (`before_agent_discover_projects`)**: Attached to `root_agent`. Fires once at turn start to discover live GCP project IDs and write them to `session.state['allowed_projects']`.
+- **Subagent History Cleaning (`before_agent_clean_history`)**: Attached to `root_agent`. Fires before the root agent processes a subagent's return, converting subagent `finish_task` responses into plain-text user context.
 - **Turn-Level Response Caching (`before_agent_cache_lookup` & `after_agent_save_cache`)**: Attached to `root_agent`. This checks the current issued prompt before execution. It uses the fast model to determine if this prompt is semantically very similar to a previous prompt in the conversation. If it is, we can return a response from the cached responses.
-- **Tool Call Limiting (`check_tool_call_limit`)**: Attached to `root_agent`. This plugin enforces a tool ceiling per turn, ensuring that we don't end up with runaway subagent loops that try to make tool calls dozens of times.
+Instead of duplicating logging or exception handlers inside every subagent constructor, ADK allows registering global plugins on the root `App`:
+- **Tool Call Limiting (`before_tool_check_limit`)**: Attached to `root_agent`. This callback enforces a tool ceiling per turn, ensuring that we don't end up with runaway subagent loops that try to make tool calls dozens of times.
 
 ```python
-def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+def before_tool_check_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """Defensive callback to count and limit tool calls in a single turn to prevent runaways."""
     count = tool_context.state.get("_turn_tool_call_count", 0) + 1
     tool_context.state["_turn_tool_call_count"] = count
@@ -409,59 +416,9 @@ The `mode` is defined as a property as part of each subagent definition. So we'v
 4. `KnowledgeAssistant`: `single_turn`
 5. `RootCauseAnalyst`: `task`
 
-## Handling Cross-Cutting Concerns across Agents
+## Testing with `ADK Web`
 
-Managing multi-agent systems requires handling logging, error resilience, session state, and caching cleanly across all agents without repeating boilerplates.
-
-### 1. Global ADK Plugins (`BasePlugin`)
-
-Instead of duplicating logging or exception handlers inside every subagent constructor, ADK allows registering global plugins on the root `App`:
-
-```python
-app = App(
-    root_agent=root_agent,
-    name="finops_agent",
-    context_cache_config=ContextCacheConfig(
-        min_tokens=2048,
-        ttl_seconds=600,
-        cache_intervals=10,
-    ),
-    plugins=[DefensiveToolErrorPlugin(), FinOpsTelemetryPlugin()],
-)
-```
-
-- **`DefensiveToolErrorPlugin`**: Globally intercepts unhandled tool exceptions across any subagent, storing formatted error alerts in session state so the coordinator can inform the user gracefully without crashing the process.
-- **`FinOpsTelemetryPlugin`**: Automatically instruments OpenTelemetry spans and logs agent handoffs, model execution latency, and token consumption across all turns.
-
-### 2. Overcoming Subagent Event Alignment & `thought_signature` Errors
-
-During multi-agent handoffs in ADK task mode, subagents return their results via `finish_task`. Under certain execution paths, standard event history appending can create an alignment mismatch (a `FunctionResponse` event without a preceding `FunctionCall` event in the coordinator's message history).
-
-Furthermore, Gemini 3.5 API strictly enforces `thought_signature` checks on historical function call events. To solve this cleanly, we created **`clean_history_callback`**:
-
-```python
-def clean_history_callback(callback_context: AgentCallbackContext) -> None:
-    """Cleans up subagent handoff history by converting subagent FunctionResponses
-
-    in-place into plain-text user messages, avoiding event alignment and thought_signature errors.
-    """
-    history = callback_context.session.events
-    # Scans history and transforms subagent finish_task payloads into plain-text user context
-    ...
-```
-
-This transforms subagent task responses in-place into clean, plain-text markdown context (`"For context: Subagent BillingExplorer returned: ..."`), wiping internal subagent tool call artifacts and guaranteeing 100% stability across turns! Hurrah!
-
-### 3. Session State, Blackboard Pattern, and In-Memory Caching
-
-Passing massive datasets (e.g. 500 rows of BigQuery billing records) through ADK `SessionState` (`tool_context.state`) creates severe serialization bottlenecks (I/O latency, network payload bloat, and deepcopy CPU spikes). We adopted a two-tier caching strategy:
-
-- **Private In-Memory SQL Cache (`_IN_MEMORY_BQ_CACHE`)**: Raw SQL query results are cached in a thread-safe Python dictionary in process memory, keyed by `session_id`.
-- **The Blackboard Pattern**: Shared state keys (`allowed_projects`, `daily_service_costs_30d`, `gcs_secret_waste`) are set in Python memory. Subagents check the blackboard first before triggering new queries, enabling instant data sharing across subagents without LLM JSON re-generation.
-
----
-
-## Validating Agent Trajectories with `ADK Web`
+Now we've got our root agent, subagents and tools defined, we've got enough to try it out.
 
 During local development, validating how the coordinator routes user queries, inspecting tool parameters, and observing subagent handbacks is critical.
 

@@ -431,12 +431,14 @@ async def after_agent_save_cache(
     return None
 
 
-async def reset_tool_call_counter(callback_context: CallbackContext, **kwargs) -> None:
+async def before_agent_reset_tool_call_counter(
+    callback_context: CallbackContext, **kwargs
+) -> None:
     """Resets the tool call counter in session state at the start of each turn."""
     callback_context.state["_turn_tool_call_count"] = 0
 
 
-async def discover_projects_callback(callback_context: CallbackContext, **kwargs) -> None:
+async def before_agent_discover_projects(callback_context: CallbackContext, **kwargs) -> None:
     """Discovers allowed projects for the user up-front and caches them in session state."""
     state = callback_context.state
     if "allowed_projects" not in state:
@@ -455,12 +457,12 @@ async def discover_projects_callback(callback_context: CallbackContext, **kwargs
             )
         else:
             logger.warning(
-                "Unauthenticated request inside discover_projects_callback: missing user_id."
+                "Unauthenticated request inside before_agent_discover_projects: missing user_id."
             )
             state["allowed_projects"] = []
 
 
-def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+def before_tool_check_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """Defensive callback to count and limit tool calls in a single turn to prevent runaways."""
     count = tool_context.state.get("_turn_tool_call_count", 0) + 1
     tool_context.state["_turn_tool_call_count"] = count
@@ -475,7 +477,7 @@ def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) ->
         raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
 
 
-async def clean_history_callback(callback_context: CallbackContext, **kwargs) -> None:
+async def before_agent_clean_history(callback_context: CallbackContext, **kwargs) -> None:
     """Cleans up the session history for the root coordinator:
     1. At the start of a user turn, removes previous turns' tool pollution.
     2. Mid-turn (when re-entered), strips subagents' internal tool calls/responses

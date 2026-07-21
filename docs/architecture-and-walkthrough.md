@@ -267,7 +267,7 @@ graph TD
 Since users can invoke subagents directly (or via UI action chips) without a strict sequential order (e.g. clicking "Align with best practices" immediately upon opening a clean chat session), the system enforces two state-resiliency rules:
 
 1. **Bootstrap Project Discovery**:
-   The root `FinOpsCoordinator` executes `discover_projects_callback` during the initial connection handshake. This populates `session.state.allowed_projects` immediately on turn 1, establishing the tenant boundaries.
+   The root `FinOpsCoordinator` executes `before_agent_discover_projects` during the initial connection handshake. This populates `session.state.allowed_projects` immediately on turn 1, establishing the tenant boundaries.
 2. **Lazy Context Hydration**:
    If a subagent (such as `KnowledgeAssistant` or `CloudAdvisor`) is invoked but finds cost spikes or active service lists are missing from `session.state`, it must not fail or return generic suggestions. Instead, it lazily triggers a fast, cached lookup query to BigQuery to resolve the top cost-driving services for the allowed projects, populating the session state on-the-fly.
 3. **Global Plugin Observability and Error Interception**:

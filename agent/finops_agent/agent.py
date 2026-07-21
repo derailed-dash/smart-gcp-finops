@@ -33,11 +33,11 @@ from finops_agent.callbacks import (
     FinOpsTelemetryPlugin,
     after_agent_save_cache,
     before_agent_cache_lookup,
+    before_agent_clean_history,
+    before_agent_discover_projects,
+    before_agent_reset_tool_call_counter,
     before_model_bypass,
-    check_tool_call_limit,
-    clean_history_callback,
-    discover_projects_callback,
-    reset_tool_call_counter,
+    before_tool_check_limit,
 )
 
 # Expose shared variables and models for other parts of the application
@@ -98,12 +98,12 @@ root_agent = Agent(
         root_cause_analyst,
     ],
     before_agent_callback=[
-        clean_history_callback,
-        reset_tool_call_counter,
-        discover_projects_callback,
+        before_agent_clean_history,
+        before_agent_reset_tool_call_counter,
+        before_agent_discover_projects,
         before_agent_cache_lookup,
     ],
-    before_tool_callback=check_tool_call_limit,
+    before_tool_callback=before_tool_check_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,
 )
