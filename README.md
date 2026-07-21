@@ -77,6 +77,7 @@ smart-gcp-finops/
 │   ├── DESIGN.md              # Visual identity, components, and UI design
 │   ├── PRODUCT.md             # Product requirements, specifications, and success metrics
 │   ├── architecture-and-walkthrough.md # Solution blueprints, ADRs, and component data flows
+│   ├── authentication-and-costs.md # Authentication model (Vertex AI vs API key) and cost drivers
 │   └── testing.md             # Testing strategy and verification instructions
 ├── frontend/             # React UI frontend
 │   ├── src/                   # Application source code
@@ -282,6 +283,8 @@ Please refer to the [IAM Permissions & Validation](deployment/README.md#iam-perm
   - *Remote Execution Mode*: The BFF acts as a stateless proxy to the remote agent running on the Google Agent Runtime.
   - *Local Fallback Mode*: If no remote runtime ID is configured, the BFF loads the agent locally inside the container, running the ADK engine using developer Application Default Credentials (ADC).
 - **Deployment**: **Unified Container** architecture (bundling compiled React assets + FastAPI) hosted on **Google Cloud Run**.
+
+For a detailed breakdown of authentication options (Vertex AI vs. `GEMINI_API_KEY`) and system cost drivers, refer to the [Authentication & Cost Model Guide](docs/authentication-and-costs.md).
 
 ## Useful Links & References
 

@@ -1967,7 +1967,25 @@ We implemented a **Hybrid Model Routing** scheme, matching each agent's cognitiv
 3. **Cost Reduction**:
    - Shifting large-context RAG documentation queries and routing/orchestration logic to the lite model reduces inference costs by approximately 90% (given the 10x price difference between flash and flash-lite) for those specific turns.
 
+
 This hybrid approach ensures that our agents are optimised for both reasoning depth and computational efficiency. Hurrah!
+
+---
+
+### Documenting Authentication Modes and Cost Model Drivers
+
+**Problem**:
+As the architecture evolved across local development, local container testing, and remote deployment to Google Agent Runtime and Cloud Run, it became essential to clarify how authentication credentials (API Keys vs. Vertex AI Google Cloud IAM) operate, and where system costs originate across different execution modes.
+
+**Resolution**:
+We authored [docs/authentication-and-costs.md](../docs/authentication-and-costs.md) to formally document:
+1. **Authentication Routing**: Clarified that `GOOGLE_GENAI_USE_VERTEXAI=True` is the default across both local dev and production. In local dev, it uses local Application Default Credentials (`gcloud auth application-default login`) via Vertex AI without requiring a `GEMINI_API_KEY`. In production, it uses the Service Account IAM role.
+2. **AI Studio Fallback**: Explained that setting `GOOGLE_GENAI_USE_VERTEXAI=False` enables `GEMINI_API_KEY` for LLM inferences, but GCP ADC is still required for BigQuery billing data and Cloud Asset Inventory.
+3. **Comprehensive Cost Drivers**: Detailed costs for Vertex AI model tokens (`gemini-3.5-flash` and `gemini-3.1-flash-lite`), BigQuery scanned data ($6.25/TB), Cloud Run & Agent Runtime hosting, and Cloud Asset Inventory sweeps, highlighting built-in optimisations like context caching, partition pruning, and Python precomputation.
+4. **README Links**: Updated [README.md](../README.md) to integrate the new guide into the directory tree and the Technical Architecture section.
+
+This ensures complete architectural clarity for developers and FinOps practitioners regarding credential management and operational costs! Hurrah!
+
 
 
 

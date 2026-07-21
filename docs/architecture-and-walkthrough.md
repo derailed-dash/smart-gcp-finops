@@ -30,6 +30,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
 | **Hybrid Model Routing** | Switch the root coordinator (`FinOpsCoordinator`) and lightweight proxy/RAG subagents (`CloudAdvisor` and `KnowledgeAssistant`) to `gemini-3.1-flash-lite`, while keeping reasoning-intensive subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`) on `gemini-3.5-flash`. Rationale: Drastically reduces turn latency and token consumption/costs for orchestration, RAG documentation lookups, and tool proxying. |
+| **Default Vertex AI Inferences** | Use Vertex AI mode (`GOOGLE_GENAI_USE_VERTEXAI=True`) with Google Cloud IAM credentials (ADC in local dev, Service Account identity in production) as the primary model inference route, avoiding raw `GEMINI_API_KEY` dependencies for enterprise security and unified billing. |
 
 ## BigQuery Query Optimization
 
