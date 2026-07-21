@@ -47,9 +47,9 @@ DOCKER_AGENT_RUNTIME_ID ?=
 
 .DEFAULT_GOAL := help
 
-# Default log levels for development and production if not already defined (e.g. in .env)
-DEV_LOG_LEVEL = $(or $(LOG_LEVEL),DEBUG)
-PROD_LOG_LEVEL = $(or $(LOG_LEVEL),INFO)
+# Default log levels for development and production
+DEV_LOG_LEVEL ?= DEBUG
+PROD_LOG_LEVEL ?= INFO
 
 # Display this help menu of all available targets
 help:
@@ -144,7 +144,7 @@ deploy-cloud-run: validate-env
 		--cpu-boost \
 		--no-allow-unauthenticated \
 		--iap \
-		--update-env-vars="$$(grep -v '^#' agent/.env | grep -v '^$$' | paste -sd, -),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID),COMMIT_SHA=$(shell git rev-parse HEAD)"
+		--update-env-vars="$$(grep -v '^#' agent/.env | grep -v '^$$' | sed -e 's/^export //g' -e 's/["\x27]//g' | paste -sd, -),LOG_LEVEL=$(PROD_LOG_LEVEL),AGENT_RUNTIME_ID=$(AGENT_RUNTIME_ID),COMMIT_SHA=$(shell git rev-parse HEAD)"
 
 # Deploy the standalone ADK agent (packaged via agent/Dockerfile) to Gemini Enterprise Agent Runtime.
 # Note: Deploys the Python agent logic (in `agent/`) to create a new Reasoning Engine ID.
@@ -159,7 +159,7 @@ deploy-agent-runtime: validate-env
 		--service-name "$(SERVICE_NAME)-backend" \
 		--min-instances 0 \
 		--max-instances 1 \
-		--update-env-vars="$$(grep -v '^#' .env | grep -v '^$$' | grep -v 'GOOGLE_CLOUD_PROJECT' | paste -sd, -)"
+		--update-env-vars="$$(grep -v '^#' .env | grep -v '^$$' | grep -v 'GOOGLE_CLOUD_PROJECT' | sed -e 's/^export //g' -e 's/["\x27]//g' | paste -sd, -),LOG_LEVEL=$(PROD_LOG_LEVEL)"
 
 # Retrieve the deployed agent runtime ID (Reasoning Engine resource name)
 get-agent-runtime-id:

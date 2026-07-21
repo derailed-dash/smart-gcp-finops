@@ -86,7 +86,7 @@ class ProjectDiscoveryManager:
                         if "/organizations/" in resource or "/folders/" in resource:
                             has_top_level_access = True
                         elif "/projects/" in resource:
-                            proj_id = resource.split("/projects/")[-1]
+                            proj_id = resource.split("/projects/")[-1].split("/")[0]
                             projects.add(proj_id)
 
                     request = service.v1().searchAllIamPolicies_next(
@@ -269,7 +269,7 @@ def get_projects_in_org(org_id: str) -> set[str]:
             for asset in response.get("results", []):
                 name = asset.get("name", "")
                 if "/projects/" in name:
-                    project_id = name.split("/projects/")[-1]
+                    project_id = name.split("/projects/")[-1].split("/")[0]
                     projects.add(project_id)
 
             request = service.v1().searchAllResources_next(

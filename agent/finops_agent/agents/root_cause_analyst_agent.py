@@ -12,6 +12,7 @@ from finops_agent.app_utils.tools import (
     get_session_value,
     set_session_value,
 )
+from finops_agent.app_utils.typing import TaskOutput
 from finops_agent.client import ConfiguredGemini, resource_table_id
 from finops_agent.config import settings
 
@@ -48,4 +49,7 @@ root_cause_analyst = Agent(
         set_session_value,
     ],
     mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )

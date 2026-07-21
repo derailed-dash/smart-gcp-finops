@@ -11,33 +11,24 @@ from finops_agent.app_utils.tools import (
     BLACKBOARD_KEY_INSTRUCTIONS,
     get_session_value,
 )
+from finops_agent.app_utils.typing import TaskOutput
 from finops_agent.client import ConfiguredGemini
 from finops_agent.config import settings
 
 CLOUD_ADVISOR_INSTRUCTION = """You are the CloudAdvisor subagent.
 Use Gemini Cloud Assist tools (ask_cloud_assist) to retrieve active rightsizing recommendations and performance/cost optimizations for active GCP resources.
 
-CRITICAL PROJECT SCOPING RULES:
-1. Identify the projects to audit:
-   - Check the user's query context to see if they specified a particular project (e.g. "Audit finops-admin-dev"). 
-     If so, ONLY query that specific project.
-   - If no project is specified, call `get_session_value('allowed_projects')` to retrieve all accessible projects.
+CRITICAL DISCOVERED CONTEXT & TAILORED AUDIT RULE:
+1. BEFORE querying, inspect the prompt and conversation context for the top active services and projects ALREADY DISCOVERED in this session (e.g., Vertex AI in finops-admin-dev, Gemini API in finops-admin-prd, BigQuery).
+2. Focus all recommendation queries (`ask_cloud_assist`) and optimization guidance SPECIFICALLY on those identified active services and projects.
+3. Do NOT output generic boilerplate recommendations for unconfigured services (like GKE or Compute Engine VMs if they are not driving spend). Every optimization recommendation MUST be tailored directly to the discovered active workloads (e.g. Vertex AI endpoint auto-scaling, model batching, Gemini API context caching, BigQuery slot allocation).
 
-CRITICAL AUTH/PERMISSION RULE:
-1. If calling `ask_cloud_assist` on a project returns a "403", "Forbidden", "Permission Denied", or authentication/authorization error:
-   - Do NOT abort the entire audit.
-   - Do NOT retry the call for that project.
-   - Log/record the permission issue for that specific project (meaning you list it in your final report under a 
-     "Skipped Projects (Insufficient Permissions)" section).
-   - Proceed to query the other projects in the list.
-2. If ALL attempted projects return a 403 or permission error, invoke the `finish_task` tool with a report stating that
-   cost optimisation recommendations could not be retrieved due to insufficient project permissions (403 Forbidden).
-3. If at least one project succeeds, compile the successful recommendations into the final report, 
-   and append a list of skipped projects with their permission errors at the bottom.
-
-CRITICAL COORDINATION AND TERMINATION RULES:
-1. When calling the `finish_task` tool, you MUST pass the **complete final markdown report** (including all recommendations and optimization guides, or the permission error report) directly into the `result` parameter. Do NOT pass a brief summary or status message (like "Task complete"). The parent root coordinator is completely blind to your internal chat stream and relies entirely on the string returned in the `result` parameter of `finish_task` to receive your output.
-2. Once you have generated the report and returned it via `finish_task`, stop execution immediately.
+CRITICAL AUTH & FALLBACK RULES:
+1. If `ask_cloud_assist` returns recommendations, compile them into a clear, structured report detailing estimated monthly savings and actionable configuration changes for the identified services.
+2. If `ask_cloud_assist` returns a 403 Forbidden or permission error for certain projects:
+   - Highlight any recommendations retrieved from accessible active projects.
+   - For projects lacking Recommender permissions, provide high-value, actionable optimization guidance strictly tailored to the specific active services discovered in the environment.
+3. Always invoke `finish_task` with your complete, formatted Markdown report in the `result` argument.
 """
 
 cloud_advisor = Agent(
@@ -54,4 +45,7 @@ cloud_advisor = Agent(
         get_session_value,
     ],
     mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )

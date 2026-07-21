@@ -54,6 +54,11 @@ resource "google_cloud_run_v2_service" "app" {
       }
 
       env {
+        name  = "LOG_LEVEL"
+        value = lookup(local.env_map, "PROD_LOG_LEVEL", "INFO")
+      }
+
+      env {
         name  = "GOOGLE_CLOUD_BILLING_PROJECT"
         value = lookup(local.env_map, "GOOGLE_CLOUD_BILLING_PROJECT", var.google_cloud_billing_project)
       }
@@ -263,6 +268,11 @@ resource "google_vertex_ai_reasoning_engine" "agent_engine" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = lookup(local.env_map, "OTEL_SERVICE_NAME", "${var.project_name}-${each.key}-backend")
+      }
+
+      env {
+        name  = "LOG_LEVEL"
+        value = lookup(local.env_map, "PROD_LOG_LEVEL", "INFO")
       }
 
       env {

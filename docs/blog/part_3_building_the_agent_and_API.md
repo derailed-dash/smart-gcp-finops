@@ -270,6 +270,9 @@ billing_explorer = Agent(
         set_session_value,
     ],
     mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )
 ```
 

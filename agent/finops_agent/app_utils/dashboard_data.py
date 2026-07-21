@@ -82,6 +82,7 @@ def get_actual_dashboard_metrics(
     allowed_projects: set[str] | None = None,
     client_day: int | None = None,
     client_month_days: int | None = None,
+    days: int = 30,
 ) -> dict:
     """
     Queries BigQuery billing tables and Cloud Asset Inventory to assemble the actual
@@ -129,7 +130,7 @@ def get_actual_dashboard_metrics(
         currency_query = f"""
         SELECT DISTINCT currency
         FROM `{standard_table_id}`
-        WHERE usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+        WHERE usage_start_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL {days} DAY))
         {project_filter}
         LIMIT 1
         """
@@ -213,14 +214,14 @@ def get_actual_dashboard_metrics(
     except Exception as e:
         logger.error(f"Error querying monthly costs: {e}")
 
-    # 3. Query Daily Costs for the last 14 days grouped by service description
+    # 3. Query Daily Costs for the requested duration (days) grouped by service description
     daily_query = f"""
     SELECT
       DATE(usage_start_time) as usage_date,
       service.description as service_description,
       SUM(cost) as daily_cost
     FROM `{standard_table_id}`
-    WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)
+    WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
     {project_filter}
     GROUP BY 1, 2
     HAVING daily_cost > 0.01

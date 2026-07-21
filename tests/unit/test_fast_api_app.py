@@ -29,17 +29,17 @@ def test_get_dashboard_endpoint(mock_get_metrics):
     assert response.status_code == 200
     assert response.json() == mock_metrics
     mock_get_metrics.assert_called_once_with(
-        allowed_projects=ANY, client_day=None, client_month_days=None
+        allowed_projects=ANY, client_day=None, client_month_days=None, days=30
     )
 
     mock_get_metrics.reset_mock()
 
-    # Test request with clientDay and clientMonthDays query parameters
-    response_custom = client.get("/api/dashboard?clientDay=29&clientMonthDays=31")
+    # Test request with clientDay, clientMonthDays, and days query parameters
+    response_custom = client.get("/api/dashboard?clientDay=29&clientMonthDays=31&days=14")
     assert response_custom.status_code == 200
     assert response_custom.json() == mock_metrics
     mock_get_metrics.assert_called_once_with(
-        allowed_projects=ANY, client_day=29, client_month_days=31
+        allowed_projects=ANY, client_day=29, client_month_days=31, days=14
     )
 
 

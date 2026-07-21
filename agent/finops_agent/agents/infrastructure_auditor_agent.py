@@ -16,6 +16,7 @@ from finops_agent.app_utils.tools import (
     get_session_value,
     set_session_value,
 )
+from finops_agent.app_utils.typing import TaskOutput
 from finops_agent.app_utils.zombie_tools import list_zombie_resources
 from finops_agent.client import ConfiguredGemini
 from finops_agent.config import settings
@@ -72,4 +73,7 @@ infrastructure_auditor = Agent(
         set_session_value,
     ],
     mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )

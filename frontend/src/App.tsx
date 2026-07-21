@@ -254,12 +254,23 @@ export default function App() {
     return dateStr;
   };
 
-  // Lightweight inline markdown formatter matching Emerald Cyber styles, supporting tables
+  // Lightweight inline markdown formatter matching Emerald Cyber styles, supporting tables and links
   const renderMarkdown = (text: string) => {
     const cleanText = getDisplayText(text)
 
+    // Pre-normalize multiline markdown links: join [label]\n(url) into single-line [label](url) and strip internal URL newlines
+    const normalizedText = cleanText
+      .replace(/\[([^\]]+)\]\s*\n\s*\((https?:\/\/[^\)]+)\)/g, (_, label, url) => {
+        const cleanUrl = url.replace(/[\r\n\s]+/g, '')
+        return `[${label}](${cleanUrl})`
+      })
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_, label, url) => {
+        const cleanUrl = url.replace(/[\r\n\s]+/g, '')
+        return `[${label}](${cleanUrl})`
+      })
+
     // Escape HTML to prevent Cross-Site Scripting (XSS) vulnerabilities
-    const escapedText = cleanText
+    const escapedText = normalizedText
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -349,10 +360,11 @@ export default function App() {
         return
       }
 
-      // Process inline backticks and bold tags ONLY outside of code blocks
+      // Process inline backticks, bold tags, and markdown links ONLY outside of code blocks
       const formattedLine = line
         .replace(/`([^`]+)`/g, '<code style="font-family: var(--font-mono); background: rgba(255, 255, 255, 0.08); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; color: var(--color-primary);">$1</code>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); text-decoration: underline; font-weight: 500;">$1</a>')
 
       const trimmed = formattedLine.trim()
 
@@ -526,21 +538,31 @@ export default function App() {
 
       setIsStreaming(false)
 
-      // Parse final text for A2UI dynamic payload blocks
-      let parsedPayload: any = null
-      // Look for ```json+a2ui ... ``` or ```json ... ``` code fences
-      const match = accumulatedText.match(/```(?:json\+a2ui|json)\s*([\s\S]*?)```/)
-      if (match && match[1]) {
-        try {
-          parsedPayload = JSON.parse(match[1].trim())
-        } catch (e) {
-          console.error('Failed to parse embedded A2UI JSON payload:', e)
+      // Parse final text for all A2UI dynamic payload blocks
+      let lastPayload: any = null
+      let dashboardPayload: any = null
+      const matches = [...accumulatedText.matchAll(/```(?:json\+a2ui|json)\s*([\s\S]*?)```/g)]
+
+      for (const m of matches) {
+        if (m && m[1]) {
+          try {
+            const p = JSON.parse(m[1].trim())
+            if (p && p.type) {
+              lastPayload = p
+              if (p.type === 'dashboard') {
+                dashboardPayload = p
+              }
+            }
+          } catch (e) {
+            console.error('Failed to parse embedded A2UI JSON payload:', e)
+          }
         }
       }
 
-      // If A2UI payload is successfully extracted, update workspace canvas
-      if (parsedPayload && parsedPayload.type) {
-        setActivePayload(parsedPayload)
+      // If A2UI payload is successfully extracted, update workspace canvas (prioritize dashboard over explorer)
+      const targetPayload = dashboardPayload || lastPayload
+      if (targetPayload && targetPayload.type) {
+        setActivePayload(targetPayload)
       }
 
       // Append final assistant message to chat thread
@@ -550,7 +572,7 @@ export default function App() {
         text: accumulatedText || "I've processed your request. Please view the updated Canvas on the right.",
         reasoning: accumulatedReasoning,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        a2uiPayload: parsedPayload
+        a2uiPayload: targetPayload
       }
       setMessages((prev: Message[]) => [...prev, assistantMsg])
       setStreamingReasoning('')
@@ -778,15 +800,15 @@ export default function App() {
     }
     return [
       { label: 'Scan Zombie Resources', text: 'Run a Cloud Asset Inventory scan across all projects to detect zombie resources, unattached persistent disks, and unused storage.' },
-      { label: 'Show Top Cost Drivers', text: 'Query our BigQuery billing export to show the top 3 services driving our spend this month.' },
+      { label: 'Show Top Cost Drivers', text: 'Query our BigQuery billing export to show top spend drivers and service utilization over the last 30 days.' },
       { 
         label: isLoadingDashboard ? 'Resolving Spikes...' : 'Analyze Cost Spikes', 
         text: `Why did our production costs spike on ${spikeDateText}? Cross-reference billing records with CAI config changes.`,
         disabled: isSpikeQuestionDisabled
       },
       { label: 'Run Cost Forecast', text: 'Run a 3-month cost forecast and explain any projected anomalies.' },
-      { label: 'Audit Best Practices', text: 'Assess the alignment of our currently deployed services against Google Cloud best practices for cost and resource optimization.' },
-      { label: 'Last 30 Days', text: 'Show the utilisation over the last 30 days, showing most costly services.' }
+      { label: 'Audit Best Practices', text: 'Assess the alignment of our top cost-driving services against Google Cloud architectural best practices and cost optimization guidelines.' },
+      { label: 'Active Recommendations', text: 'Query Gemini Cloud Assist for active cost optimization, rightsizing, CUDs, and resource tuning recommendations for our top cost-driving services and active workloads.' }
     ]
   }, [recentSpikes, hasSpikes, maxIdx, isLoadingDashboard])
 

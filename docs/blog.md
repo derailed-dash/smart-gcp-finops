@@ -21,6 +21,7 @@ We have Cloud Billing Exports into a BQ dataset.
 35. Evaluated orchestration patterns (coordinator-dispatcher, parallel, hierarchical decomposition) for splitting the monolithic ADK agent into specialized subagents, and integrated the design, rationale, and a generated architecture diagram into the system walkthrough documentation.
 36. Optimized BigQuery queries by enforcing double-temporal filtering on both `export_time` and `usage_start_time` for partition pruning, and replaced the global query cache module with an ADK session-bound state cache under `tool_context.state["bq_cache"]`.
 40. Optimized row-level BigQuery project scoping queries by dynamically parsing and pushing down temporal/partition filters (e.g. `export_time`, `usage_start_time`, `usage_end_time`) into the subqueries, preventing full table scans and reducing query latency when working with large project counts.
+41. Conducted an ADK code & best practices review across the multi-agent architecture: added explicit transfer control flags (`disallow_transfer_to_peers=True`, `disallow_transfer_to_parent=False`) to enforce strict delegation back to `FinOpsCoordinator`; configured OpenTelemetry tracing exporters (`setup_telemetry()`); added typed Pydantic output schemas (`output_schema=TaskOutput`) to all `mode="task"` subagents for robust `finish_task` completions; and fixed resource URI parsing in `project_discovery.py` to prevent MCP HTTP 403 errors on Gemini Cloud Assist calls.
 
 ### Deep Dives
 

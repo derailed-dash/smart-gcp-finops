@@ -13,6 +13,7 @@ from finops_agent.app_utils.tools import (
     get_session_value,
     set_session_value,
 )
+from finops_agent.app_utils.typing import TaskOutput
 from finops_agent.client import (
     ConfiguredGemini,
     bigquery_toolset,
@@ -20,7 +21,7 @@ from finops_agent.client import (
 from finops_agent.config import settings
 
 BILLING_EXPLORER_INSTRUCTION = """You are the BillingExplorer subagent.
-Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics.
+Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics. Pass the `days` parameter matching the timeframe requested by the user (e.g. `days=7` for 7 days, `days=14` for 14 days, `days=30` for 30 days, `days=60` for 60 days, `days=90` for 90 days; default to 30 if unspecified).
 Do NOT attempt to run standard SQL queries or other cache functions directly if `get_precomputed_spend_analysis` is available, as it provides pre-aggregated and filtered cost results in a single call.
 
 Based on the dictionary returned by `get_precomputed_spend_analysis`, generate a concise final report:
@@ -88,4 +89,7 @@ billing_explorer = Agent(
         set_session_value,
     ],
     mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )

@@ -11,6 +11,18 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('execute_sql') || clean.includes('execute_cached_bigquery_sql') || clean.includes('query')) {
     return 'Querying GCP Cost Database';
   }
+  if (clean.includes('get_table_info') || clean.includes('get_table')) {
+    return 'Retrieving BigQuery Table Schema';
+  }
+  if (clean.includes('get_dataset_info') || clean.includes('get_dataset')) {
+    return 'Retrieving BigQuery Dataset Schema';
+  }
+  if (clean.includes('list_table_ids') || clean.includes('list_tables')) {
+    return 'Discovering Billing Tables';
+  }
+  if (clean.includes('list_dataset_ids') || clean.includes('list_datasets')) {
+    return 'Discovering BigQuery Datasets';
+  }
   if (clean.includes('list_zombie_resources')) {
     return 'Scanning for Unused Zombie Assets';
   }
@@ -20,17 +32,23 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('get_cai_history')) {
     return 'Auditing Configuration History';
   }
-  if (clean.includes('list_datasets')) {
-    return 'Discovering BigQuery Datasets';
+  if (clean.includes('search_all_resources')) {
+    return 'Searching GCP Asset Inventory';
   }
-  if (clean.includes('list_tables')) {
-    return 'Discovering Billing Tables';
+  if (clean.includes('search_all_iam_policies')) {
+    return 'Auditing IAM Permissions & Policies';
+  }
+  if (clean.includes('analyze_org_policies')) {
+    return 'Auditing GCP Organization Policies';
   }
   if (clean.includes('get_precomputed_spend_analysis')) {
     return 'Analysing Spend and Cost Trends';
   }
   if (clean.includes('get_precomputed_root_cause')) {
     return 'Analysing Cost Spike Root Cause';
+  }
+  if (clean.includes('run_cost_forecast')) {
+    return 'Calculating Cost Forecast';
   }
   if (clean.includes('billing_explorer')) {
     return 'Consulting Billing Explorer';
@@ -53,7 +71,7 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('set_session_value')) {
     return 'Saving Session Context';
   }
-  if (clean.includes('ask_cloud_assist')) {
+  if (clean.includes('ask_cloud_assist') || clean.includes('get_recommendations')) {
     return 'Querying Gemini Cloud Assist';
   }
   if (clean.includes('search_documents')) {
@@ -61,6 +79,12 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   }
   if (clean.includes('answer_query')) {
     return 'Retrieving Grounded Architecture Answers';
+  }
+  if (clean.includes('fetch_docs') || clean.includes('get_documents') || clean.includes('list_doc_sources')) {
+    return 'Retrieving Developer Documentation';
+  }
+  if (clean.includes('finish_task')) {
+    return 'Finalising Analysis';
   }
 
   return clean;
