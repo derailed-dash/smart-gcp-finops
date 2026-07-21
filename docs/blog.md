@@ -4,13 +4,11 @@
 
 We have Cloud Billing Exports into a BQ dataset.
 
-## Setup
-11. Used `deep-research` skill, along with adk-docs-mcp, to investigate best practices for React UI with ADK. Updated GEMINI.md with the findings.
-12. Performed documentation review with my `project-documentation` skill.
-13. Update tfvars for dev and prod in `/deployment/terraform/`
-14. Initialised the control plane in the PRD project by running Terraform commands from `/deployment/terraform/` directory.
-16. Migrated Terraform local state to a GCS bucket to ensure a durable and shared source of truth for the project's infrastructure.
-19. Added IAP to the Cloud Run service via Terraform, using the `google-beta` provider to access the `iap_enabled` attribute.
+## Blog 2 - Development Environment Setup, Google Antigravity, MCPs and Skills, and ADK Bootstrapping with Agents CLI
+
+## Blog 3 - Building the Agentic Solution
+
+### Setup
 
 20. Enabled BigQuery billing export access for the agent by granting cross-project IAM permissions to the application service accounts, allowing for centralized cost analysis.
 23. Transitioned to a "Discovery-Based" architecture for Cloud Asset Inventory, enabling the application to list projects associated with a billing account without requiring a Google Cloud Organization.
@@ -24,60 +22,7 @@ We have Cloud Billing Exports into a BQ dataset.
 36. Optimized BigQuery queries by enforcing double-temporal filtering on both `export_time` and `usage_start_time` for partition pruning, and replaced the global query cache module with an ADK session-bound state cache under `tool_context.state["bq_cache"]`.
 40. Optimized row-level BigQuery project scoping queries by dynamically parsing and pushing down temporal/partition filters (e.g. `export_time`, `usage_start_time`, `usage_end_time`) into the subqueries, preventing full table scans and reducing query latency when working with large project counts.
 
-## Deep Dives
-
-### Custom Domains with Cloud Run
-
-**Problem**: The project needed custom subdomains associated with our Cloud Run instances (`smart-finops.just2good.co.uk` and a `-dev` variant). Many tutorials assume you use Google Cloud CDN or Cloud DNS. However, we're managing the DNS specifically in IONOS, relying on Cloud Run's native Domain Mapping.
-
-**Resolution**: We utilized Terraform's `google_cloud_run_domain_mapping` resource. But rather than using Terraform to fully provision the DNS records across the internet, the resource simply instructs Google Cloud to reserve and prepare the subdomain for Cloud Run. 
-
-**Why this way?**:
--   **Security of Responsibility**: It allows Google Cloud to expose *exactly* the DNS validation records it expects to see, while we retain control of our third-party registrar.
--   **Environment Parity**: By specifying `prod_app_domain_name` and `staging_app_domain_name` variables in `env.tfvars` and looping over them dynamically, Terraform builds the domain mappings for both pipelines entirely homogeneously.
-
-**How it works**:
-We mapped a `cloud_run_domain_mappings` terraform output block. When the CI/CD pipeline (or a local `apply`) finishes, Terraform spits out the necessary `CNAME`, `A` and `AAAA` records directly to the terminal. We just copy those over to the DNS admin panel (e.g., IONOS).
-
-**Configuring the DNS manually (IONOS example)**:
-1. Do not use the "Create Subdomain" feature. Simply mapping a CNAME record directly in the domain's DNS settings automatically handles subdomain routing without conflicting with internal hosting configs.
-2. Add a new **CNAME** record for each environment.
-3. For the **Host Name**, specify the prefix (e.g. `smart-finops` or `smart-finops-dev`).
-4. For the **Points to / Value**, use `ghs.googlehosted.com.`. **Pro-Tip:** Include the trailing dot! This signifies an absolute FQDN (Fully Qualified Domain Name). Without it, some registrars try to be "helpful" by appending your domain name to the end, breaking the routing entirely.
-
-Within a few minutes, the application is resolving perfectly!
-
-### Securing Cloud Run with IAP: The Terraform vs. GCloud Tussle
-
-**Problem**: We wanted to secure our Cloud Run service with Identity-Aware Proxy (IAP) but didn't want the overhead or cost of a Global HTTP(S) Load Balancer. While `gcloud run deploy --iap` makes this look like a one-click affair, it creates a "state war" with Terraform. Every time Terraform ran, it would strip the IAP configuration because the standard `google` provider doesn't natively expose the `iap_enabled` attribute for Cloud Run v2 services.
-
-**Resolution**: We adopted a "Native IAP" strategy using the `google-beta` Terraform provider and explicit service identity management.
-
-**The "Service Account Does Not Exist" Gotcha**:
-One of the most frustrating moments was hitting a `400: Service account service-XXXX@gcp-sa-iap.iam.gserviceaccount.com does not exist` error during the IAM binding phase. This happens because the IAP Service Agent isn't automatically created until the first time IAP is "touched" in a project.
-
-**Fixed by**:
-- Using the `google_project_service_identity` resource (from `google-beta`) to force-provision the IAP service agent within the Terraform graph.
-
-**Managing the Annotation War**:
-Even with IAP enabled in Terraform, `gcloud` injects its own metadata (like `client-name` and `client-version`) during deployments. If not handled, Terraform tries to "clean up" these annotations, which can cause deployment instability.
-
-**Fixed by**:
-Using a surgical `lifecycle` ignore block:
-
-```hcl
-  lifecycle {
-    ignore_changes = [
-      template[0].containers[0].image, # Let CI/CD manage the image
-      client,
-      client_version,
-      annotations, # Ignores gcloud-managed IAP metadata
-      template[0].annotations,
-    ]
-  }
-```
-
-**Recommendation**: If you're using Cloud Run and need IAP, don't use the ALB!
+### Deep Dives
 
 ### Multi-Project Billing: Crossing the Streams
 
@@ -114,37 +59,6 @@ I initially tried to query the table in `europe-west1` (where my service lives) 
 
 Cool, right? Now we have a truly portable, multi-project FinOps engine. Hurrah!
 
-### Flexible Project Discovery: Organization-Independent FinOps
-
-**Problem**: My initial design for the Cloud Asset Inventory (CAI) integration relied on Organization-level permissions. While this is great for large enterprises, it created a massive barrier for smaller teams or individuals who manage multiple projects under a single billing account but *don't* have a formal Google Cloud Organization. I wanted this app to be "FinOps for everyone," not just "FinOps for the Fortune 500."
-
-**Resolution**: I refactored the project discovery logic to be **billing-centric** rather than organization-centric.
-
-**Why this way?**:
-- **Accessibility**: By using the **Cloud Billing API** (`billingAccounts.projects.list`), the agent can dynamically discover every project linked to the `GOOGLE_CLOUD_BILLING_ACCOUNT`, regardless of whether those projects live in an Organization, a Folder, or are just "lone wolves."
-- **Seamless Scalability**: For enterprise users, the `GOOGLE_CLOUD_ORGANIZATION` variable remains an optional "fast track." If provided, the agent uses the Organization as a single, efficient CAI scope. If not, it falls back to the discovered project list.
-- **Least Privilege**: Instead of asking for "Org Admin" (which makes security teams break out in hives), we only require **`roles/billing.viewer`** on the Billing Account. This is a much lower hurdle for adoption while still providing the necessary visibility.
-
-**The Terraform Adjustment**:
-To make this work, I had to update the IAM configuration. Standard project-level roles aren't enough; the Service Account needs to be a "Member" of the Billing Account itself to list its associated projects. 
-
-```hcl
-resource "google_billing_account_iam_member" "billing_account_viewer" {
-  for_each = local.deploy_project_ids
-
-  billing_account_id = var.billing_account_id
-  role               = "roles/billing.viewer"
-  member             = "serviceAccount:${google_service_account.app_sa[each.key].email}"
-}
-```
-
-**The Strategic Win**: 
-This change moves the application from being a "siloed" tool to a "network-aware" agent. It can now start with a single Billing Account ID and automatically map out the entire financial and technical footprint it's responsible for. 
-
-**Pro-Tip**: When designing for GCP, always remember that the **Billing Account** is the true "root" of the financial tree, even if the **Organization** is the root of the technical tree. Designing for both ensures your app can live in any environment.
-
-Hurrah! We're now one step closer to a truly universal FinOps assistant.
-
 ### The API Hurdle: Enabling Cloud Billing for Discovery
 
 **Problem**: Even with the correct IAM roles (`roles/billing.viewer`), the project discovery logic initially failed with a `403 Forbidden` error. This wasn't a permission issue in the traditional sense, but an **API activation** requirement. 
@@ -156,28 +70,7 @@ Hurrah! We're now one step closer to a truly universal FinOps assistant.
 2.  **IAM Scope**: The Application Service Account must have **`roles/billing.viewer`** assigned at the **Billing Account** level, not just the project level. 
 
 **Ensuring Correct IAM**:
-To grant this via Terraform, use the `google_billing_account_iam_member` resource. Since Billing Accounts are top-level resources, you don't scope them to a project. 
-
-### Discovery vs. Inspection: The IAM "Eyes"
-
-**Concept**: It's critical to distinguish between *Discovery* (mapping the footprint) and *Inspection* (analyzing the assets).
-- **Discovery (The Map)**: Using the Billing API to find the list of Project IDs. This requires `roles/billing.viewer`.
-- **Inspection (The Eyes)**: Using the Cloud Asset Inventory API to look *inside* those projects. This requires **`roles/cloudasset.viewer`** on every project.
-
-**The Org Admin Trap**:
-We attempted to automate the "Eyes" by granting `roles/cloudasset.viewer` at the **Organization level** via Terraform. This is the most efficient path, but it requires the identity running Terraform to have **`roles/resourcemanager.organizationAdmin`**. Without this, Terraform will fail with a `403` when trying to reach the Org node.
-
-**Strategy for Scale**:
-1. **Organization Path**: Grant Org Admin to the deployer, run Terraform, and the agent is instantly powered up for the entire org.
-2. **Project Fallback**: If Org Admin is unavailable, you must manually grant the Viewer role on each individual project discovered by the agent.
-
-**Verification Command**:
-A quick way to test if the "plumbing" is correct without launching the full agent:
-```bash
-uv run python -c "from app.app_utils.project_discovery import list_billing_projects; import os; print(list_billing_projects(f'billingAccounts/{os.getenv(\"GOOGLE_CLOUD_BILLING_ACCOUNT\")}'))"
-```
-
-If you see a list of project IDs, you're golden! If you see a `403`, check both the API status and the Billing Account IAM bindings.
+To grant this via Terraform, use the `google_billing_account_iam_member` resource. Since Billing Accounts are top-level resources, you don't scope them to a project.
 
 ### Hunting Zombies: Extending the Agent's "Vision" with Cloud Asset Inventory
 
@@ -374,52 +267,6 @@ if match:
 
 **Pro-Tip**: When bridging datasets from different Google Cloud APIs, always leverage the structural predictability of Google Cloud Resource Names. They are self-routing if parsed correctly!
 
-### The Permissions Check: Enabling CAI Across Projects
-
-**Problem**: Once we optimized the querying approach (extracting project IDs via regex), we had a lightning-fast agent. But, as noted, that optimization doesn't magically bypass IAM. If the agent's service account doesn't actually have the `roles/cloudasset.viewer` role on the specific project extracted from the URI, it will still hit a hard `403 Forbidden` error. We needed to ensure both our local testing user and the deployed service account had the correct "keys to the kingdom".
-
-**The Prerequisite Checklist**
-
-To use CAI effectively for FinOps across an entire estate, you must satisfy three distinct IAM scopes:
-
-#### A) For Local Testing (Your Google User)
-When you run `make playground` or use the Gemini CLI locally, the application uses your personal Google credentials (via Application Default Credentials). You need these roles granted to your email:
-
-1. **To discover the projects:**
-   * **Scope:** The Billing Account
-   * **Role:** `roles/billing.viewer`
-   * *How:* Go to **Billing** -> **Account Management** in the GCP Console and add your email.
-
-2. **To query Cloud Asset Inventory (The CAI "Eyes"):**
-   * **Scope:** The Target Projects (or inherited from a Folder/Organization)
-   * **Role:** `roles/cloudasset.viewer`
-   * *How:* If you are an Organization Admin, grant this to yourself at the **Organization** or **Folder** level. If you don't have an Org, you must grant this role to yourself on *every individual project* you want the agent to inspect.
-
-3. **To query the cost data:**
-   * **Scope:** The project hosting the BigQuery Billing Export
-   * **Roles:** `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`
-
-*Pro-Tip:* To quickly verify your CAI access on a target project, run:
-```bash
-gcloud projects get-iam-policy <TARGET_PROJECT_ID> \
-    --flatten="bindings[].members" \
-    --format='table(bindings.role)' \
-    --filter="bindings.members:YOUR_EMAIL_ADDRESS"
-```
-
-#### B) For Production (The Cloud Run Service Account)
-When deployed, the application runs as your designated Google Cloud Service Account. We codified these grants in our `deployment/terraform/iam.tf` file.
-
-1. **Billing Account Discovery:**
-   We used the `google_billing_account_iam_member` resource to grant the service account `roles/billing.viewer`.
-
-2. **CAI Metadata (Asset History):**
-   We implemented an Organization-level grant in Terraform using the `google_organization_iam_member` resource. By passing `google_cloud_organization_id` into our `env.tfvars`, Terraform gives the service account `roles/cloudasset.viewer` at the top of the hierarchy, instantly granting it visibility into every project below it.
-
-3. **BigQuery Costs:**
-   We used `google_project_iam_member` to grant `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` specifically on the central billing project.
-
-
 ### The 35-Day Limitation: Protecting the API from the LLM
 
 **Problem**: During my "Spike Audit" tests, I encountered another `400 Bad Request` from the CAI `batchGetAssetsHistory` endpoint. The error read: `Requested time must be later than UTC time 2026-03-29T18:56:51+00:00`.
@@ -490,6 +337,535 @@ To verify that the agent successfully integrates the Developer Knowledge MCP ser
    > "I noticed compute engine spend is rising. What machine sizing guidelines or VM scheduling practices does official GCP documentation suggest to optimize this?"
    
    *Expected Behavior*: The agent queries both `bq_mcp_toolset` (or uses CAI context) and `dev_knowledge_mcp_toolset` to return highly contextual optimization advice grounded directly in GCP's Developer Knowledge corpus.
+
+### Modular Shared Query Caching
+
+**Problem**: The application was performing raw, expensive BigQuery table scans on every single page load of the React dashboard or conversational query by the ADK agent. Because Google Cloud billing exports are massive and only update periodically throughout the day, scanning these tables repeatedly led to high latency and redundant query costs. Additionally, the ADK agent conversations bypass the REST API endpoints and talk directly to the remote BigQuery MCP server, making a standard HTTP cache on the REST endpoints useless for conversational queries.
+
+**Resolution**: We developed a **Modular Shared Query Caching** architecture to cover both the FastAPI backend and the conversational ADK Agent:
+1. **Thread-Safe In-Memory Cache**: Created [query_cache.py](../app/app_utils/query_cache.py) defining an in-memory cache protected by a thread-safe `threading.Lock()` synchronisation mutex. It keeps results for a default TTL of 5 minutes (300 seconds), and evicts expired keys dynamically on every lookup to prevent memory leaks.
+2. **REST Telemetry Integration**: Refactored the five BigQuery SQL metrics queries in [dashboard_data.py](../app/app_utils/dashboard_data.py) to route through `execute_cached_query`, completely eliminating direct database scans on page refreshes.
+3. **Conversational Agent Integration**: Created a custom ADK tool `execute_cached_bigquery_sql` inside [agent.py](../app/agent.py) that utilizes our caching engine. We instructed the LLM in `AGENT_INSTRUCTION` to strictly prefer this cached tool over any generic, uncached remote MCP query tools.
+4. **Production Observability**: Configured cache hits to log at `logger.debug()` level to eliminate production container log noise, while cache misses are logged at `logger.info()` to track real BigQuery scan events.
+
+**Why this way?**:
+- **Shared Context**: Since the REST backend and the ADK Agent run in the same Python process container, they share the same in-memory dictionary. A query executed by the React dashboard instantly populates the cache for the conversational agent, and vice versa!
+- **Zero-Dependency**: No Redis or Memcached overhead was introduced, keeping the Cloud Run deployment container extremely light and cost-effective.
+- **UK English Spells**: We meticulously synchronised our code comments and logs using British UK spelling (*optimisation*, *telemetry*, *synchronisation*, *minimise*), in perfect alignment with enterprise guidelines.
+
+This achieves massive performance wins, turning consecutive conversational spikes requests and dashboard views into instantaneous local hits! Hurrah!
+
+---
+
+### ADK Turn-Level Agent Caching & Model Bypassing
+
+**Problem**: Even with BigQuery table scans cached, the ADK Agent still executed its full cognitive cycle on every request. This meant the agent went through project discovery, loaded tools, and invoked the Gemini LLM even if the user asked the exact same question a few seconds later. Bypassing the entire cognitive turn when a query was recently processed would save massive latency, tokens, and compute overhead.
+
+**Resolution**: We developed a highly structured, turn-level query caching architecture using ADK-native callbacks inside [agent.py](../app/agent.py):
+1.  **Agent-Level Cache Lookup (`before_agent_callback`)**: Intercepts the agent turn at the start of execution. It parses the session history (`ctx.session.events`) to extract the user's latest query, checks a global lock-protected cache dictionary (`_AGENT_QUERY_CACHE`) with a 5-minute TTL, and sets a cache hit flag:
+    ```python
+    ctx.state["cached_agent_response"] = cached_text
+    ```
+2.  **Model call Bypassing (`before_model_callback`)**: Intercepts the LLM generation step. If the cache flag is present in state, it completely skips the model call by returning a pre-packaged `LlmResponse`:
+    ```python
+    return LlmResponse(content=content)
+    ```
+3.  **turn Completion Storage (`after_agent_callback`)**: Saves the final generated model text to `_AGENT_QUERY_CACHE` under the user's query if it was a fresh execution.
+
+**Why this way?**:
+*   **Complete short-Circuit**: By bypassing the LLM model call, we bypass the entire ReAct loop and every underlying tool execution (zero CAI API network scans and zero BigQuery queries), resolving consecutive turns in sub-milliseconds! Hurrah!
+
+---
+
+### Unified Cache Architecture: Data Layer vs. Callback Layer
+
+**Problem**: Performing Cloud Asset Inventory (CAI) zombie scans across multiple projects takes significant time due to sequential API network latency. While we wanted to cache these scans, doing so strictly inside ADK agent callbacks would mean the FastAPI executive dashboard endpoint (`/api/dashboard`) would not benefit from the cache, continuing to generate slow scans on every page load.
+
+**Resolution**: We implemented a unified caching strategy by placing the cache directly in the **Data Layer** (the tool itself) inside [zombie_tools.py](../app/app_utils/zombie_tools.py):
+1.  **Billing Project Cache Integration**: Routed the active projects lookup query through `execute_cached_query`, completely eliminating redundant BigQuery project discovery table scans.
+2.  **Lock-Protected Zombie Cache**: Wrapped `list_zombie_resources` in a thread-safe mutex lock (`_ZOMBIE_LOCK`) and cached results by category (`UNATTACHED_DISKS` / `IDLE_IPS`) with a 5-minute TTL.
+
+**Why this way?**:
+*   **Homogeneous Speed**: Because both the REST backend and the ADK Agent run in the same container process sharing memory, a dashboard load instantly warms up the cache for the conversational agent, and vice versa! This guarantees a unified, sub-millisecond experience across all operational paths! Hurrah!
+
+---
+
+### Overcoming Async gRPC & Uvicorn Event Loop Conflicts in FastAPI BFF SSE Streams
+
+**Problem**: Attempting to refactor our FastAPI Backend-for-Frontend (BFF) streaming endpoint `/api/chat/stream` to use a native async loop (`runner.run_async(...)` with `anext(generator)`) directly inside uvicorn's main thread caused a critical, silent failure. The async generator exited instantly on the very first iteration, yielding zero text events. This triggered the Vite React frontend to show the default fallback message without updating the workspace cost curves or Optimization tables.
+
+**Why this occurred**: The `google-adk` agent orchestration and the underlying Google GenAI SDK utilize highly opinionated async gRPC and standard Google credentials libraries. In Python, async gRPC and `asyncio` loop scopes running directly under `uvicorn`'s main HTTP handler thread frequently trigger task-cancellation and event-loop registration collisions. When these libraries try to resolve credentials and network scopes across different thread-local loops, they fail silently or raise unhandled context discrepancies.
+
+**Resolution**: We restored and stabilized the **Thread-Isolated Queue Producer** design pattern in [fast_api_app.py](../app/fast_api_app.py):
+1.  **Isolated Background Thread**: We spawn a dedicated, isolated background thread using Python's standard `threading.Thread` to execute the synchronous `runner.run(...)` method. By doing so, ADK runs the agent's full ReAct and tool-calling cycle within its own isolated, synchronous context, which cleanly sets up its own `asyncio` event loop.
+2.  **Thread-Safe Async Queue**: We instantiate an `asyncio.Queue` and pass the running event loop to the background thread. Every event yielded by the synchronous `runner.run(...)` iterator is pushed thread-safely back to our async loop using `loop.call_soon_threadsafe(event_queue.put_nowait, event)`.
+3.  **Non-Blocking Consumption**: The FastAPI handler iterates the `asyncio.Queue` asynchronously (`await event_queue.get()`), yielding formatted SSE packets directly to uvicorn, perfectly preserving both the 15-second heartbeat loop and dynamic reasoning extraction.
+4.  **Traceback Visualisation Boundaries**: We wrapped the queue consumer inside a robust `isinstance(event, Exception)` type check. If any database or authentication exception occurs in the background thread, it is caught, logged at `"ERROR"` level, and formatted cleanly using `traceback.format_exc()`, streaming the complete stack trace directly to the client's chat reasoning steps.
+
+**Lessons Learned**: Integrating complex multi-agent SDKs (like `google-adk` and gRPC) inside lightweight async web frameworks (like FastAPI) requires absolute loop isolation. Explicitly separating the synchronous ReAct runtime into a dedicated background thread and using thread-safe queue channels provides 100% execution reliability, total thread safety, and absolute visual stability in frontend clients. Hurrah!
+
+---
+
+### Backend Modularisation: Extracting MCP Configurations and Custom Tools
+
+**Problem**: As the agent capability matured, `app/agent.py` grew into a massive file containing several distinct responsibilities: OAuth 2.0 credentials management, header caching, custom BigQuery execution functions, and agent definition/prompts/callbacks. This mixed-responsibility layout made it difficult to maintain, test, and adapt the agent's prompts without risk of breaking lower-level infrastructure code.
+
+**Resolution**: We executed a strict, modular refactoring under **Step 1** of our agreed plan:
+1. **Model Context Protocol (MCP) Modularity**: Created [mcp_config.py](../app/app_utils/mcp_config.py) inside our `app/app_utils/` directory. We extracted the `BQAuthProvider` and `DevKnowledgeAuthProvider` credentials handlers, along with the `bq_tool_filter`, `bq_mcp_toolset`, and `dev_knowledge_mcp_toolset` instantiations.
+2. **Custom Tools Isolation**: Created [tools.py](../app/app_utils/tools.py). We extracted `_serialise_value` and the custom cached database executor tool `execute_cached_bigquery_sql`.
+3. **Clean Agent Integration**: Modified `app/agent.py` to cleanly import the modularized elements back. All internal references remain fully functional.
+4. **Automated Quality Checks & Self-Fixes**: Run `uvx codespell` and `uvx ruff check --fix .` to automatically format, sort imports, and resolve any lint issues.
+5. **Rigorous Verification**:
+   * Executed the complete unit test suite: **all 32 unit tests passed flawlessly** in 5.35 seconds!
+   * Manually ran uvicorn to verify that the FastAPI server boots, binds, and runs with **zero warnings**.
+
+This refactoring keeps the core `app/agent.py` strictly focused on agent prompts, prompts instruction engineering, and session callbacks, significantly improving maintainability while remaining 100% backward-compatible! Hurrah!
+
+---
+
+### High-Performance Caching: Gemini Context Caching & GenAI Semantic Caching Resolver
+
+**Problem**: 
+1. **Model Cache Overhead**: Our core agent instructions and remote tool specifications are highly detailed and consume a significant number of tokens per turn. Without caching, every single interaction incurs full input token billing and latency overhead on Vertex AI / Gemini.
+2. **Inflexible Query Caching**: Our local query-level cache relied on ordinal string normalization. If a user asked *"what are the cost drivers?"* and then *"show me cost drivers,"* it resulted in a cache miss—bypassing the memory cache and triggering slow, costly BigQuery SQL scans.
+
+**Resolution**:
+We checked out the implementation of **Step 2** and developed a multi-layered, high-performance caching topology:
+1. **Model-Side Context Caching**: Natively integrated ADK 2.x `ContextCacheConfig` directly into the `App` initialization in [agent.py](../app/agent.py). This caches the massive system instructions and MCP tool declarations directly on the Google model server side for up to 10 minutes (`ttl_seconds=600`, refreshed every `cache_intervals=5` turns, triggering for payloads above `min_tokens=2048`). This dramatically accelerates consecutive turn latency and slashes token utilization!
+2. **GenAI Semantic Cache Resolver**: Replaced simple string normalization in the `before_agent_cache_lookup` callback hook with an advanced, lightweight model-driven check:
+   * It extracts active, non-expired cache keys from memory and fires a lightning-fast, environment-configured fast model (e.g. `gemini-3.1-flash-lite`) generation using the official `google-genai` SDK `Client`.
+   * The fast model assesses semantic query equivalence, resolving phrasing, word order, and minor punctuation shifts.
+   * If a semantic match is resolved (e.g., *"show me cost drivers"* matched to *"what are the cost drivers?"*), the agent bypasses the main, expensive Gemini model call and BigQuery database processing entirely, returning the cached text response immediately!
+   * The fast resolver is constrained via strict instructions to reject matches if temporal scopes (like Month-to-Date vs last 90 days) or specific target services differ, ensuring absolute financial precision.
+3. **Rigorous Verification**:
+   * Created a dedicated unit test suite [test_semantic_cache.py](../tests/unit/test_semantic_cache.py) using comprehensive mock-driven assertions to validate hit, miss, and save cache workflows.
+   * Executed the complete test suite: **all 35 unit tests passed successfully** in just 5.07 seconds!
+   * Verified the FastAPI BFF boots up cleanly with the new caching engine running.
+
+This caching architecture delivers blazing-fast response speeds, slashes token costs, and ensures robust, production-grade scaling! Hurrah!
+
+---
+
+### Integrating Gemini Cloud Assist MCP & Enforcing Latency-Aware Tool Routing
+
+**Problem**:
+As our FinOps agent grows to support multiple Model Context Protocol (MCP) servers (including BigQuery and Google Developer Knowledge), we hit a potential latency trap. If the agent acts as a generic orchestrator and queries multiple backend tools sequentially for a single question—such as checking inventory, querying docs, and calling cost APIs—the response latency spikes to unacceptable levels. We need the agent to act like a laser: immediately routing queries to the correct specialized MCP toolset without redundant API calls.
+
+Furthermore, we wanted to integrate **Gemini Cloud Assist** to move from static document lookup to active, telemetry-aware optimization recommendations (e.g. rightsizing VM instances based on historical CPU metrics).
+
+**Resolution**:
+We integrated the managed Gemini Cloud Assist MCP server and established a strict, instruction-based routing gate (Approach A) to optimize turn latency:
+
+1. **Gemini Cloud Assist MCP Integration**:
+   * Modified [mcp_config.py](../app/app_utils/mcp_config.py) to register `CloudAssistAuthProvider`, which caches standard Google OAuth2 headers.
+   * Defined and exported `cloud_assist_mcp_toolset` pointing to the managed endpoint: `https://geminicloudassist.googleapis.com/mcp`.
+   * Modified [agent.py](../app/agent.py) to import and register the new toolset in `root_agent`'s tools list.
+
+2. **Latency-Aware Decision Tree Instructions**:
+   Overhauled the `AGENT_INSTRUCTION` system prompt in [agent.py](../app/agent.py) to declare a strict, explicit **Tool Execution Hierarchy**. The model is instructed to match the user's intent to exactly one of the following paths and bypass all other tools on that turn:
+   * **Spend & Billing Trends Route**: Calls only the cached BigQuery SQL tool (`execute_cached_bigquery_sql`).
+   * **Active Resource Optimization Route**: Calls only the Gemini Cloud Assist MCP tools (e.g. `ask_cloud_assist`).
+   * **Structured Asset Auditing & RCA Route**: Calls only the local CAI and zombie tools (`list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`).
+   * **Conceptual Reference Route**: Calls only the Google Developer Knowledge MCP tools (`answer_query` or `search_documents`).
+
+   Here is the visual diagram illustrating our Model Context Protocol (MCP) routing decision tree structure:
+
+   ![Model Context Protocol (MCP) Routing Decision Tree](./images/mcp_routing_architecture.png)
+
+3. **Code Quality and Type Checking Verification**:
+   * Refactored [agent.py](../app/agent.py) to resolve python type hints (using union types `LlmRequest | None`) flagged by the strict type-checker `ty`.
+   * Executed formatting and quality controls (`make lint`) which completed successfully with zero spelling, linting, or formatting errors.
+   * Verified that the backend module imports cleanly and starts without latency issues.
+
+This gives our FinOps agent active, real-time optimization capabilities via Gemini Cloud Assist while maintaining sub-second classification and execution paths! Hurrah!
+
+### Optimising BigQuery Queries, Preventing Truncation Loops, and Parallelising CAI Scans
+
+**Problem**:
+When asking the FinOps agent to *"show me the cost drivers over the last 30 days"*, the query took a couple of minutes to get a response and ended up executing dozens of SQL queries. Additionally, we identified redundancies and sequential network latency in our Cloud Asset Inventory (CAI) zombie resource scanning, causing a sluggish load time for the executive dashboard.
+
+**Resolution**:
+1. **Identified Tool Response Truncation**:
+   * We discovered that querying the daily cost trend over 30 days returned data for *all* services, including hundreds of zero-cost or negligible-cost entries. This generated a payload exceeding 150KB, which triggered the ADK/system tool response truncation limit.
+   * Faced with truncated/incomplete data, the Gemini agent attempted to self-heal by dynamically executing dozens of smaller queries (day-by-day and service-by-service). Since these queries were dynamic, they always missed the cache, leading to severe latency and increased BQ scan costs.
+2. **Hardened SQL Query Template with Cost Filters**:
+   * Updated the `AGENT_INSTRUCTION` prompt template in [agent.py](../app/agent.py) to instruct the model to always append `HAVING daily_cost > 0.1` (or `HAVING daily_cost > 0`). This successfully filters out zero-cost and tiny telemetry entries at the database layer, shrinking the daily trend payload from ~150KB to under ~5KB and preventing truncation loops.
+   * Applied the same database-level cost filter (`HAVING daily_cost > 0.01` and `HAVING monthly_cost > 0.01`) in [dashboard_data.py](../app/app_utils/dashboard_data.py) to keep dashboard queries fast and lightweight.
+3. **Parallelised Cloud Asset Inventory Scans**:
+   * Refactored [zombie_tools.py](../app/app_utils/zombie_tools.py) to replace the synchronous sequential loop over project scopes with a concurrent `ThreadPoolExecutor` (using 10 workers).
+   * This reduces the blocking network latency of scanning 7+ projects for unattached disks and idle IPs from 14–28 seconds down to a single concurrent sweep of ~1–2 seconds.
+   * Updated `tests/unit/test_zombie_tools.py` by wrapping the mocked `search_zombie_resources` calls in a `threading.Lock` to ensure thread-safety of the shared mock object, allowing pytest checks to pass successfully without hangs.
+
+This resolves the query looping issue completely, ensures all daily telemetry queries fit cleanly within context boundaries, and cuts dashboard CAI latency by over 90%! Hurrah!
+
+---
+
+### Resolving Cost Investigation Runaway Loops & CAI Permission Warnings
+
+**Problem**:
+When asking Root Cause Analysis (RCA) queries (e.g. *"Why did our production costs spike on May 23rd? Cross-reference billing records with CAI config changes"*), the agent got stuck in runaway loops making dozens of tool/SQL calls and throwing repeated `403 Permission Denied` warnings.
+
+**Resolution**:
+1. **Defensive Runaway Prevention**:
+   * Set `max_llm_calls=15` in `RunConfig` in the SSE chat stream endpoint in [fast_api_app.py](../app/fast_api_app.py). This prevents runaway queries from generating endless LLM iterations and high billing charges.
+2. **Project-First History Lookup Order**:   * Re-architected `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to extract the resource's project ID and run project-level CAI queries first. Since the service account possesses permissions on the projects, project-level queries succeed cleanly and bypass the need to touch organization-level scope, eliminating the scary 403 warnings entirely.
+3. **Self-Healing Organization Scope Disabling**:
+   * Introduced a thread-safe `_ORG_SCOPE_DISABLED` flag in [cai_utils.py](../app/app_utils/cai_utils.py). If any organization-scope CAI query returns a `403 Permission Denied` error, the flag is set, automatically bypassing organization-scope calls on all future turns to prevent redundant warnings and latency.
+4. **Explicit Root Cause Analysis Instructions & Cost Filters**:
+   * Updated the `AGENT_INSTRUCTION` prompt routing tree in [agent.py](../app/agent.py) to add a dedicated **Intent 5: ROOT CAUSE ANALYSIS (RCA) OF COST SPIKES**, permitting the agent to combine BigQuery SQL and CAI history lookup in a single turn for spike analysis.
+   * Directed the agent to filter out negligible costs (e.g., `WHERE cost > 0.1` or `HAVING SUM(cost) > 0.1`) on resource-level queries to prevent resource list truncation, and capped history queries to only the top 1 or 2 spiked resources.
+5. **Quality Control Verification**:
+   * Added unit tests to `test_cai_tools.py` verifying the project-first lookup order and organization scope skipping.
+   * Ran `make test` confirming all 38 unit tests pass successfully.
+   * Ran spelling and linting checks (`codespell` and `ruff check --fix .`), verifying zero issues.
+
+This eliminates 403 organization permission warnings, enforces cost filtering on resource-level spikes, and prevents runaways with hard turn ceilings! Hurrah!
+
+---
+
+### Hardening Guardrails: Tool Call Ceilings, Project Filtering & Verbose FinOps Telemetry
+
+**Problem**:
+RCA cost-driver investigations (such as spike queries comparing specific days) were still triggering too many tool calls per turn. The agent was looping over dozens of projects that had negligible/fractional-cent costs, causing 429 API rate limits, slow response times, and telemetry noise. Furthermore, debug logs lacked visibility on BQ query statements and CAI lookup parameters.
+
+**Resolution**:
+1. **Hard Tool Call Ceiling Callback & RCA Prompt Optimization**:
+   * Implemented a turn-level tool call ceiling callback in [agent.py](../app/agent.py) via ADK's `before_agent_callback` and `before_tool_callback` to raise a `RuntimeError` if tool calls exceed 25 in a single turn.
+   * Refined Intent 5 system instructions in `agent.py` to prohibit low/empty threshold resource-level queries (such as `cost > 0` or missing filters) and require a strict `LIMIT 15` and a minimum cost filter (e.g. `cost > 0.5`).
+   * Enforced clear fallback logic: if the comparative spike query returns empty, the agent must check daily billing totals of the surrounding month and inform the user if no spike occurred, instead of querying all resources or projects recursively.
+2. **Turn-Level LLM Ceiling Reduction**:
+   * Lowered `max_llm_calls` from 15 to 5 in the FastAPI event stream runner configuration in [fast_api_app.py](../app/fast_api_app.py). This enforces a strict Stop ceiling to prevent redundant LLM reasoning iterations.
+3. **Fractional Cent Project Filtering**:
+   * Modified `get_active_billing_projects()` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to group BQ costs by project ID and filter out projects costing less than $0.10 in the last 30 days (`HAVING SUM(cost) > 0.1`).
+   * This completely prevents the agent from triggering expensive Asset Inventory scans or zombie resource lookups for projects with negligible activity.
+4. **Verbose SQL & CAI History Logging**:
+   * Updated `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to print the full SQL statement, the total returned row count, and a snippet of the first 3 rows.
+   * Updated `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to log the exact lookup parameters (`resource_name`, `start_time`, `end_time`) and returned record counts (from both cache hits and fresh calls).
+5. **Fast Local Exact Cache Match**:
+   * Updated `before_agent_cache_lookup` in [agent.py](../app/agent.py) to execute a local case-insensitive exact string match on incoming user queries. If the query is identical (normalising whitespace and casing) to a cached entry, it instantly bypasses the fast LLM semantic cached query call, reducing API calls to zero and turn response time to microseconds.
+6. **Project-Scoped Zombie Resource Sweeps**:
+   * Updated `list_zombie_resources` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to accept an optional `project_id` parameter.
+   * When the agent detects the user is asking about zombie resources in a specific project, it passes `project_id` to focus the search scope strictly to that project, bypassing organization-wide sweeps or sweeps of other projects.
+7. **Quality Control & Unit Tests**:
+   * Added `test_list_zombie_resources_scoped_project` to [test_zombie_tools.py](../tests/unit/test_zombie_tools.py).
+   * Added `test_fast_local_cache_hit` to [test_semantic_cache.py](../tests/unit/test_semantic_cache.py).
+   * Verified all 41 unit tests (`make test`) and spell/style checks (`make lint`) pass cleanly.
+
+This ensures robust runaway protection, keeps project sweeps fast and noise-free, provides rich logging telemetry, and cuts redundant API matching calls! Hurrah!
+
+---
+
+### Implementing User-Level Project Scoping and Access Controls (Option A)
+
+**Problem**:
+The initial implementation of the FinSavant executive dashboard and ADK agent queried and analyzed cost data and zombie assets across all projects that the application service account had access to. However, to support multi-tenant or team-isolated environments, the system must restrict all displayed data, queries, and conversational context to only the projects the active, authenticated user has permissions to see.
+
+**Resolution**:
+We implemented a complete application-level user project scoping and access control layer (Option A) across the FastAPI BFF, database utilities, and ADK agent:
+1. **User Identity Extraction**:
+   * Extracted the user's email from the standard `X-Goog-Authenticated-User-Email` header (injected by Google Identity-Aware Proxy).
+   * Declared `local_developer_email` in [config.py](../app/config.py) and added `LOCAL_DEVELOPER_EMAIL` to the local [.env](../.env) file to serve as a fallback for local developer testing.
+2. **Access Discovery & Caching**:
+   * Implemented `get_user_accessible_projects(user_email)` in [project_discovery.py](../app/app_utils/project_discovery.py).
+   * If a Google Cloud Organization is configured, it queries Cloud Asset Inventory's `searchAllIamPolicies` with `query="policy:{user_email}"`.
+     - If the user has organization-level or folder-level bindings (inheriting access to all projects), it automatically resolves all projects in the organization.
+     - Otherwise, it collects project IDs from specific project-level bindings.
+   * If no organization is configured, it falls back to querying the direct IAM policies of all projects linked to the billing account, scanning for member bindings of the user's email.
+   * Wrapped the lookup in a thread-safe, local in-memory cache with a 10-minute TTL to optimize latency and prevent GCP API quota exhaustion.
+3. **Database Scoping Firewall (SQL Table Wrapping)**:
+   * Created a request-local context variable `ALLOWED_PROJECTS_VAR` in [context.py](../app/app_utils/context.py) using the standard library `contextvars` module to propagate the user's allowed projects.
+   * Refactored `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to fetch `ALLOWED_PROJECTS_VAR`. If set, it dynamically intercepts and wraps all billing table references in the SQL query with pre-filtered subqueries:
+     ```sql
+     (SELECT * FROM `project.dataset.table` WHERE project.id IN ('proj-1', 'proj-2'))
+     ```
+     This enforces strict row-level security at the query engine level, preventing any possibility of prompt injection bypasses.
+4. **Dashboard & Zombie Filtering**:
+   * Updated `get_actual_dashboard_metrics` in [dashboard_data.py](../app/app_utils/dashboard_data.py) to accept `allowed_projects` and inject `AND project.id IN ('proj-1', ...)` filters into all dashboard queries (MTD spend, daily trends, cost explorer).
+   * Filtered list of Cloud Asset Inventory unattached disks and idle static IPs in Python, retaining only assets whose project matches the allowed projects list.
+5. **Session Isolation & Prompt Scoping**:
+   * Refactored [fast_api_app.py](../app/fast_api_app.py) to route `get_global_runner_and_session` by user email, isolating session state and chat history.
+   * Propagated `ALLOWED_PROJECTS_VAR` inside the request thread and agent execution thread.
+   * Appended a hidden `[SECURITY CONSTRAINT]` instruction prompt containing the allowed project list to user queries so the LLM agent behaves securely and targets the correct project ids.
+6. **Verification & Quality Control**:
+   * Added robust unit tests to [test_project_discovery.py](../tests/unit/test_project_discovery.py) and [test_dashboard_data.py](../tests/unit/test_dashboard_data.py) covering mock IAM policy responses and dashboard scoping.
+   * Executed the entire unit test suite (`uv run pytest tests/unit`), passing successfully (48 passed).
+   * Ensured Python standards compliance by running `codespell` and `ruff`.
+
+This ensures the entire FinSavant workspace behaves as a secure, team-isolated SaaS workspace where no user can see or query financial telemetry of projects they do not own! Hurrah!
+
+---
+
+### Docker Run Setting Validation and Makefile Environment Exporter
+
+**Problem**:
+Running `make docker-run` failed immediately with Pydantic settings validation errors. Pydantic reported that `local_developer_email` (which is a required setting) was missing, and `google_genai_use_vertexai` failed boolean parsing because it was mapped to an empty string `""`. This happened because the container runs without `.env` (ignored by `.dockerignore`), the variable wasn't mapped in `docker run`, and Makefile variables resolved to empty strings when `make docker-run` was called from an unsourced shell session.
+
+**Resolution**:
+We updated our local build and execution scripts:
+1. **Makefile Env Loader**: Added a block at the top of [Makefile](../Makefile) to detect, include, and export all environment variables from our local `.env` file into the `make` shell environment.
+2. **Mapped LOCAL_DEVELOPER_EMAIL**: Passed the `-e LOCAL_DEVELOPER_EMAIL="$(LOCAL_DEVELOPER_EMAIL)"` environment variable into the `docker run` command in [Makefile](../Makefile), resolving all settings validation errors.
+
+This ensures the container boots up successfully, matching parity with local and Cloud Run configurations! Hurrah!
+
+### Custom Database Tool Scoping & Segregation Tests
+
+**Problem**:
+While we had implemented SQL query wrapping and project-level data segregation inside our custom `execute_cached_bigquery_sql` tool, we lacked unit tests to validate that the SQL rewrite logic functioned correctly under different project scopes and to check the agent vs. user visibility gap.
+
+**Resolution**:
+Created [test_tools.py](../tests/unit/test_tools.py) which contains 4 comprehensive unit tests:
+1. **`test_execute_cached_bigquery_sql_no_restriction`**: Asserts that when the user has no project restrictions (context variable is `None`), the SQL query is executed unmodified.
+2. **`test_execute_cached_bigquery_sql_with_restriction`**: Asserts that when the user is restricted to specific projects, table references are successfully intercepted and wrapped in a subquery filtering on `project.id`.
+3. **`test_execute_cached_bigquery_sql_empty_allowed_projects`**: Asserts that if the user's allowed project list is empty, table queries are rewritten with `LIMIT 0` to block data leakages.
+4. **`test_execute_cached_bigquery_sql_agent_vs_user_visibility`**: Asserts that if the agent attempts to group by or list all projects in the dataset (including those the user does not have permission to view), the query is rewritten to restrict execution only to the user's allowed list, successfully closing the visibility gap.
+
+All 52 unit tests are passing cleanly, proving the security boundaries of our FinOps analyst! Hurrah!
+
+---
+
+### Refactoring Global State to Object-Oriented Client Managers
+
+**Problem**:
+The application had multiple loose, mutable global module-level variables (e.g. `_THREAD_LOCAL`, `_ORG_SCOPE_DISABLED`, `_ORG_SCOPE_LOCK` inside `cai_utils.py`, `_bq_client` inside `tools.py`, `_USER_PROJECTS_CACHE` inside `project_discovery.py`, and `_AGENT_QUERY_CACHE` inside `agent.py`) that stored service connections and caching state. Dispensing these across free-floating functions made state tracking difficult, cluttered class namespaces, created testing isolation challenges, and required complex thread locks across functions.
+
+**Resolution**:
+We refactored these variables into cohesive, object-oriented client and manager classes:
+1. **`CAIClientManager`** in [cai_utils.py](../app/app_utils/cai_utils.py): Encapsulates thread-local discovery service clients, organisation scope configuration status, and thread locks.
+2. **`QueryCacheManager`** in [query_cache.py](../app/app_utils/query_cache.py): Encapsulates in-memory query results cache and locking mechanisms.
+3. **`BigQueryClientManager`** in [tools.py](../app/app_utils/tools.py): Encapsulates lazy-initialisation of the BigQuery client and associated lock variables.
+4. **`ProjectDiscoveryManager`** in [project_discovery.py](../app/app_utils/project_discovery.py): Encapsulates in-memory project permission lookup caches.
+5. **`AgentQueryCacheManager`** in [agent.py](../app/agent.py): Encapsulates agent-level semantic response caches.
+
+**Backward Compatibility Pattern**:
+To prevent breaking existing REST endpoint routes, unit tests, and ADK agent tool mappings, we:
+* Instantiated module-level singletons (e.g. `cai_client_manager = CAIClientManager()`, `bq_client_manager = BigQueryClientManager()`).
+* Kept the original module-level function signatures (e.g. `is_org_scope_disabled()`, `_get_bq_client()`) as thin wrappers delegating to the singletons.
+* Mapped module-level global variables directly to the manager's attributes (e.g. `_USER_PROJECTS_CACHE = project_discovery_manager.user_projects_cache`), allowing unit tests to clear or inspect cache states in-place.
+
+All 53 unit tests pass successfully, and spelling/linter checks verify code quality compliance! Hurrah!
+
+---
+
+### Unswallowing the Final Response: Unary SSE Routing Fix
+
+**Problem**:
+After switching to unary mode to bypass the Vertex AI SDK streaming hang, the remote agent began executing quickly and returning correct responses. However, the React frontend still received empty responses.
+*Investigation:*
+The FastAPI BFF's SSE stream generator in [bff/fast_api_app.py](../bff/fast_api_app.py) contained an `if not is_final:` filter when yielding text chunks. In streaming mode, the ADK yields multiple partial events followed by a final accumulated event containing the entire text. To prevent rendering the text twice, the BFF skipped the final event (`is_final = True`).
+However, in unary mode, there are no partial chunks—only a single final event (where `is_final_response()` is `True` and `partial` is `False`). The filter skipped this single response entirely, sending exactly `0` bytes of text to the UI.
+
+**Resolution**:
+We modified the BFF text chunk extractor to track whether any partial text chunks have been yielded. It checks `is_partial = getattr(event, "partial", False)`:
+```python
+is_partial = getattr(event, "partial", False)
+if hasattr(event, "content") and event.content:
+    parts = event.content.parts if hasattr(event.content, "parts") else []
+    text_chunk = "".join(
+        part.text for part in parts if hasattr(part, "text") and part.text
+    )
+    if text_chunk:
+        if is_partial:
+            has_yielded_partial_text = True
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+        elif not has_yielded_partial_text:
+            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
+```
+This elegantly supports both modes:
+1. **Streaming Mode**: Streams partial chunks (`is_partial = True`, setting `has_yielded_partial_text = True`) and skips the final accumulated response.
+2. **Unary Mode**: Streams the single final response (since `is_partial = False` and `has_yielded_partial_text` remains `False`).
+
+This completely recovers our UI chat updates, bringing the remote Agent Runtime solution fully alive! Hurrah!
+
+---
+
+### Implementing API Rate Limiting for Financial and Quota Protection
+
+**Problem**:
+In a public-facing, data-heavy GenAI system like FinSavant, there was no protection against Denial of Wallet (DoW) attacks or API quota exhaustion. A user (or a frontend infinite loop) could send unlimited queries to `/api/chat/stream` or `/api/dashboard`, generating massive costs on Gemini and BigQuery billing queries. Furthermore, since the FastAPI BFF uses thread pools to serve background agent streams, concurrent streaming requests could starve the application event loop.
+
+**Resolution**:
+We implemented user-level rate limiting in the FastAPI BFF using `slowapi` (built on the `limits` library):
+1. **IAP User Identification**: Configured the rate limiter key generator to extract the authenticated user's email from the `X-Goog-Authenticated-User-Email` header, falling back to local credentials in dev.
+2. **Endpoint Decorators**:
+   * Restricted `/api/dashboard` to **10 requests per minute** and **100 per day** (`@limiter.limit("10/minute; 100/day")`).
+   * Restricted `/api/chat/stream` to **5 requests per minute** and **100 per day** (`@limiter.limit("5/minute; 100/day")`).
+3. **Environment Parity**: Since our Cloud Run setup is optimized to scale to a maximum of 1 instance, a fast local in-memory token-bucket limiter is completely accurate and requires no external Redis instance.
+4. **Validation & Testing**: Added the `test_rate_limiting_dashboard` test in `tests/unit/test_fast_api_app.py` to assert that 11 consecutive requests correctly return a `429 Too Many Requests` status code with the expected `"Rate limit exceeded"` detail.
+
+This protects the billing and quota footprint of the application. Hurrah!
+
+---
+
+### Graceful Tool Error Handling & Retry Mitigation
+
+**Problem**:
+If a tool execution encountered a transient database error or invalid generated SQL (like the `_PARTITIONTIME` BadRequest), the agent's default Automatic Function Calling (AFC) logic would recursively rewrite and retry the tool execution. In a remote Agent Runtime environment, this multi-turn loop frequently triggered the `google-genai` SDK's streaming/unary connection hangs, leaving the user with a frozen UI and no feedback.
+
+**Resolution**:
+We implemented prompt-level error handling constraints to enforce a graceful exit strategy:
+1. **System Instruction Warnings**: Added a `CRITICAL ON TOOL ERRORS` instruction to the agent system prompt:
+   * Instructs the model that if any tool call fails, returns an error key, or raises an exception, it **MUST NOT** attempt to rewrite parameters, guess schemas, or retry the call.
+   * Forces the model to immediately halt further tool execution and return a friendly, helpful message to the user explaining which tool failed, stating the specific error message, and suggesting how they might rephrase their query.
+2. **Result**: Instead of looping endlessly and hanging, the agent now terminates cleanly on tool failures, providing a clear explanation of what went wrong so the user can easily rephrase or troubleshoot. Hurrah!
+39. Aligned environment variable files (`.env` and `app/.env`), retaining `LOG_LEVEL` in both, moving logging and telemetry to `app/.env`, and cleaning up duplicate GITHUB_TOKEN entries in root `.env`. Updated the Makefile to parse `.env` files dynamically, excluding forbidden variables (like `GOOGLE_CLOUD_PROJECT`) from the Agent Runtime. Integrated dynamic environment parsing in Terraform (`locals.tf`) to synchronize GitHub repository variables and container configurations directly from `app/.env` without duplicate definitions.
+
+### Designing with the Interactions API: Server-Side Stateful Sessions
+
+**Problem**:
+We initially planned to use the stateful, cloud-managed **Gemini Interactions API** (`use_interactions_api=True`) on Vertex AI to leverage server-side conversation history and reduce network payload size.
+
+**Backend Constraint**:
+However, testing proved that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects raw text models (like `gemini-3.5-flash` or `gemini-2.5-flash`) on the Interactions API route, returning:
+```json
+Error code: 400 - {'error': {'message': 'Unsupported model interaction: gemini-3.5-flash', 'code': 'invalid_request'}}
+```
+The Vertex AI Interactions API is restricted to specific media models (`lyria-3-*`) and managed agents (`deep-research-*`).
+
+**Resolution**:
+We rejected the Interactions API and reverted to standard stateless model inference (`use_interactions_api=False`), keeping the conversation history management in the FastAPI BFF/client. We established `tests/unit/test_interactions_api.py` as a test guard to prevent future attempts to enable this unsupported mode on Vertex AI.
+
+---
+
+### BigQuery Partition Pruning, Session Caching, and Blackboard State Sharing
+
+**Problem**:
+Our multi-agent system executed heavy database queries and CAI lookups frequently across turns. This caused three main issues:
+1. **Inefficient Database Scans**: BigQuery billing export SQL queries scanned too much data because they did not leverage double-temporal partition pruning.
+2. **Process-Level Caching Overhead**: The database query cache was stored globally, violating multi-tenant session boundaries and potentially leaking data.
+3. **Redundant Agent Execution**: Subagents (such as `BillingExplorer`, `InfrastructureAuditor`, and `RootCauseAnalyst`) ran identical queries or scans sequentially because they had no way of checking what data had already been resolved during the session.
+
+**Resolution**:
+We implemented a complete cost and latency optimization layer:
+1. **Double-Temporal Partition Pruning**: Enforced SQL filters on both `export_time` (partition key) and `usage_start_time` for cost trends, SKU periods, and storage/secret waste queries. This prunes unnecessary partitions and reduces data scans.
+2. **Session-Bound State Caching**: Replaced the global query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`). This isolates data per conversation and prevents cross-session leaks.
+3. **Semantic Blackboard Pattern**: Created central Blackboard instructions (`BLACKBOARD_KEY_INSTRUCTIONS` constant in `tools.py`) dynamically appended to all subagents' prompts during instantiation. All subagents are now trained to check the shared session state using standard keys before invoking expensive tools:
+   * `'daily_service_costs_30d'`: Daily aggregated service costs (date, service, cost).
+   * `'sku_period_costs_60d'`: Period comparison costs over 60 days (is_current_period, project, service, SKU, cost).
+   * `'gcs_secret_waste'`: Idle storage buckets and Secret Manager replica waste list.
+   * `'zombie_resources'`: Idle static IPs and unattached boot/data disks.
+   * `'rightsizing_recommendations'`: Cloud Assist optimization recommendations.
+4. **Parallel Function Calling (PFC)**: Added strict rules to the `BillingExplorer` subagent instruction prompt requiring it to call `execute_cached_bigquery_sql` in parallel during a single turn when fetching independent cost tables. This leverages Gemini's native PFC capability to slash turn latency by up to 60%.
+5. **Validation & Quality Control**:
+   * Added unit tests asserting that all subagents' system prompts contain the central naming standard.
+   * Added `test_blackboard_dynamic_key_lookups` to test all 5 standardized blackboard keys.
+   * Ran spelling and Ruff checks, keeping the codebase clean.
+
+This ensures state-of-the-art agent coordination, reduces table scans, and makes cost analysis extremely fast! Hurrah!
+
+### BigQuery Partition Filter Pushdown inside Scoping Subqueries
+
+**Problem**:
+In a multi-project FinOps setup, our agent enforces row-level security by wrapping all BigQuery queries in a dynamic scoping subquery that filters data strictly to the user's list of allowed projects:
+```sql
+FROM (SELECT * FROM `standard_table` WHERE project.id IN ('project-1', 'project-2', ...))
+```
+While this successfully prevents data access leaks, billing export tables are partitioned by `export_time` (or sometimes `_PARTITIONTIME` / `_PARTITIONDATE`). Because the scoping subquery did not contain the temporal filters present in the outer query, BigQuery's optimizer would scan the entire history of the billing export tables to filter by `project.id` before applying the outer query's date filter. With 38 projects in the user's scope, this resulted in massive query latencies, frequently hitting the client socket/connection idle timeouts and triggering `ServerDisconnectedError` on the GenAI client.
+
+**Resolution**:
+We implemented a dynamic AST/Regex parser inside `execute_cached_bigquery_sql` in `tools.py` to extract and push down date/partition filters into the project-scoping subqueries:
+1. **Temporal Expression Extraction**: Designed a robust regular expression supporting up to 3 levels of nested parentheses (to capture nested SQL function expressions like `TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))`):
+   ```python
+   nested_parens = r"\((?:[^()]*|\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))*\)"
+   date_filter_pattern = re.compile(
+       rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|['\"\w\d\-\s:]+)",
+       re.IGNORECASE
+   )
+   ```
+2. **Subquery Filter Injection**: The parsed filters are joined and injected directly into the inner scoping subqueries:
+   ```sql
+   FROM (SELECT * FROM `standard_table` WHERE project.id IN (...) AND export_time >= ... AND usage_start_time >= ...)
+   ```
+3. **Partition Pruning**: Pushing these date filters into the table scans forces BigQuery to prune partitions *before* executing the project filters, dropping execution time from over a minute to less than a second.
+4. **Validation**: Added `test_execute_cached_bigquery_sql_filter_pushdown` in `test_tools.py` to assert correct parsing and rewrite logic, ensuring no syntax errors or cut-offs.
+
+This solves the client timeout issues and makes multi-project billing analysis incredibly performant! Hurrah!
+
+### BigQuery Targeted Scoping Filter Intersection
+
+**Problem**:
+Even with partition pruning active, wrapping table scans in a subquery that lists all 38 allowed projects:
+```sql
+WHERE project.id IN ('proj-1', 'proj-2', ..., 'proj-38')
+```
+forces BigQuery to perform a broad scan filtering across many projects, which increases latency. If the agent's query specifically targets a single project (e.g. `WHERE project.id = 'vpc-host-prd-dzb1'`), we are still querying all 38 projects first inside the subquery before filtering it down.
+
+**Resolution**:
+We implemented an explicit project filter extraction and intersection phase in `execute_cached_bigquery_sql`:
+1. **Explicit Filter Parsing**: We parse the SQL query for any explicit project filters using regex patterns:
+   * Match equality filters: `project.id = 'project-id'`
+   * Match list filters: `project.id IN ('project-id-1', 'project-id-2')`
+2. **Intersection Scoping**: If explicit project targets are identified, we perform a set intersection between those targets and the user's `allowed_projects` list. 
+3. **Optimized Subquery Injection**: The resulting intersected project list is injected into the scoping subquery instead of the full list of allowed projects.
+   * If a user queries a single allowed project, the subquery filters strictly for that 1 project (speeding up clustering checks significantly).
+   * If a user tries to query an unauthorized project, the intersection is empty, automatically resolving to a `LIMIT 0` secure stub query.
+4. **Validation**: Added `test_execute_cached_bigquery_sql_targeted_scoping` to cover equality and unauthorized scenarios.
+
+This dramatically improves query latency for targeted project views while preserving absolute row-level security. Hurrah!
+
+### BigQuery Defensive Routing & Temporal Guardrails
+
+**Problem**:
+If the agent dynamically issues exploratory queries (e.g. finding min/max dates, listing overall cost spikes) without date filters, or queries the massive resource-level table without referencing resource-specific properties (like `resource.name`), it forces a highly expensive full table scan on BigQuery over years of historical data.
+
+**Resolution**:
+We implemented two automatic runtime query safety guardrails inside `execute_cached_bigquery_sql`:
+1. **Dynamic Table Routing**: If a query targets the massive resource-level table (`gcp_billing_export_resource_v1_*`) but does not reference any `resource.` fields, the query tool automatically rewrites the query to use the standard billing table (`gcp_billing_export_v1_*`). This instantly shrinks the scan footprint by roughly 100x since the columns are identical, but without the high-cardinality resource dimensions.
+2. **Defensive Temporal Guardrail**: If a query is issued with no date or partition filters on `export_time`, the tool automatically injects a default partition bound: `export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))`. This blocks runaway scans from querying the full historical table footprint.
+3. **Validation**: Added unit tests `test_execute_cached_bigquery_sql_dynamic_routing` and `test_execute_cached_bigquery_sql_defensive_temporal` to verify rewriting and partition injection.
+
+This keeps exploratory agent actions fast, cheap, and safe! Hurrah!
+
+### Shift Calculations to Python Precomputation and Stripping Subagent Tools for Latency Reductions
+
+**Problem**:
+Even with BigQuery partition pruning and targeted scoping, Month-to-Date (MTD) billing queries and Root Cause Analysis (RCA) cost spike queries resulted in high latency. The subagents were fetching thousands of rows of raw, unaggregated billing and telemetry data. This forced the LLM's reasoning engine (such as `gemini-3.5-flash`) to generate over 1,000 thinking/reasoning tokens per turn performing math, summing costs, and correlating cost spikes with Cloud Asset Inventory (CAI) logs. Additionally, when a user provided a slightly incorrect date range, the subagents entered recursive self-correction tool loops (e.g. executing multiple SQL queries to check min/max dates or verify baselines), increasing latency.
+
+**Failed Optimization (Thinking Budget Overrides)**:
+We initially tried to override the model's reasoning/thinking budget to `0` at the request config level in `client.py` and `callbacks.py`. However, testing revealed that for reasoning-enabled models like `gemini-3.5-flash`, forcing `thinking_budget = 0` causes the model to return empty response blocks, which violates ADK framework output validation rules ("model output must contain either output text or tool calls, these cannot both be empty") and crashed the conversational flow.
+
+**Resolution**:
+We shifted analytical calculations from the LLM's reasoning loop to native, deterministic Python functions, and restricted subagent capabilities to eliminate tool loops:
+1. **Python Precomputation Helpers (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**:
+   - `get_precomputed_spend_analysis`: Executes the MTD, SKU period, and Secret/GCS waste queries in parallel. It calculates current vs. previous totals, computes percentage trends, pivots service costs by date, filters out flat baseline days to keep only active spikes (max 10), and compiles recommendation messages entirely in Python.
+   - `get_precomputed_root_cause`: Executes a single comparative query comparing the spike date to the previous day in Python. If persistent resources are found, it automatically fetches CAI configuration logs for those resources in Python (passing the correct ISO timestamps: `{prev_day}T00:00:00Z` to `{spike_day}T23:59:59Z`) and returns a clean, fully correlated dictionary.
+2. **Subagent Tool Stripping**:
+   - We completely removed raw SQL execution (`execute_cached_bigquery_sql`) and raw CAI queries (`get_cai_history_for_resource`) from the tools list of `BillingExplorer` and `RootCauseAnalyst`, leaving them only with the precomputed Python helper tools.
+   - This prevents the subagents from launching custom SQL queries or trying to troubleshoot dates on their own, guaranteeing a single deterministic tool invocation per turn.
+3. **In-Memory Telemetry Caching**:
+   - Replaced storing large, raw BigQuery results in the `SessionState` blackboard (which bloated the SQLite database serialization log on every turn) with a global thread-safe, in-memory private cache dictionary (`_IN_MEMORY_BQ_CACHE`) keyed by session ID, keeping state payload sizes tiny.
+
+This combined optimization reduced the subagent prompts by 90%, slashed token footprint, completely avoided large reasoning token generation, and dropped subagent execution time to under 1.5 seconds. Hurrah!
+
+### Introducing Hybrid Model Routing to Optimise Turn Latency and Inference Cost
+
+**Problem**:
+While our multi-agent architecture successfully decouples domains and prevents prompt bloat, running every agent on the deeper, costlier `gemini-3.5-flash` model created unnecessary latency and cost overheads. Specifically:
+1. The root agent (`FinOpsCoordinator`) functions purely as a router and dispatcher. It does not run direct BQ or CAI queries, meaning it does not need the deep reasoning model for intent classification and tool routing.
+2. Some subagents (like `CloudAdvisor`) function as simple proxies that forward prompt payloads to external tools (such as the Gemini Cloud Assist MCP) and return the response text. They do not perform complex logic or SQL generation themselves.
+3. Other subagents (like `KnowledgeAssistant`) run standard document lookups (RAG) using the Developer Knowledge MCP in a single turn. Large RAG contexts consume high token counts, driving up billing costs unnecessarily on the deeper reasoning model.
+4. Complex composite UI actions, like the "Align with best practices" chip, sequentially invoke both of these subagents. Having both run on the slower standard model compounded response latency.
+
+**Resolution**:
+We implemented a **Hybrid Model Routing** scheme, matching each agent's cognitive workload to the most cost-effective and latency-efficient model:
+1. **Model Categorisation**:
+   - **Reasoning/Calculation (`gemini-3.5-flash`)**: Retained for `BillingExplorer` (handles critical SQL, forecasting, and precise A2UI JSON payloads), `InfrastructureAuditor` (formats recommendation A2UI tables), and `RootCauseAnalyst` (requires cause-and-effect timeline deduction).
+   - **Lite/Utility / Router (`gemini-3.1-flash-lite`)**: Allocated to the `FinOpsCoordinator` (for fast classification/routing), `CloudAdvisor` (proxy-only), and `KnowledgeAssistant` (RAG-only).
+2. **Speed & Latency Gains**:
+   - The first turn routing latency drops by over 60% since the coordinator classifies the query on the fast model.
+   - The multi-agent "Align with best practices" flow is now significantly faster, as the coordinator routing, the architectural documentation search, and the cloud recommendation lookup are all executed using the faster lite model.
+3. **Cost Reduction**:
+   - Shifting large-context RAG documentation queries and routing/orchestration logic to the lite model reduces inference costs by approximately 90% (given the 10x price difference between flash and flash-lite) for those specific turns.
+
+
+This hybrid approach ensures that our agents are optimised for both reasoning depth and computational efficiency. Hurrah!
+
+## Blog 4 - Designing and Building the UI with Google Stitch and A2UI
+
+### Setup
+
+11. Used `deep-research` skill, along with adk-docs-mcp, to investigate best practices for React UI with ADK. Updated GEMINI.md with the findings.
+
+### Deep Dives
 
 ### The Emerald Cyber UI: Building a Split-Screen Agent Workspace
 
@@ -673,7 +1049,6 @@ This immediately cleanses the visual workspace, presenting actual projects as ac
 
 This creates an extremely smart, adaptive interface that seamlessly shifts its structural layout to match the exact dimensional grouping of the live SQL results! Hurrah!
 
-
 ### Real-Time Executive Dashboard and Dynamic Pre-Population
 
 **Problem**: When the application first launched, it displayed static placeholder data on the Executive Dashboard, Cost Explorer, and Active Optimization panels (with fake project IDs like `dev-project-42` and `prod-project`). It was completely disconnected from the actual BigQuery billing tables and Cloud Asset Inventory findings on startup. The user had to manually type a prompt to get their real data to show up.
@@ -797,74 +1172,6 @@ This completely bridges the network wait time, keeping the user fully engaged wi
 
 ---
 
-### Modular Shared Query Caching
-
-**Problem**: The application was performing raw, expensive BigQuery table scans on every single page load of the React dashboard or conversational query by the ADK agent. Because Google Cloud billing exports are massive and only update periodically throughout the day, scanning these tables repeatedly led to high latency and redundant query costs. Additionally, the ADK agent conversations bypass the REST API endpoints and talk directly to the remote BigQuery MCP server, making a standard HTTP cache on the REST endpoints useless for conversational queries.
-
-**Resolution**: We developed a **Modular Shared Query Caching** architecture to cover both the FastAPI backend and the conversational ADK Agent:
-1. **Thread-Safe In-Memory Cache**: Created [query_cache.py](../app/app_utils/query_cache.py) defining an in-memory cache protected by a thread-safe `threading.Lock()` synchronisation mutex. It keeps results for a default TTL of 5 minutes (300 seconds), and evicts expired keys dynamically on every lookup to prevent memory leaks.
-2. **REST Telemetry Integration**: Refactored the five BigQuery SQL metrics queries in [dashboard_data.py](../app/app_utils/dashboard_data.py) to route through `execute_cached_query`, completely eliminating direct database scans on page refreshes.
-3. **Conversational Agent Integration**: Created a custom ADK tool `execute_cached_bigquery_sql` inside [agent.py](../app/agent.py) that utilizes our caching engine. We instructed the LLM in `AGENT_INSTRUCTION` to strictly prefer this cached tool over any generic, uncached remote MCP query tools.
-4. **Production Observability**: Configured cache hits to log at `logger.debug()` level to eliminate production container log noise, while cache misses are logged at `logger.info()` to track real BigQuery scan events.
-
-**Why this way?**:
-- **Shared Context**: Since the REST backend and the ADK Agent run in the same Python process container, they share the same in-memory dictionary. A query executed by the React dashboard instantly populates the cache for the conversational agent, and vice versa!
-- **Zero-Dependency**: No Redis or Memcached overhead was introduced, keeping the Cloud Run deployment container extremely light and cost-effective.
-- **UK English Spells**: We meticulously synchronised our code comments and logs using British UK spelling (*optimisation*, *telemetry*, *synchronisation*, *minimise*), in perfect alignment with enterprise guidelines.
-
-This achieves massive performance wins, turning consecutive conversational spikes requests and dashboard views into instantaneous local hits! Hurrah!
-
----
-
-### ADK Turn-Level Agent Caching & Model Bypassing
-
-**Problem**: Even with BigQuery table scans cached, the ADK Agent still executed its full cognitive cycle on every request. This meant the agent went through project discovery, loaded tools, and invoked the Gemini LLM even if the user asked the exact same question a few seconds later. Bypassing the entire cognitive turn when a query was recently processed would save massive latency, tokens, and compute overhead.
-
-**Resolution**: We developed a highly structured, turn-level query caching architecture using ADK-native callbacks inside [agent.py](../app/agent.py):
-1.  **Agent-Level Cache Lookup (`before_agent_callback`)**: Intercepts the agent turn at the start of execution. It parses the session history (`ctx.session.events`) to extract the user's latest query, checks a global lock-protected cache dictionary (`_AGENT_QUERY_CACHE`) with a 5-minute TTL, and sets a cache hit flag:
-    ```python
-    ctx.state["cached_agent_response"] = cached_text
-    ```
-2.  **Model call Bypassing (`before_model_callback`)**: Intercepts the LLM generation step. If the cache flag is present in state, it completely skips the model call by returning a pre-packaged `LlmResponse`:
-    ```python
-    return LlmResponse(content=content)
-    ```
-3.  **turn Completion Storage (`after_agent_callback`)**: Saves the final generated model text to `_AGENT_QUERY_CACHE` under the user's query if it was a fresh execution.
-
-**Why this way?**:
-*   **Complete short-Circuit**: By bypassing the LLM model call, we bypass the entire ReAct loop and every underlying tool execution (zero CAI API network scans and zero BigQuery queries), resolving consecutive turns in sub-milliseconds! Hurrah!
-
----
-
-### Unified Cache Architecture: Data Layer vs. Callback Layer
-
-**Problem**: Performing Cloud Asset Inventory (CAI) zombie scans across multiple projects takes significant time due to sequential API network latency. While we wanted to cache these scans, doing so strictly inside ADK agent callbacks would mean the FastAPI executive dashboard endpoint (`/api/dashboard`) would not benefit from the cache, continuing to generate slow scans on every page load.
-
-**Resolution**: We implemented a unified caching strategy by placing the cache directly in the **Data Layer** (the tool itself) inside [zombie_tools.py](../app/app_utils/zombie_tools.py):
-1.  **Billing Project Cache Integration**: Routed the active projects lookup query through `execute_cached_query`, completely eliminating redundant BigQuery project discovery table scans.
-2.  **Lock-Protected Zombie Cache**: Wrapped `list_zombie_resources` in a thread-safe mutex lock (`_ZOMBIE_LOCK`) and cached results by category (`UNATTACHED_DISKS` / `IDLE_IPS`) with a 5-minute TTL.
-
-**Why this way?**:
-*   **Homogeneous Speed**: Because both the REST backend and the ADK Agent run in the same container process sharing memory, a dashboard load instantly warms up the cache for the conversational agent, and vice versa! This guarantees a unified, sub-millisecond experience across all operational paths! Hurrah!
-
----
-
-### Overcoming Async gRPC & Uvicorn Event Loop Conflicts in FastAPI BFF SSE Streams
-
-**Problem**: Attempting to refactor our FastAPI Backend-for-Frontend (BFF) streaming endpoint `/api/chat/stream` to use a native async loop (`runner.run_async(...)` with `anext(generator)`) directly inside uvicorn's main thread caused a critical, silent failure. The async generator exited instantly on the very first iteration, yielding zero text events. This triggered the Vite React frontend to show the default fallback message without updating the workspace cost curves or Optimization tables.
-
-**Why this occurred**: The `google-adk` agent orchestration and the underlying Google GenAI SDK utilize highly opinionated async gRPC and standard Google credentials libraries. In Python, async gRPC and `asyncio` loop scopes running directly under `uvicorn`'s main HTTP handler thread frequently trigger task-cancellation and event-loop registration collisions. When these libraries try to resolve credentials and network scopes across different thread-local loops, they fail silently or raise unhandled context discrepancies.
-
-**Resolution**: We restored and stabilized the **Thread-Isolated Queue Producer** design pattern in [fast_api_app.py](../app/fast_api_app.py):
-1.  **Isolated Background Thread**: We spawn a dedicated, isolated background thread using Python's standard `threading.Thread` to execute the synchronous `runner.run(...)` method. By doing so, ADK runs the agent's full ReAct and tool-calling cycle within its own isolated, synchronous context, which cleanly sets up its own `asyncio` event loop.
-2.  **Thread-Safe Async Queue**: We instantiate an `asyncio.Queue` and pass the running event loop to the background thread. Every event yielded by the synchronous `runner.run(...)` iterator is pushed thread-safely back to our async loop using `loop.call_soon_threadsafe(event_queue.put_nowait, event)`.
-3.  **Non-Blocking Consumption**: The FastAPI handler iterates the `asyncio.Queue` asynchronously (`await event_queue.get()`), yielding formatted SSE packets directly to uvicorn, perfectly preserving both the 15-second heartbeat loop and dynamic reasoning extraction.
-4.  **Traceback Visualisation Boundaries**: We wrapped the queue consumer inside a robust `isinstance(event, Exception)` type check. If any database or authentication exception occurs in the background thread, it is caught, logged at `"ERROR"` level, and formatted cleanly using `traceback.format_exc()`, streaming the complete stack trace directly to the client's chat reasoning steps.
-
-**Lessons Learned**: Integrating complex multi-agent SDKs (like `google-adk` and gRPC) inside lightweight async web frameworks (like FastAPI) requires absolute loop isolation. Explicitly separating the synchronous ReAct runtime into a dedicated background thread and using thread-safe queue channels provides 100% execution reliability, total thread safety, and absolute visual stability in frontend clients. Hurrah!
-
----
-
 ### A2UI Decoupling & Gemini Enterprise Portability: Architectural Rationale
 
 **Problem**: As applications grow, coupling an AI agent's core cognitive loops to a specific visual layout or front-end framework leads to tight architectural binding. Hardcoding HTML markup, React JSX strings, or CSS properties inside LLM system prompts or tool outputs restricts the agent to a single, monolithic client, rendering it useless for multi-channel rollouts (such as native mobile dashboards or enterprise assistants).
@@ -919,45 +1226,64 @@ We checked out a new feature branch `feat/friendly-chatbot` and developed a comp
 
 This delivers an extremely premium, user-friendly conversational interface that makes the copilot feel incredibly smart, polished, and accessible to any stakeholder! Hurrah!
 
-### Backend Modularisation: Extracting MCP Configurations and Custom Tools
+### Dynamic Cost Spikes Starter Prompt Integration
 
-**Problem**: As the agent capability matured, `app/agent.py` grew into a massive file containing several distinct responsibilities: OAuth 2.0 credentials management, header caching, custom BigQuery execution functions, and agent definition/prompts/callbacks. This mixed-responsibility layout made it difficult to maintain, test, and adapt the agent's prompts without risk of breaking lower-level infrastructure code.
+**Problem**: The "Analyze Cost Spikes" quick question prompt in the chat panel was hardcoded to a fixed date: *"Why did our production costs spike on May 23rd? Cross-reference billing records with CAI config changes."* This was confusing to operators when the actual billing data loaded dynamically from BigQuery had spikes on entirely different dates, as the prompt did not align with the real-time financial telemetry shown on the dashboard.
 
-**Resolution**: We executed a strict, modular refactoring under **Step 1** of our agreed plan:
-1. **Model Context Protocol (MCP) Modularity**: Created [mcp_config.py](../app/app_utils/mcp_config.py) inside our `app/app_utils/` directory. We extracted the `BQAuthProvider` and `DevKnowledgeAuthProvider` credentials handlers, along with the `bq_tool_filter`, `bq_mcp_toolset`, and `dev_knowledge_mcp_toolset` instantiations.
-2. **Custom Tools Isolation**: Created [tools.py](../app/app_utils/tools.py). We extracted `_serialise_value` and the custom cached database executor tool `execute_cached_bigquery_sql`.
-3. **Clean Agent Integration**: Modified `app/agent.py` to cleanly import the modularized elements back. All internal references remain fully functional.
-4. **Automated Quality Checks & Self-Fixes**: Run `uvx codespell` and `uvx ruff check --fix .` to automatically format, sort imports, and resolve any lint issues.
-5. **Rigorous Verification**:
-   * Executed the complete unit test suite: **all 32 unit tests passed flawlessly** in 5.35 seconds!
-   * Manually ran uvicorn to verify that the FastAPI server boots, binds, and runs with **zero warnings**.
+**Resolution**: We refactored the quick starter questions engine in [App.tsx](../frontend/src/App.tsx) to dynamically discover and format the actual peak cost day from the loaded billing telemetry:
+1. **Dynamic Peak Cost Discovery**: Reused the existing peak-finding logic (which maps the maximum total cost coordinate for the glowing pulsing spike node) to determine the exact calendar date of the highest spike.
+2. **Robust Date Parser Helpers**: Developed `formatSpikeDate` and `formatFriendlyDate` helper functions at the top of the file to parse both `YYYY-MM-DD` and `MM/DD` date formats and convert them into friendly UK English ordinal expressions (e.g. `23rd May` or `29th May`).
+3. **Reactive Starter Generation**: Replaced the static `sampleQuestions` array with a `useMemo` hook bound to `recentSpikes`, `hasSpikes`, and `maxIdx`. When the dashboard telemetry is retrieved, the Analyze Cost Spikes card dynamically updates its text value to target the true maximum spike date.
+4. **Self-Healing Fallbacks**: If the dashboard telemetry hasn't loaded yet or if no spikes exist, the prompt safely falls back to a clean default of `23rd May` without crashing the render cycles.
+5. **Dashboard Loading Race Condition Guard**: Prevented a startup race condition where a user could click the "Analyze Cost Spikes" button while the dashboard data was still loading (during which time the telemetry date resolved to the fallback `"23rd May"`). We now bind the button's active state to `isLoadingDashboard`, visually rendering it as `"Resolving Spikes..."` with disabled opacity and cursor locks until the telemetry resolves, completely eliminating premature queries.
 
-This refactoring keeps the core `app/agent.py` strictly focused on agent prompts, prompts instruction engineering, and session callbacks, significantly improving maintainability while remaining 100% backward-compatible! Hurrah!
+This ensures the conversational interface is perfectly synchronized with the active visualization layers, enabling a more natural and relevant analytical workflow! Hurrah!
 
 ---
 
-### High-Performance Caching: Gemini Context Caching & GenAI Semantic Caching Resolver
+### Fallback and Execution Mode Visual Indicator
 
-**Problem**: 
-1. **Model Cache Overhead**: Our core agent instructions and remote tool specifications are highly detailed and consume a significant number of tokens per turn. Without caching, every single interaction incurs full input token billing and latency overhead on Vertex AI / Gemini.
-2. **Inflexible Query Caching**: Our local query-level cache relied on ordinal string normalization. If a user asked *"what are the cost drivers?"* and then *"show me cost drivers,"* it resulted in a cache miss—bypassing the memory cache and triggering slow, costly BigQuery SQL scans.
+**Problem**: Operators and developers running the application locally or in deployed environments had no way of seeing at a glance whether the BFF proxy was successfully routing queries to the remote Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) or falling back silently to local ReAct execution. This lack of transparency increased the risk of executing heavy queries against local emulators/credentials by mistake.
 
-**Resolution**:
-We checked out the implementation of **Step 2** and developed a multi-layered, high-performance caching topology:
-1. **Model-Side Context Caching**: Natively integrated ADK 2.x `ContextCacheConfig` directly into the `App` initialization in [agent.py](../app/agent.py). This caches the massive system instructions and MCP tool declarations directly on the Google model server side for up to 10 minutes (`ttl_seconds=600`, refreshed every `cache_intervals=5` turns, triggering for payloads above `min_tokens=2048`). This dramatically accelerates consecutive turn latency and slashes token utilization!
-2. **GenAI Semantic Cache Resolver**: Replaced simple string normalization in the `before_agent_cache_lookup` callback hook with an advanced, lightweight model-driven check:
-   * It extracts active, non-expired cache keys from memory and fires a lightning-fast, environment-configured fast model (e.g. `gemini-3.1-flash-lite`) generation using the official `google-genai` SDK `Client`.
-   * The fast model assesses semantic query equivalence, resolving phrasing, word order, and minor punctuation shifts.
-   * If a semantic match is resolved (e.g., *"show me cost drivers"* matched to *"what are the cost drivers?"*), the agent bypasses the main, expensive Gemini model call and BigQuery database processing entirely, returning the cached text response immediately!
-   * The fast resolver is constrained via strict instructions to reject matches if temporal scopes (like Month-to-Date vs last 90 days) or specific target services differ, ensuring absolute financial precision.
-3. **Rigorous Verification**:
-   * Created a dedicated unit test suite [test_semantic_cache.py](../tests/unit/test_semantic_cache.py) using comprehensive mock-driven assertions to validate hit, miss, and save cache workflows.
-   * Executed the complete test suite: **all 35 unit tests passed successfully** in just 5.07 seconds!
-   * Verified the FastAPI BFF boots up cleanly with the new caching engine running.
+**Resolution**: I added a dynamic, glassmorphic visual indicator badge to the React panel header:
+1. **BFF Status Endpoint**: Exposed a lightweight GET `/api/status` endpoint in [fast_api_app.py](../app/fast_api_app.py) returning `mode: "remote"` (and the full resource ID) or `mode: "local"` depending on the presence of the `AGENT_RUNTIME_ID` environment variable.
+2. **React Integration**: Built a fetch hook in [App.tsx](../frontend/src/App.tsx) that retrieves this status payload on startup and updates local state.
+3. **Cyberpunk Status Badge**: Styled a badge inside the chat header using high-contrast themed HSL colors:
+   * **`IN-CONTAINER FALLBACK`** (amber `#F59E0B` background/border/glow) when running locally.
+   * **`VERTEX RUNTIME`** (neon green `#00F59B` background/border/glow) when pointing to a deployed reasoning engine, complete with a detailed tooltip showing the active resource ID on hover.
 
-This caching architecture delivers blazing-fast response speeds, slashes token costs, and ensures robust, production-grade scaling! Hurrah!
+This completes the integration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
 
 ---
+
+## Blog 5 - Deployment with Gemini Enterprise Agent Platform, Agent Runtime, Cloud Run and IAP
+
+### Setup
+
+19. Added IAP to the Cloud Run service via Terraform, using the `google-beta` provider to access the `iap_enabled` attribute.
+
+### Deep Dives
+
+### Custom Domains with Cloud Run
+
+**Problem**: The project needed custom subdomains associated with our Cloud Run instances (`smart-finops.just2good.co.uk` and a `-dev` variant). Many tutorials assume you use Google Cloud CDN or Cloud DNS. However, we're managing the DNS specifically in IONOS, relying on Cloud Run's native Domain Mapping.
+
+**Resolution**: We utilized Terraform's `google_cloud_run_domain_mapping` resource. But rather than using Terraform to fully provision the DNS records across the internet, the resource simply instructs Google Cloud to reserve and prepare the subdomain for Cloud Run. 
+
+**Why this way?**:
+-   **Security of Responsibility**: It allows Google Cloud to expose *exactly* the DNS validation records it expects to see, while we retain control of our third-party registrar.
+-   **Environment Parity**: By specifying `prod_app_domain_name` and `staging_app_domain_name` variables in `env.tfvars` and looping over them dynamically, Terraform builds the domain mappings for both pipelines entirely homogeneously.
+
+**How it works**:
+We mapped a `cloud_run_domain_mappings` terraform output block. When the CI/CD pipeline (or a local `apply`) finishes, Terraform spits out the necessary `CNAME`, `A` and `AAAA` records directly to the terminal. We just copy those over to the DNS admin panel (e.g., IONOS).
+
+**Configuring the DNS manually (IONOS example)**:
+1. Do not use the "Create Subdomain" feature. Simply mapping a CNAME record directly in the domain's DNS settings automatically handles subdomain routing without conflicting with internal hosting configs.
+2. Add a new **CNAME** record for each environment.
+3. For the **Host Name**, specify the prefix (e.g. `smart-finops` or `smart-finops-dev`).
+4. For the **Points to / Value**, use `ghs.googlehosted.com.`. **Pro-Tip:** Include the trailing dot! This signifies an absolute FQDN (Fully Qualified Domain Name). Without it, some registrars try to be "helpful" by appending your domain name to the end, breaking the routing entirely.
+
+Within a few minutes, the application is resolving perfectly!
 
 ### The Unified Container: High-Efficiency Production Overhaul & Makefile Automation
 
@@ -1119,6 +1445,313 @@ This guarantees that our serverless Cloud Run instance will boot up smoothly wit
 
 ---
 
+### Gemini Enterprise Agent Runtime Integration
+
+**Problem**: We wanted our core agent logic to execute within a fully managed, scalable runtime (Vertex AI Reasoning Engine) rather than coupling AI reasoning, heavy tool executions, and stateful session logic inside our stateless FastAPI Backend for Frontend (BFF) container on Cloud Run.
+
+**Resolution**: We designed and deployed the **FinSavant** agent to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) from the start, using the Cloud Run container solely to host the static React UI and BFF proxy.
+1. **Infrastructure (Terraform)**: Provisioned the `google_vertex_ai_reasoning_engine` resource shell in `deployment/terraform/service.tf` using a base64-encoded dummy source code tarball to avoid cold start provisioning issues, and configured dynamic `AGENT_RUNTIME_ID` injection into the Cloud Run environment.
+2. **IAM & Impersonation**: Configured role impersonation bindings allowing the Vertex AI service agent to assume the credentials of the application service account (`app_sa`) to safely invoke BigQuery, CAI, and Cloud Assist APIs.
+3. **BFF Routing**: Programmed `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, for local development, it gracefully falls back to local ADK runner execution.
+4. **Agent Runtime Wrapper**: Created `app/agent_runtime_app.py` to wrap our ADK root agent inside `AdkApp`, enabling standard operation exposure and logging.
+5. **CI/CD Pipeline Integration**: Configured the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
+6. **Automatic Agent Registry Enrollment**: Because Gemini Enterprise Agent Runtime is a first-class supported runtime on the Gemini Enterprise Agent Platform, deploying our reasoning engine automatically registers our agent in the central **Agent Registry**. Any updates or deletions we deploy are automatically synchronized in real-time. This provides an enterprise-wide "Agent Catalog" view directly within the Google Cloud console under **Agent Platform Deployments** without writing any extra registration code!
+
+Here is how our deployed agent appears in the Console registry view:
+
+![Deployed Agents in Agent Registry](./images/agent-registry.jpg)
+
+This architecture decouples the stateless React web application from the AI reasoning backend while preserving unified container benefits and local testing fallbacks! Hurrah!
+
+---
+
+### Decoupled Remote Session Management & SessionNotFoundError Resolution
+
+**Problem**:
+After deploying to the staging environment, the Vertex AI Reasoning Engine (Gemini Enterprise Agent Runtime) failed to respond to any user chat queries, though the executive dashboard metrics loaded successfully. Staging container logs revealed the remote engine was throwing a `google.adk.errors.session_not_found_error.SessionNotFoundError: Session not found: ...` exception. 
+
+**The Cause**:
+In `app/fast_api_app.py`, the backend was unconditionally calling `runner, session = await get_global_runner_and_session()` on every chat request. This action set the active session ID context variable in the local thread/async environment. When making the downstream call to the remote reasoning engine using `agent_engine.async_stream_query()`, the Vertex SDK automatically intercepted and propagated this local session ID to the remote endpoint. Since the remote session store had no knowledge of this locally-generated in-memory session, it raised a `SessionNotFoundError` and stopped execution.
+
+**Resolution**:
+We decoupled the local runner execution context from the remote routing logic:
+1. **Conditional Local Initialisation**:
+   Modified [fast_api_app.py](../app/fast_api_app.py) to wrap `get_global_runner_and_session()` inside an `if not agent_runtime_id:` check. This ensures that no local session context is initialised or propagated when routing to Vertex.
+2. **Lazy Remote Session Caching**:
+   Introduced thread-safe lazy remote session management (`_REMOTE_SESSION_ID` and `_REMOTE_SESSION_LOCK`) in the BFF. In remote mode, the BFF now calls `agent_engine.async_create_session(user_id="default_user")` dynamically to initialise and cache a valid session ID from the remote Vertex engine.
+3. **Self-Healing Session Recovery**:
+   Wrapped the remote query execution loop in a try-catch block for `SessionNotFoundError`. If the remote session ID expires or is deleted on the Vertex side, the BFF logs a warning, resets the cached session ID, and retries the query without a session ID to establish a new remote session.
+4. **Mock Testing Updates**:
+   Updated the test suite in [test_fast_api_app.py](../tests/unit/test_fast_api_app.py) to mock `async_create_session` so that our tests correctly simulate remote session creation without triggering `MagicMock` coroutine errors.
+5. **Verification**:
+   Executed spelling checks, ruff lints, and unit tests (`pytest tests/unit/`), all of which passed cleanly.
+
+This resolves the staging session propagation bug, allowing multi-turn conversations to run on the remote reasoning engine with self-healing session persistence! Hurrah!
+
+---
+
+### Serving Command Correction, Dependency Standardization & Logging Cleanup
+
+**Problem**:
+Following the BFF and Agent decoupling, several runtime issues arose during staging deployment and local execution:
+1. **Staging Deploy Failure (`ModuleNotFoundError`)**: The container failed to launch with `/code/.venv/bin/python3: Error while finding module specification for 'google.cloud.aiplatform.reasoning_engines.web_server' (ModuleNotFoundError: No module named 'google.cloud.aiplatform.reasoning_engines')`. We discovered that `google.cloud.aiplatform.reasoning_engines.web_server` is not distributed inside PyPI's public `google-cloud-aiplatform` package, and that the Reasoning Engine actually serving ADK applications uses the ADK standard FastAPI CLI.
+2. **Duplicate/Redundant Telemetry Files**: Two separate modules (`logging_and_telemetry.py` and `telemetry.py`) existed in the `app_utils/` directory, exposing duplicate `setup_telemetry()` implementations.
+3. **Noisy Logger Warnings in Staging**: The container logs emitted continuous `httplib2 transport does not support per-request timeout` and `[EXPERIMENTAL] feature...` warnings. The warning filters were not run early enough during import-time of the entrypoint files (`fast_api_app.py` and `agent_runtime_app.py`), and duplicating raw `warnings.filterwarnings` filter lists across entrypoints created poor code structure.
+
+**Resolution**:
+We resolved the startup configurations, cleaned up redundant modules, and standardized warnings management:
+1. **Dockerfile Command Correction**: Restored the ADK FastAPI server serving command in [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile):
+   ```dockerfile
+   CMD ["python", "-m", "google.adk.cli", "api_server", "--host", "0.0.0.0", "--port", "8080"]
+   ```
+   This successfully starts the Reasoning Engine inside Agent Runtime.
+2. **Standardized Warning Suppressions**:
+   * Moved all third-party imports (like `google.auth` and `google-adk` libraries) inside `setup_telemetry()` in [logging_and_telemetry.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/app_utils/logging_and_telemetry.py) so importing the module triggers zero warnings.
+   * Imported and executed `setup_logging_suppressions()` at the very top of [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) and [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), fully suppressing import-time and run-time warnings. Added `# ruff: noqa: E402` to document and allow this PEP 8 exception.
+3. **Redundancy Cleanup**: Deleted the unused, leftover `telemetry.py` module.
+4. **Dependency Standardization**: Aligned package ranges inside [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) to use recent stable versions (e.g. `google-adk>=2.3.0`, `google-cloud-aiplatform>=1.159.0`, `mcp>=1.28.1`), regenerated `uv.lock` files, and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
+5. **Quality & Validation**: Ran `make lint` and `make test`, verifying all 52 unit tests and quality checks pass with 0 errors.
+
+---
+
+### Reasoning Engine Endpoint Router Fix & Dataplex Dependency Resolution
+
+**Problem**:
+Following our decoupling, two issues impacted the runtime execution of our Python agent when queried remotely via Vertex AI Agent Runtime:
+1. **Missing Dataplex Dependency**: The ADK `BigQueryToolset` depends on `google-cloud-dataplex` (`dataplex_v1`). This library was missing from [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml), causing the container's python interpreter to fail loading the entrypoint module with `ImportError: cannot import name 'dataplex_v1' from 'google.cloud'`.
+2. **REST Endpoint Routing Mismatch (404 Not Found)**:
+   * During our initial resolution, we attempted to suppress the client-side `Unsupported api mode: async` registration warnings by pruning the `"async"` and `"async_stream"` keys from the server's `register_operations()` method in `agent_runtime_app.py`.
+   * However, this broke the Vertex AI Control Plane router's routing table. The Control Plane relies on the server's `register_operations()` dictionary payload to dynamically map and validate incoming REST requests before forwarding them to the container. Without these keys, the Control Plane rejected incoming calls to `async_create_session` and immediately returned `404 Not Found` (detail: `"Not Found"`).
+
+**Resolution**:
+1. **Dependency Addition**: Added `"google-cloud-dataplex>=2.20.0,<3.0.0"` to the `dependencies` list in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [app/finops_agent/requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) offline.
+2. **Operations Mapping Restoration**:
+   * Restored `register_operations()` in [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py) to its original working implementation. This leaves the `"async"` and `"async_stream"` keys intact, ensuring the Vertex AI Control Plane retains a complete routing table.
+   * Confirmed that the client-side warning (`Unsupported api mode: async`) is a harmless, known warning from the client-side `google-cloud-aiplatform` SDK, while pruning the server keys leads to hard routing failures.
+3. **Validation**: All 52 unit tests and local linting checks pass successfully.
+
+### Resolving Hanging Remote Agent Response with Unary LLM Routing (Vertex AI SDK Streaming + AFC Bug)
+
+**Problem**:
+After resolving container entrypoints and routing mismatches, the remote Reasoning Engine started up, initialized toolsets, and executed Developer Knowledge and Gemini Cloud Assist MCP calls successfully. However, the connection hung indefinitely right after printing `models.py:8686 - AFC is enabled with max remote calls: 10.`, returning empty responses to the React UI and resulting in high BFF HTTP response latencies.
+
+**Investigation**:
+1. **Network Connectivity**: Checked domain resolution and TCP routing. The container successfully connected to internal Google APIs (returning `200 OK` for MCP lookups), proving egress was fully functional.
+2. **SDK Bug Identification**: Discovered a known client-side streaming bug in the `google-genai` SDK. When combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) in Vertex AI mode, the generator hangs indefinitely after tool execution, failing to return the final text response.
+3. **Interactions API Compatibility**: Researched migrating the agent layer to the stateful, cloud-managed **Interactions API**. However, the Interactions API returned `Unsupported model interaction: gemini-3.5-flash` under our required `gemini-3.5-flash` model, making migration impossible due to strict project constraints.
+
+**Resolution**:
+We bypassed the client-side SDK streaming hang by running the LLM in unary (non-streaming) mode while preserving SSE compatibility in the BFF:
+1. **BFF Run Config Injection**: Modified [fast_api_app.py](../bff/fast_api_app.py) to pass `run_config={"streaming_mode": None}` to all `agent_engine.async_stream_query` calls.
+2. **How it Works**: This instructs the ADK runner inside the container to call the model using unary `generate_content` instead of `generate_content_stream`, bypassing the AFC streaming bug. The runner still compiles the final response events and yields them as an async generator.
+3. **SSE Preservation**: The FastAPI BFF's SSE stream to the React UI remains fully intact, receiving and forwarding the final aggregated text and reasoning events without any UI modifications.
+4. **Validation**: All 52 unit tests pass successfully.
+
+This resolves the hanging response bug, enabling reliable tool execution and quick query responses on the remote Reasoning Engine! Hurrah!
+
+---
+
+### UI/BFF and Agent Runtime Separation on Cloud Run
+
+**Problem**:
+In production, the unified container was deployed to Cloud Run, meaning it packaged the entire agent cognitive loops, tool configurations, and dependencies. To optimize resource footprint, avoid loading heavy packages, and achieve clean runtime isolation, we wanted to build and deploy a dedicated standalone Backend-for-Frontend (BFF) and React UI container to Cloud Run.
+However:
+1. **gcloud builds submit limitation**: The default `gcloud builds submit --tag TAG .` command is a shortcut that is hardcoded to look for a file named `Dockerfile` at the root of the uploaded directory. It does not support specifying custom or nested Dockerfile paths via a `--dockerfile` argument.
+2. **Context resolution**: We could not run the build from the `bff/` directory directly because the build context must remain the repository root (`.`) to copy sibling packages like `finops_agent` for shared utilities.
+
+**Resolution**:
+1. **Custom Cloud Build Configuration**: Created [deployment/cloudbuild-bff.yaml](file:///home/dazbo/localdev/smart-gcp-finops/deployment/cloudbuild-bff.yaml) that runs the Docker build step using the `-f bff/Dockerfile` parameter.
+2. **Makefile update**: Updated the `deploy-cloud-run` target in [Makefile](file:///home/dazbo/localdev/smart-gcp-finops/Makefile) to submit the build using `--config deployment/cloudbuild-bff.yaml` and pass the image tag and commit SHA via substitutions.
+3. **CI/CD pipeline update**: Updated [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) to use `-f bff/Dockerfile` in its Docker build step.
+4. **Conditional Lifespan initialization**: Optimised BFF startup in [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) by checking if `AGENT_RUNTIME_ID` is set (production remote mode). If set, it bypasses importing `finops_agent.agent` or initialising the local runner and A2A routes, saving CPU and memory.
+
+This ensures a cleanly isolated BFF container serves the web clients on Cloud Run, while the agent loop runs entirely in Gemini Enterprise Agent Runtime. Hurrah!
+
+---
+
+### Resolving SessionNotFoundError in Gemini Enterprise Agent Platform Playground
+
+**Problem**:
+When querying the deployed agent remotely through the Google Cloud Console "Playground", the playground UI sends queries to the Reasoning Engine with a session ID. However, the Reasoning Engine immediately threw a `SessionNotFoundError: Session not found` exception and failed to respond.
+*Investigation:*
+1. Under the hood, Google's `AdkApp` template initializes the ADK `Runner` without specifying `auto_create_session`, defaulting it to `False`.
+2. When the console Playground UI submits a query, it provides a session ID. If the container instance has scaled down or restarted, the in-memory session is lost. Since `auto_create_session` is `False`, the runner raises `SessionNotFoundError` instead of creating a new session.
+3. Our custom BFF does not hit this because it explicitly invokes `agent_engine.async_create_session()` to create the session before sending queries. But the Playground UI queries the runtime directly and suffers from the scale-down/eviction mismatch.
+4. Furthermore, the ADK API server's ASGI/FastAPI endpoints (in `google/adk/cli/fast_api.py`) instantiate a fresh `AdkApp(agent=Agent(name="tmp"))` directly, bypassing our custom `AgentRuntimeApp` subclass.
+5. In addition, when resolving queries, the ASGI server bypassed the app's `set_up()` method entirely by lazily building and caching runners directly via `adk_web_server.get_runner_async(app_name)`. This method calls the `Runner(...)` constructor directly.
+
+**Resolution**:
+To address both framework bypasses, we implemented global class-level monkeypatches:
+1. **Runner Class Monkeypatch**: In [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), we globally intercept `Runner.__init__` to ensure any runner built by the ASGI server or the templates gets `auto_create_session = True`:
+   ```python
+   from google.adk.runners import Runner
+
+   _original_runner_init = Runner.__init__
+
+   def _patched_runner_init(self, *args, **kwargs) -> None:
+       kwargs["auto_create_session"] = True
+       _original_runner_init(self, *args, **kwargs)
+
+   Runner.__init__ = _patched_runner_init
+   ```
+2. **AdkApp.set_up Monkeypatch**: We retained the class patch for `AdkApp.set_up` as a fallback to ensure template-driven invocations are also fully covered:
+   ```python
+   _original_set_up = AdkApp.set_up
+
+   def _patched_set_up(self) -> None:
+       _original_set_up(self)
+       if runner := self._tmpl_attrs.get("runner"):
+           runner.auto_create_session = True
+       if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
+           in_memory_runner.auto_create_session = True
+
+   AdkApp.set_up = _patched_set_up
+   ```
+
+This makes the Agent Runtime resilient to session eviction, enabling seamless direct interaction in the Cloud Console Playground. Hurrah!
+
+
+---
+
+## Blog 6 - Automating Deployment with CI/CD and Terraform
+
+### Setup
+
+13. Update tfvars for dev and prod in `/deployment/terraform/`
+14. Initialised the control plane in the PRD project by running Terraform commands from `/deployment/terraform/` directory.
+16. Migrated Terraform local state to a GCS bucket to ensure a durable and shared source of truth for the project's infrastructure.
+
+### Deep Dives
+
+### Securing Cloud Run with IAP: The Terraform vs. GCloud Tussle
+
+**Problem**: We wanted to secure our Cloud Run service with Identity-Aware Proxy (IAP) but didn't want the overhead or cost of a Global HTTP(S) Load Balancer. While `gcloud run deploy --iap` makes this look like a one-click affair, it creates a "state war" with Terraform. Every time Terraform ran, it would strip the IAP configuration because the standard `google` provider doesn't natively expose the `iap_enabled` attribute for Cloud Run v2 services.
+
+**Resolution**: We adopted a "Native IAP" strategy using the `google-beta` Terraform provider and explicit service identity management.
+
+**The "Service Account Does Not Exist" Gotcha**:
+One of the most frustrating moments was hitting a `400: Service account service-XXXX@gcp-sa-iap.iam.gserviceaccount.com does not exist` error during the IAM binding phase. This happens because the IAP Service Agent isn't automatically created until the first time IAP is "touched" in a project.
+
+**Fixed by**:
+- Using the `google_project_service_identity` resource (from `google-beta`) to force-provision the IAP service agent within the Terraform graph.
+
+**Managing the Annotation War**:
+Even with IAP enabled in Terraform, `gcloud` injects its own metadata (like `client-name` and `client-version`) during deployments. If not handled, Terraform tries to "clean up" these annotations, which can cause deployment instability.
+
+**Fixed by**:
+Using a surgical `lifecycle` ignore block:
+
+```hcl
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image, # Let CI/CD manage the image
+      client,
+      client_version,
+      annotations, # Ignores gcloud-managed IAP metadata
+      template[0].annotations,
+    ]
+  }
+```
+
+**Recommendation**: If you're using Cloud Run and need IAP, don't use the ALB!
+
+### Flexible Project Discovery: Organization-Independent FinOps
+
+**Problem**: My initial design for the Cloud Asset Inventory (CAI) integration relied on Organization-level permissions. While this is great for large enterprises, it created a massive barrier for smaller teams or individuals who manage multiple projects under a single billing account but *don't* have a formal Google Cloud Organization. I wanted this app to be "FinOps for everyone," not just "FinOps for the Fortune 500."
+
+**Resolution**: I refactored the project discovery logic to be **billing-centric** rather than organization-centric.
+
+**Why this way?**:
+- **Accessibility**: By using the **Cloud Billing API** (`billingAccounts.projects.list`), the agent can dynamically discover every project linked to the `GOOGLE_CLOUD_BILLING_ACCOUNT`, regardless of whether those projects live in an Organization, a Folder, or are just "lone wolves."
+- **Seamless Scalability**: For enterprise users, the `GOOGLE_CLOUD_ORGANIZATION` variable remains an optional "fast track." If provided, the agent uses the Organization as a single, efficient CAI scope. If not, it falls back to the discovered project list.
+- **Least Privilege**: Instead of asking for "Org Admin" (which makes security teams break out in hives), we only require **`roles/billing.viewer`** on the Billing Account. This is a much lower hurdle for adoption while still providing the necessary visibility.
+
+**The Terraform Adjustment**:
+To make this work, I had to update the IAM configuration. Standard project-level roles aren't enough; the Service Account needs to be a "Member" of the Billing Account itself to list its associated projects. 
+
+```hcl
+resource "google_billing_account_iam_member" "billing_account_viewer" {
+  for_each = local.deploy_project_ids
+
+  billing_account_id = var.billing_account_id
+  role               = "roles/billing.viewer"
+  member             = "serviceAccount:${google_service_account.app_sa[each.key].email}"
+}
+```
+
+**The Strategic Win**: 
+This change moves the application from being a "siloed" tool to a "network-aware" agent. It can now start with a single Billing Account ID and automatically map out the entire financial and technical footprint it's responsible for. 
+
+**Pro-Tip**: When designing for GCP, always remember that the **Billing Account** is the true "root" of the financial tree, even if the **Organization** is the root of the technical tree. Designing for both ensures your app can live in any environment.
+
+Hurrah! We're now one step closer to a truly universal FinOps assistant.
+
+### Discovery vs. Inspection: The IAM "Eyes"
+
+**Concept**: It's critical to distinguish between *Discovery* (mapping the footprint) and *Inspection* (analyzing the assets).
+- **Discovery (The Map)**: Using the Billing API to find the list of Project IDs. This requires `roles/billing.viewer`.
+- **Inspection (The Eyes)**: Using the Cloud Asset Inventory API to look *inside* those projects. This requires **`roles/cloudasset.viewer`** on every project.
+
+**The Org Admin Trap**:
+We attempted to automate the "Eyes" by granting `roles/cloudasset.viewer` at the **Organization level** via Terraform. This is the most efficient path, but it requires the identity running Terraform to have **`roles/resourcemanager.organizationAdmin`**. Without this, Terraform will fail with a `403` when trying to reach the Org node.
+
+**Strategy for Scale**:
+1. **Organization Path**: Grant Org Admin to the deployer, run Terraform, and the agent is instantly powered up for the entire org.
+2. **Project Fallback**: If Org Admin is unavailable, you must manually grant the Viewer role on each individual project discovered by the agent.
+
+**Verification Command**:
+A quick way to test if the "plumbing" is correct without launching the full agent:
+```bash
+uv run python -c "from app.app_utils.project_discovery import list_billing_projects; import os; print(list_billing_projects(f'billingAccounts/{os.getenv(\"GOOGLE_CLOUD_BILLING_ACCOUNT\")}'))"
+```
+
+If you see a list of project IDs, you're golden! If you see a `403`, check both the API status and the Billing Account IAM bindings.
+
+### The Permissions Check: Enabling CAI Across Projects
+
+**Problem**: Once we optimized the querying approach (extracting project IDs via regex), we had a lightning-fast agent. But, as noted, that optimization doesn't magically bypass IAM. If the agent's service account doesn't actually have the `roles/cloudasset.viewer` role on the specific project extracted from the URI, it will still hit a hard `403 Forbidden` error. We needed to ensure both our local testing user and the deployed service account had the correct "keys to the kingdom".
+
+**The Prerequisite Checklist**
+
+To use CAI effectively for FinOps across an entire estate, you must satisfy three distinct IAM scopes:
+
+#### A) For Local Testing (Your Google User)
+When you run `make playground` or use the Gemini CLI locally, the application uses your personal Google credentials (via Application Default Credentials). You need these roles granted to your email:
+
+1. **To discover the projects:**
+   * **Scope:** The Billing Account
+   * **Role:** `roles/billing.viewer`
+   * *How:* Go to **Billing** -> **Account Management** in the GCP Console and add your email.
+
+2. **To query Cloud Asset Inventory (The CAI "Eyes"):**
+   * **Scope:** The Target Projects (or inherited from a Folder/Organization)
+   * **Role:** `roles/cloudasset.viewer`
+   * *How:* If you are an Organization Admin, grant this to yourself at the **Organization** or **Folder** level. If you don't have an Org, you must grant this role to yourself on *every individual project* you want the agent to inspect.
+
+3. **To query the cost data:**
+   * **Scope:** The project hosting the BigQuery Billing Export
+   * **Roles:** `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`
+
+*Pro-Tip:* To quickly verify your CAI access on a target project, run:
+```bash
+gcloud projects get-iam-policy <TARGET_PROJECT_ID> \
+    --flatten="bindings[].members" \
+    --format='table(bindings.role)' \
+    --filter="bindings.members:YOUR_EMAIL_ADDRESS"
+```
+
+#### B) For Production (The Cloud Run Service Account)
+When deployed, the application runs as your designated Google Cloud Service Account. We codified these grants in our `deployment/terraform/iam.tf` file.
+
+1. **Billing Account Discovery:**
+   We used the `google_billing_account_iam_member` resource to grant the service account `roles/billing.viewer`.
+
+2. **CAI Metadata (Asset History):**
+   We implemented an Organization-level grant in Terraform using the `google_organization_iam_member` resource. By passing `google_cloud_organization_id` into our `env.tfvars`, Terraform gives the service account `roles/cloudasset.viewer` at the top of the hierarchy, instantly granting it visibility into every project below it.
+
+3. **BigQuery Costs:**
+   We used `google_project_iam_member` to grant `roles/bigquery.dataViewer` and `roles/bigquery.jobUser` specifically on the central billing project.
+
 ### CI/CD Pipeline Alignment and Security Hardening
 
 **Problem**:
@@ -1188,280 +1821,6 @@ This restores complete authentication parity for our automated review and triage
 
 ---
 
-### Integrating Gemini Cloud Assist MCP & Enforcing Latency-Aware Tool Routing
-
-**Problem**:
-As our FinOps agent grows to support multiple Model Context Protocol (MCP) servers (including BigQuery and Google Developer Knowledge), we hit a potential latency trap. If the agent acts as a generic orchestrator and queries multiple backend tools sequentially for a single question—such as checking inventory, querying docs, and calling cost APIs—the response latency spikes to unacceptable levels. We need the agent to act like a laser: immediately routing queries to the correct specialized MCP toolset without redundant API calls.
-
-Furthermore, we wanted to integrate **Gemini Cloud Assist** to move from static document lookup to active, telemetry-aware optimization recommendations (e.g. rightsizing VM instances based on historical CPU metrics).
-
-**Resolution**:
-We integrated the managed Gemini Cloud Assist MCP server and established a strict, instruction-based routing gate (Approach A) to optimize turn latency:
-
-1. **Gemini Cloud Assist MCP Integration**:
-   * Modified [mcp_config.py](../app/app_utils/mcp_config.py) to register `CloudAssistAuthProvider`, which caches standard Google OAuth2 headers.
-   * Defined and exported `cloud_assist_mcp_toolset` pointing to the managed endpoint: `https://geminicloudassist.googleapis.com/mcp`.
-   * Modified [agent.py](../app/agent.py) to import and register the new toolset in `root_agent`'s tools list.
-
-2. **Latency-Aware Decision Tree Instructions**:
-   Overhauled the `AGENT_INSTRUCTION` system prompt in [agent.py](../app/agent.py) to declare a strict, explicit **Tool Execution Hierarchy**. The model is instructed to match the user's intent to exactly one of the following paths and bypass all other tools on that turn:
-   * **Spend & Billing Trends Route**: Calls only the cached BigQuery SQL tool (`execute_cached_bigquery_sql`).
-   * **Active Resource Optimization Route**: Calls only the Gemini Cloud Assist MCP tools (e.g. `ask_cloud_assist`).
-   * **Structured Asset Auditing & RCA Route**: Calls only the local CAI and zombie tools (`list_zombie_resources`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`).
-   * **Conceptual Reference Route**: Calls only the Google Developer Knowledge MCP tools (`answer_query` or `search_documents`).
-
-   Here is the visual diagram illustrating our Model Context Protocol (MCP) routing decision tree structure:
-
-   ![Model Context Protocol (MCP) Routing Decision Tree](./images/mcp_routing_architecture.png)
-
-3. **Code Quality and Type Checking Verification**:
-   * Refactored [agent.py](../app/agent.py) to resolve python type hints (using union types `LlmRequest | None`) flagged by the strict type-checker `ty`.
-   * Executed formatting and quality controls (`make lint`) which completed successfully with zero spelling, linting, or formatting errors.
-   * Verified that the backend module imports cleanly and starts without latency issues.
-
-This gives our FinOps agent active, real-time optimization capabilities via Gemini Cloud Assist while maintaining sub-second classification and execution paths! Hurrah!
-
----
-
-### Hardening Agent Routing Paths & Improving Chatbot Markdown Rendering
-
-**Problem**:
-When querying recommendations for specific deployed services (such as "Use Cloud Assist to check for cost or scaling recommendations for our deployed Cloud Run service smart-gcp-finops in project finops-admin-dev"), the agent was still running zombie resource checking alongside Gemini Cloud Assist tools, violating the strict single-turn routing constraints. Additionally, standard markdown responses containing headers, lists, inline code backticks, and code blocks rendered by the chatbot were displayed as raw unformatted text blocks, degrading the chat UX.
-
-**Resolution**:
-1. **Explicit Routing Hardening**:
-   * Modified [agent.py](../app/agent.py) to explicitly list permitted and banned tools by name in the `AGENT_INSTRUCTION` tool-routing decision tree.
-   * Listed `list_zombie_resources` by its exact name as a banned tool under Route 2 (Active Infrastructure Optimisation & Recommendations), ensuring the agent knows it is banned when running Cloud Assist recommendations.
-2. **Upgraded Chatbot Markdown Parser**:
-   * Upgraded the React `renderMarkdown` parser in [App.tsx](../frontend/src/App.tsx) to support parsing and formatting standard markdown elements, including:
-     * Code blocks (wrapped in `<pre><code>` blocks with proper background styling).
-     * Inline code (backticks replaced with `<code style="...">` tags).
-     * Heading levels 1 to 4 (`#`, `##`, `###`, `####`).
-     * Numbered and bulleted lists.
-     * Bold text and data tables.
-3. **Verification**:
-   * Ran the full backend test suite (`uv run pytest tests/unit/`) to ensure all agent MCP and routing assertions pass.
-   * Executed the React frontend production compiler bundle step successfully, verifying zero typescript or bundling regressions in `App.tsx`.
-
-This ensures perfect query isolation for our active recommendations workflow while displaying beautiful, cleanly-typeset markdown in the chat window! Hurrah!
-
-
----
-
-### Optimising BigQuery Queries, Preventing Truncation Loops, and Parallelising CAI Scans
-
-**Problem**:
-When asking the FinOps agent to *"show me the cost drivers over the last 30 days"*, the query took a couple of minutes to get a response and ended up executing dozens of SQL queries. Additionally, we identified redundancies and sequential network latency in our Cloud Asset Inventory (CAI) zombie resource scanning, causing a sluggish load time for the executive dashboard.
-
-**Resolution**:
-1. **Identified Tool Response Truncation**:
-   * We discovered that querying the daily cost trend over 30 days returned data for *all* services, including hundreds of zero-cost or negligible-cost entries. This generated a payload exceeding 150KB, which triggered the ADK/system tool response truncation limit.
-   * Faced with truncated/incomplete data, the Gemini agent attempted to self-heal by dynamically executing dozens of smaller queries (day-by-day and service-by-service). Since these queries were dynamic, they always missed the cache, leading to severe latency and increased BQ scan costs.
-2. **Hardened SQL Query Template with Cost Filters**:
-   * Updated the `AGENT_INSTRUCTION` prompt template in [agent.py](../app/agent.py) to instruct the model to always append `HAVING daily_cost > 0.1` (or `HAVING daily_cost > 0`). This successfully filters out zero-cost and tiny telemetry entries at the database layer, shrinking the daily trend payload from ~150KB to under ~5KB and preventing truncation loops.
-   * Applied the same database-level cost filter (`HAVING daily_cost > 0.01` and `HAVING monthly_cost > 0.01`) in [dashboard_data.py](../app/app_utils/dashboard_data.py) to keep dashboard queries fast and lightweight.
-3. **Parallelised Cloud Asset Inventory Scans**:
-   * Refactored [zombie_tools.py](../app/app_utils/zombie_tools.py) to replace the synchronous sequential loop over project scopes with a concurrent `ThreadPoolExecutor` (using 10 workers).
-   * This reduces the blocking network latency of scanning 7+ projects for unattached disks and idle IPs from 14–28 seconds down to a single concurrent sweep of ~1–2 seconds.
-   * Updated `tests/unit/test_zombie_tools.py` by wrapping the mocked `search_zombie_resources` calls in a `threading.Lock` to ensure thread-safety of the shared mock object, allowing pytest checks to pass successfully without hangs.
-
-This resolves the query looping issue completely, ensures all daily telemetry queries fit cleanly within context boundaries, and cuts dashboard CAI latency by over 90%! Hurrah!
-
----
-
-### Resolving Cost Investigation Runaway Loops & CAI Permission Warnings
-
-**Problem**:
-When asking Root Cause Analysis (RCA) queries (e.g. *"Why did our production costs spike on May 23rd? Cross-reference billing records with CAI config changes"*), the agent got stuck in runaway loops making dozens of tool/SQL calls and throwing repeated `403 Permission Denied` warnings.
-
-**Resolution**:
-1. **Defensive Runaway Prevention**:
-   * Set `max_llm_calls=15` in `RunConfig` in the SSE chat stream endpoint in [fast_api_app.py](../app/fast_api_app.py). This prevents runaway queries from generating endless LLM iterations and high billing charges.
-2. **Project-First History Lookup Order**:   * Re-architected `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to extract the resource's project ID and run project-level CAI queries first. Since the service account possesses permissions on the projects, project-level queries succeed cleanly and bypass the need to touch organization-level scope, eliminating the scary 403 warnings entirely.
-3. **Self-Healing Organization Scope Disabling**:
-   * Introduced a thread-safe `_ORG_SCOPE_DISABLED` flag in [cai_utils.py](../app/app_utils/cai_utils.py). If any organization-scope CAI query returns a `403 Permission Denied` error, the flag is set, automatically bypassing organization-scope calls on all future turns to prevent redundant warnings and latency.
-4. **Explicit Root Cause Analysis Instructions & Cost Filters**:
-   * Updated the `AGENT_INSTRUCTION` prompt routing tree in [agent.py](../app/agent.py) to add a dedicated **Intent 5: ROOT CAUSE ANALYSIS (RCA) OF COST SPIKES**, permitting the agent to combine BigQuery SQL and CAI history lookup in a single turn for spike analysis.
-   * Directed the agent to filter out negligible costs (e.g., `WHERE cost > 0.1` or `HAVING SUM(cost) > 0.1`) on resource-level queries to prevent resource list truncation, and capped history queries to only the top 1 or 2 spiked resources.
-5. **Quality Control Verification**:
-   * Added unit tests to `test_cai_tools.py` verifying the project-first lookup order and organization scope skipping.
-   * Ran `make test` confirming all 38 unit tests pass successfully.
-   * Ran spelling and linting checks (`codespell` and `ruff check --fix .`), verifying zero issues.
-
-This eliminates 403 organization permission warnings, enforces cost filtering on resource-level spikes, and prevents runaways with hard turn ceilings! Hurrah!
-
----
-
-### Hardening Guardrails: Tool Call Ceilings, Project Filtering & Verbose FinOps Telemetry
-
-**Problem**:
-RCA cost-driver investigations (such as spike queries comparing specific days) were still triggering too many tool calls per turn. The agent was looping over dozens of projects that had negligible/fractional-cent costs, causing 429 API rate limits, slow response times, and telemetry noise. Furthermore, debug logs lacked visibility on BQ query statements and CAI lookup parameters.
-
-**Resolution**:
-1. **Hard Tool Call Ceiling Callback & RCA Prompt Optimization**:
-   * Implemented a turn-level tool call ceiling callback in [agent.py](../app/agent.py) via ADK's `before_agent_callback` and `before_tool_callback` to raise a `RuntimeError` if tool calls exceed 25 in a single turn.
-   * Refined Intent 5 system instructions in `agent.py` to prohibit low/empty threshold resource-level queries (such as `cost > 0` or missing filters) and require a strict `LIMIT 15` and a minimum cost filter (e.g. `cost > 0.5`).
-   * Enforced clear fallback logic: if the comparative spike query returns empty, the agent must check daily billing totals of the surrounding month and inform the user if no spike occurred, instead of querying all resources or projects recursively.
-2. **Turn-Level LLM Ceiling Reduction**:
-   * Lowered `max_llm_calls` from 15 to 5 in the FastAPI event stream runner configuration in [fast_api_app.py](../app/fast_api_app.py). This enforces a strict Stop ceiling to prevent redundant LLM reasoning iterations.
-3. **Fractional Cent Project Filtering**:
-   * Modified `get_active_billing_projects()` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to group BQ costs by project ID and filter out projects costing less than $0.10 in the last 30 days (`HAVING SUM(cost) > 0.1`).
-   * This completely prevents the agent from triggering expensive Asset Inventory scans or zombie resource lookups for projects with negligible activity.
-4. **Verbose SQL & CAI History Logging**:
-   * Updated `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to print the full SQL statement, the total returned row count, and a snippet of the first 3 rows.
-   * Updated `get_cai_history_for_resource` in [cai_tools.py](../app/app_utils/cai_tools.py) to log the exact lookup parameters (`resource_name`, `start_time`, `end_time`) and returned record counts (from both cache hits and fresh calls).
-5. **Fast Local Exact Cache Match**:
-   * Updated `before_agent_cache_lookup` in [agent.py](../app/agent.py) to execute a local case-insensitive exact string match on incoming user queries. If the query is identical (normalising whitespace and casing) to a cached entry, it instantly bypasses the fast LLM semantic cached query call, reducing API calls to zero and turn response time to microseconds.
-6. **Project-Scoped Zombie Resource Sweeps**:
-   * Updated `list_zombie_resources` in [zombie_tools.py](../app/app_utils/zombie_tools.py) to accept an optional `project_id` parameter.
-   * When the agent detects the user is asking about zombie resources in a specific project, it passes `project_id` to focus the search scope strictly to that project, bypassing organization-wide sweeps or sweeps of other projects.
-7. **Quality Control & Unit Tests**:
-   * Added `test_list_zombie_resources_scoped_project` to [test_zombie_tools.py](../tests/unit/test_zombie_tools.py).
-   * Added `test_fast_local_cache_hit` to [test_semantic_cache.py](../tests/unit/test_semantic_cache.py).
-   * Verified all 41 unit tests (`make test`) and spell/style checks (`make lint`) pass cleanly.
-
-This ensures robust runaway protection, keeps project sweeps fast and noise-free, provides rich logging telemetry, and cuts redundant API matching calls! Hurrah!
-
----
-
-### Dynamic Cost Spikes Starter Prompt Integration
-
-**Problem**: The "Analyze Cost Spikes" quick question prompt in the chat panel was hardcoded to a fixed date: *"Why did our production costs spike on May 23rd? Cross-reference billing records with CAI config changes."* This was confusing to operators when the actual billing data loaded dynamically from BigQuery had spikes on entirely different dates, as the prompt did not align with the real-time financial telemetry shown on the dashboard.
-
-**Resolution**: We refactored the quick starter questions engine in [App.tsx](../frontend/src/App.tsx) to dynamically discover and format the actual peak cost day from the loaded billing telemetry:
-1. **Dynamic Peak Cost Discovery**: Reused the existing peak-finding logic (which maps the maximum total cost coordinate for the glowing pulsing spike node) to determine the exact calendar date of the highest spike.
-2. **Robust Date Parser Helpers**: Developed `formatSpikeDate` and `formatFriendlyDate` helper functions at the top of the file to parse both `YYYY-MM-DD` and `MM/DD` date formats and convert them into friendly UK English ordinal expressions (e.g. `23rd May` or `29th May`).
-3. **Reactive Starter Generation**: Replaced the static `sampleQuestions` array with a `useMemo` hook bound to `recentSpikes`, `hasSpikes`, and `maxIdx`. When the dashboard telemetry is retrieved, the Analyze Cost Spikes card dynamically updates its text value to target the true maximum spike date.
-4. **Self-Healing Fallbacks**: If the dashboard telemetry hasn't loaded yet or if no spikes exist, the prompt safely falls back to a clean default of `23rd May` without crashing the render cycles.
-5. **Dashboard Loading Race Condition Guard**: Prevented a startup race condition where a user could click the "Analyze Cost Spikes" button while the dashboard data was still loading (during which time the telemetry date resolved to the fallback `"23rd May"`). We now bind the button's active state to `isLoadingDashboard`, visually rendering it as `"Resolving Spikes..."` with disabled opacity and cursor locks until the telemetry resolves, completely eliminating premature queries.
-
-This ensures the conversational interface is perfectly synchronized with the active visualization layers, enabling a more natural and relevant analytical workflow! Hurrah!
-
----
-
-### Gemini Enterprise Agent Runtime Integration
-
-**Problem**: We wanted our core agent logic to execute within a fully managed, scalable runtime (Vertex AI Reasoning Engine) rather than coupling AI reasoning, heavy tool executions, and stateful session logic inside our stateless FastAPI Backend for Frontend (BFF) container on Cloud Run.
-
-**Resolution**: We designed and deployed the **FinSavant** agent to the managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) from the start, using the Cloud Run container solely to host the static React UI and BFF proxy.
-1. **Infrastructure (Terraform)**: Provisioned the `google_vertex_ai_reasoning_engine` resource shell in `deployment/terraform/service.tf` using a base64-encoded dummy source code tarball to avoid cold start provisioning issues, and configured dynamic `AGENT_RUNTIME_ID` injection into the Cloud Run environment.
-2. **IAM & Impersonation**: Configured role impersonation bindings allowing the Vertex AI service agent to assume the credentials of the application service account (`app_sa`) to safely invoke BigQuery, CAI, and Cloud Assist APIs.
-3. **BFF Routing**: Programmed `app/fast_api_app.py` to check for `AGENT_RUNTIME_ID`. If present, it uses the regional `vertexai.Client(location="europe-west1")` to async-stream events from the managed runtime. Otherwise, for local development, it gracefully falls back to local ADK runner execution.
-4. **Agent Runtime Wrapper**: Created `app/agent_runtime_app.py` to wrap our ADK root agent inside `AdkApp`, enabling standard operation exposure and logging.
-5. **CI/CD Pipeline Integration**: Configured the GitHub Actions workflows (`staging.yaml` and `deploy-to-prod.yaml`) to compile Python requirements to `app/app_utils/.requirements.txt`, deploy the Agent Runtime code via `agents-cli deploy`, extract the deployment ID from the auto-generated `deployment_metadata.json`, and pass it to Cloud Run.
-6. **Automatic Agent Registry Enrollment**: Because Gemini Enterprise Agent Runtime is a first-class supported runtime on the Gemini Enterprise Agent Platform, deploying our reasoning engine automatically registers our agent in the central **Agent Registry**. Any updates or deletions we deploy are automatically synchronized in real-time. This provides an enterprise-wide "Agent Catalog" view directly within the Google Cloud console under **Agent Platform Deployments** without writing any extra registration code!
-
-Here is how our deployed agent appears in the Console registry view:
-
-![Deployed Agents in Agent Registry](./images/agent-registry.jpg)
-
-This architecture decouples the stateless React web application from the AI reasoning backend while preserving unified container benefits and local testing fallbacks! Hurrah!
-
----
-
-### Fallback and Execution Mode Visual Indicator
-
-**Problem**: Operators and developers running the application locally or in deployed environments had no way of seeing at a glance whether the BFF proxy was successfully routing queries to the remote Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) or falling back silently to local ReAct execution. This lack of transparency increased the risk of executing heavy queries against local emulators/credentials by mistake.
-
-**Resolution**: I added a dynamic, glassmorphic visual indicator badge to the React panel header:
-1. **BFF Status Endpoint**: Exposed a lightweight GET `/api/status` endpoint in [fast_api_app.py](../app/fast_api_app.py) returning `mode: "remote"` (and the full resource ID) or `mode: "local"` depending on the presence of the `AGENT_RUNTIME_ID` environment variable.
-2. **React Integration**: Built a fetch hook in [App.tsx](../frontend/src/App.tsx) that retrieves this status payload on startup and updates local state.
-3. **Cyberpunk Status Badge**: Styled a badge inside the chat header using high-contrast themed HSL colors:
-   * **`IN-CONTAINER FALLBACK`** (amber `#F59E0B` background/border/glow) when running locally.
-   * **`VERTEX RUNTIME`** (neon green `#00F59B` background/border/glow) when pointing to a deployed reasoning engine, complete with a detailed tooltip showing the active resource ID on hover.
-
-This completes the integration feedback loop, giving the developer instant reassurance of their active execution target! Hurrah!
-
----
-
-### Decoupled Remote Session Management & SessionNotFoundError Resolution
-
-**Problem**:
-After deploying to the staging environment, the Vertex AI Reasoning Engine (Gemini Enterprise Agent Runtime) failed to respond to any user chat queries, though the executive dashboard metrics loaded successfully. Staging container logs revealed the remote engine was throwing a `google.adk.errors.session_not_found_error.SessionNotFoundError: Session not found: ...` exception. 
-
-**The Cause**:
-In `app/fast_api_app.py`, the backend was unconditionally calling `runner, session = await get_global_runner_and_session()` on every chat request. This action set the active session ID context variable in the local thread/async environment. When making the downstream call to the remote reasoning engine using `agent_engine.async_stream_query()`, the Vertex SDK automatically intercepted and propagated this local session ID to the remote endpoint. Since the remote session store had no knowledge of this locally-generated in-memory session, it raised a `SessionNotFoundError` and stopped execution.
-
-**Resolution**:
-We decoupled the local runner execution context from the remote routing logic:
-1. **Conditional Local Initialisation**:
-   Modified [fast_api_app.py](../app/fast_api_app.py) to wrap `get_global_runner_and_session()` inside an `if not agent_runtime_id:` check. This ensures that no local session context is initialised or propagated when routing to Vertex.
-2. **Lazy Remote Session Caching**:
-   Introduced thread-safe lazy remote session management (`_REMOTE_SESSION_ID` and `_REMOTE_SESSION_LOCK`) in the BFF. In remote mode, the BFF now calls `agent_engine.async_create_session(user_id="default_user")` dynamically to initialise and cache a valid session ID from the remote Vertex engine.
-3. **Self-Healing Session Recovery**:
-   Wrapped the remote query execution loop in a try-catch block for `SessionNotFoundError`. If the remote session ID expires or is deleted on the Vertex side, the BFF logs a warning, resets the cached session ID, and retries the query without a session ID to establish a new remote session.
-4. **Mock Testing Updates**:
-   Updated the test suite in [test_fast_api_app.py](../tests/unit/test_fast_api_app.py) to mock `async_create_session` so that our tests correctly simulate remote session creation without triggering `MagicMock` coroutine errors.
-5. **Verification**:
-   Executed spelling checks, ruff lints, and unit tests (`pytest tests/unit/`), all of which passed cleanly.
-
-This resolves the staging session propagation bug, allowing multi-turn conversations to run on the remote reasoning engine with self-healing session persistence! Hurrah!
-
----
-
-### Standard ADK Telemetry & OpenTelemetry Instrumentation
-
-**Problem**:
-While our application had basic logging capabilities, the agent lacked structured OpenTelemetry (OTel) instrumentation for distributed tracing, metrics, and GenAI SDK message capturing. To gain deep observability (e.g. tracking latency, span hierarchies, and tool execution flows) in both local development and deployed Vertex AI/Cloud Run environments, we needed to implement standard ADK telemetry.
-
-**Resolution**:
-We configured and integrated standard ADK telemetry and OpenTelemetry instrumentation:
-1. **API Enablement & Resource Config (Terraform)**:
-   * Added `monitoring.googleapis.com` (Cloud Monitoring API) to the `deploy_project_services` list in [locals.tf](../deployment/terraform/locals.tf) to support OTel metric exporting.
-   * Updated [service.tf](../deployment/terraform/service.tf) to inject standard telemetry environment variables `OTEL_SERVICE_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` to both the Cloud Run service and the Vertex AI Reasoning Engine.
-   * Configured `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` conditionally based on the environment tier (`"NO_CONTENT"` in production for data privacy, and `"true"` in staging/development to capture full GenAI prompts and responses).
-2. **Standard OTel Telemetry Setup**:
-   * Updated `setup_telemetry()` in [telemetry.py](../app/app_utils/telemetry.py) to import `get_gcp_exporters`, `get_gcp_resource`, and `maybe_set_otel_providers` from `google.adk.telemetry`.
-   * Programmatically registered standard Google Cloud exporters for Cloud Trace and Cloud Logging when running in a serverless environment or when `OTEL_TO_CLOUD=true` is enabled.
-   * Hooked the Google GenAI SDK into the OpenTelemetry span lifecycle by programmatically calling `GoogleGenAiSdkInstrumentor().instrument()`.
-3. **Verification & Quality Control**:
-   * Ran `make test` and verified all 44 unit tests pass successfully.
-   * Executed formatting and linting controls (`uvx codespell` and `uvx ruff`) to ensure clean code standards.
-
-This enables out-of-the-box distributed tracing and monitoring for all agent runs, tool calls, and model interactions, providing a clear window into our agent's cognitive trajectories! Hurrah!
-
----
-
-### Implementing User-Level Project Scoping and Access Controls (Option A)
-
-**Problem**:
-The initial implementation of the FinSavant executive dashboard and ADK agent queried and analyzed cost data and zombie assets across all projects that the application service account had access to. However, to support multi-tenant or team-isolated environments, the system must restrict all displayed data, queries, and conversational context to only the projects the active, authenticated user has permissions to see.
-
-**Resolution**:
-We implemented a complete application-level user project scoping and access control layer (Option A) across the FastAPI BFF, database utilities, and ADK agent:
-1. **User Identity Extraction**:
-   * Extracted the user's email from the standard `X-Goog-Authenticated-User-Email` header (injected by Google Identity-Aware Proxy).
-   * Declared `local_developer_email` in [config.py](../app/config.py) and added `LOCAL_DEVELOPER_EMAIL` to the local [.env](../.env) file to serve as a fallback for local developer testing.
-2. **Access Discovery & Caching**:
-   * Implemented `get_user_accessible_projects(user_email)` in [project_discovery.py](../app/app_utils/project_discovery.py).
-   * If a Google Cloud Organization is configured, it queries Cloud Asset Inventory's `searchAllIamPolicies` with `query="policy:{user_email}"`.
-     - If the user has organization-level or folder-level bindings (inheriting access to all projects), it automatically resolves all projects in the organization.
-     - Otherwise, it collects project IDs from specific project-level bindings.
-   * If no organization is configured, it falls back to querying the direct IAM policies of all projects linked to the billing account, scanning for member bindings of the user's email.
-   * Wrapped the lookup in a thread-safe, local in-memory cache with a 10-minute TTL to optimize latency and prevent GCP API quota exhaustion.
-3. **Database Scoping Firewall (SQL Table Wrapping)**:
-   * Created a request-local context variable `ALLOWED_PROJECTS_VAR` in [context.py](../app/app_utils/context.py) using the standard library `contextvars` module to propagate the user's allowed projects.
-   * Refactored `execute_cached_bigquery_sql` in [tools.py](../app/app_utils/tools.py) to fetch `ALLOWED_PROJECTS_VAR`. If set, it dynamically intercepts and wraps all billing table references in the SQL query with pre-filtered subqueries:
-     ```sql
-     (SELECT * FROM `project.dataset.table` WHERE project.id IN ('proj-1', 'proj-2'))
-     ```
-     This enforces strict row-level security at the query engine level, preventing any possibility of prompt injection bypasses.
-4. **Dashboard & Zombie Filtering**:
-   * Updated `get_actual_dashboard_metrics` in [dashboard_data.py](../app/app_utils/dashboard_data.py) to accept `allowed_projects` and inject `AND project.id IN ('proj-1', ...)` filters into all dashboard queries (MTD spend, daily trends, cost explorer).
-   * Filtered list of Cloud Asset Inventory unattached disks and idle static IPs in Python, retaining only assets whose project matches the allowed projects list.
-5. **Session Isolation & Prompt Scoping**:
-   * Refactored [fast_api_app.py](../app/fast_api_app.py) to route `get_global_runner_and_session` by user email, isolating session state and chat history.
-   * Propagated `ALLOWED_PROJECTS_VAR` inside the request thread and agent execution thread.
-   * Appended a hidden `[SECURITY CONSTRAINT]` instruction prompt containing the allowed project list to user queries so the LLM agent behaves securely and targets the correct project ids.
-6. **Verification & Quality Control**:
-   * Added robust unit tests to [test_project_discovery.py](../tests/unit/test_project_discovery.py) and [test_dashboard_data.py](../tests/unit/test_dashboard_data.py) covering mock IAM policy responses and dashboard scoping.
-   * Executed the entire unit test suite (`uv run pytest tests/unit`), passing successfully (48 passed).
-   * Ensured Python standards compliance by running `codespell` and `ruff`.
-
-This ensures the entire FinSavant workspace behaves as a secure, team-isolated SaaS workspace where no user can see or query financial telemetry of projects they do not own! Hurrah!
-
----
-
 ### Non-Interactive Project IAM Policy Bindings and --condition=None
 
 **Problem**:
@@ -1476,36 +1835,6 @@ We appended the `--condition=None` flag to all project-level `gcloud projects ad
 
 ---
 
-### Docker Run Setting Validation and Makefile Environment Exporter
-
-**Problem**:
-Running `make docker-run` failed immediately with Pydantic settings validation errors. Pydantic reported that `local_developer_email` (which is a required setting) was missing, and `google_genai_use_vertexai` failed boolean parsing because it was mapped to an empty string `""`. This happened because the container runs without `.env` (ignored by `.dockerignore`), the variable wasn't mapped in `docker run`, and Makefile variables resolved to empty strings when `make docker-run` was called from an unsourced shell session.
-
-**Resolution**:
-We updated our local build and execution scripts:
-1. **Makefile Env Loader**: Added a block at the top of [Makefile](../Makefile) to detect, include, and export all environment variables from our local `.env` file into the `make` shell environment.
-2. **Mapped LOCAL_DEVELOPER_EMAIL**: Passed the `-e LOCAL_DEVELOPER_EMAIL="$(LOCAL_DEVELOPER_EMAIL)"` environment variable into the `docker run` command in [Makefile](../Makefile), resolving all settings validation errors.
-
-This ensures the container boots up successfully, matching parity with local and Cloud Run configurations! Hurrah!
-
----
-
-### Custom Database Tool Scoping & Segregation Tests
-
-**Problem**:
-While we had implemented SQL query wrapping and project-level data segregation inside our custom `execute_cached_bigquery_sql` tool, we lacked unit tests to validate that the SQL rewrite logic functioned correctly under different project scopes and to check the agent vs. user visibility gap.
-
-**Resolution**:
-Created [test_tools.py](../tests/unit/test_tools.py) which contains 4 comprehensive unit tests:
-1. **`test_execute_cached_bigquery_sql_no_restriction`**: Asserts that when the user has no project restrictions (context variable is `None`), the SQL query is executed unmodified.
-2. **`test_execute_cached_bigquery_sql_with_restriction`**: Asserts that when the user is restricted to specific projects, table references are successfully intercepted and wrapped in a subquery filtering on `project.id`.
-3. **`test_execute_cached_bigquery_sql_empty_allowed_projects`**: Asserts that if the user's allowed project list is empty, table queries are rewritten with `LIMIT 0` to block data leakages.
-4. **`test_execute_cached_bigquery_sql_agent_vs_user_visibility`**: Asserts that if the agent attempts to group by or list all projects in the dataset (including those the user does not have permission to view), the query is rewritten to restrict execution only to the user's allowed list, successfully closing the visibility gap.
-
-All 52 unit tests are passing cleanly, proving the security boundaries of our FinOps analyst! Hurrah!
-
----
-
 ### Resolving CI/CD Pipeline ValidationError on Settings
 
 **Problem**:
@@ -1513,202 +1842,6 @@ When unit tests were run in the GitHub Actions CI/CD runner, they failed immedia
 
 **Resolution**:
 Provided a default value of `"local-dev@example.com"` for `local_developer_email` in [config.py](../app/config.py). This fallback satisfies Pydantic's requirement when running in the CI/CD environment where `.env` files are ignored, letting all unit tests compile and run successfully.
-
----
-
-### Refactoring Global State to Object-Oriented Client Managers
-
-**Problem**:
-The application had multiple loose, mutable global module-level variables (e.g. `_THREAD_LOCAL`, `_ORG_SCOPE_DISABLED`, `_ORG_SCOPE_LOCK` inside `cai_utils.py`, `_bq_client` inside `tools.py`, `_USER_PROJECTS_CACHE` inside `project_discovery.py`, and `_AGENT_QUERY_CACHE` inside `agent.py`) that stored service connections and caching state. Dispensing these across free-floating functions made state tracking difficult, cluttered class namespaces, created testing isolation challenges, and required complex thread locks across functions.
-
-**Resolution**:
-We refactored these variables into cohesive, object-oriented client and manager classes:
-1. **`CAIClientManager`** in [cai_utils.py](../app/app_utils/cai_utils.py): Encapsulates thread-local discovery service clients, organisation scope configuration status, and thread locks.
-2. **`QueryCacheManager`** in [query_cache.py](../app/app_utils/query_cache.py): Encapsulates in-memory query results cache and locking mechanisms.
-3. **`BigQueryClientManager`** in [tools.py](../app/app_utils/tools.py): Encapsulates lazy-initialisation of the BigQuery client and associated lock variables.
-4. **`ProjectDiscoveryManager`** in [project_discovery.py](../app/app_utils/project_discovery.py): Encapsulates in-memory project permission lookup caches.
-5. **`AgentQueryCacheManager`** in [agent.py](../app/agent.py): Encapsulates agent-level semantic response caches.
-
-**Backward Compatibility Pattern**:
-To prevent breaking existing REST endpoint routes, unit tests, and ADK agent tool mappings, we:
-* Instantiated module-level singletons (e.g. `cai_client_manager = CAIClientManager()`, `bq_client_manager = BigQueryClientManager()`).
-* Kept the original module-level function signatures (e.g. `is_org_scope_disabled()`, `_get_bq_client()`) as thin wrappers delegating to the singletons.
-* Mapped module-level global variables directly to the manager's attributes (e.g. `_USER_PROJECTS_CACHE = project_discovery_manager.user_projects_cache`), allowing unit tests to clear or inspect cache states in-place.
-
-All 53 unit tests pass successfully, and spelling/linter checks verify code quality compliance! Hurrah!
-
----
-
-### Serving Command Correction, Dependency Standardization & Logging Cleanup
-
-**Problem**:
-Following the BFF and Agent decoupling, several runtime issues arose during staging deployment and local execution:
-1. **Staging Deploy Failure (`ModuleNotFoundError`)**: The container failed to launch with `/code/.venv/bin/python3: Error while finding module specification for 'google.cloud.aiplatform.reasoning_engines.web_server' (ModuleNotFoundError: No module named 'google.cloud.aiplatform.reasoning_engines')`. We discovered that `google.cloud.aiplatform.reasoning_engines.web_server` is not distributed inside PyPI's public `google-cloud-aiplatform` package, and that the Reasoning Engine actually serving ADK applications uses the ADK standard FastAPI CLI.
-2. **Duplicate/Redundant Telemetry Files**: Two separate modules (`logging_and_telemetry.py` and `telemetry.py`) existed in the `app_utils/` directory, exposing duplicate `setup_telemetry()` implementations.
-3. **Noisy Logger Warnings in Staging**: The container logs emitted continuous `httplib2 transport does not support per-request timeout` and `[EXPERIMENTAL] feature...` warnings. The warning filters were not run early enough during import-time of the entrypoint files (`fast_api_app.py` and `agent_runtime_app.py`), and duplicating raw `warnings.filterwarnings` filter lists across entrypoints created poor code structure.
-
-**Resolution**:
-We resolved the startup configurations, cleaned up redundant modules, and standardized warnings management:
-1. **Dockerfile Command Correction**: Restored the ADK FastAPI server serving command in [app/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/app/Dockerfile):
-   ```dockerfile
-   CMD ["python", "-m", "google.adk.cli", "api_server", "--host", "0.0.0.0", "--port", "8080"]
-   ```
-   This successfully starts the Reasoning Engine inside Agent Runtime.
-2. **Standardized Warning Suppressions**:
-   * Moved all third-party imports (like `google.auth` and `google-adk` libraries) inside `setup_telemetry()` in [logging_and_telemetry.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/app_utils/logging_and_telemetry.py) so importing the module triggers zero warnings.
-   * Imported and executed `setup_logging_suppressions()` at the very top of [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) and [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), fully suppressing import-time and run-time warnings. Added `# ruff: noqa: E402` to document and allow this PEP 8 exception.
-3. **Redundancy Cleanup**: Deleted the unused, leftover `telemetry.py` module.
-4. **Dependency Standardization**: Aligned package ranges inside [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) to use recent stable versions (e.g. `google-adk>=2.3.0`, `google-cloud-aiplatform>=1.159.0`, `mcp>=1.28.1`), regenerated `uv.lock` files, and re-compiled [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt).
-5. **Quality & Validation**: Ran `make lint` and `make test`, verifying all 52 unit tests and quality checks pass with 0 errors.
-
----
-
-### Reasoning Engine Endpoint Router Fix & Dataplex Dependency Resolution
-
-**Problem**:
-Following our decoupling, two issues impacted the runtime execution of our Python agent when queried remotely via Vertex AI Agent Runtime:
-1. **Missing Dataplex Dependency**: The ADK `BigQueryToolset` depends on `google-cloud-dataplex` (`dataplex_v1`). This library was missing from [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml), causing the container's python interpreter to fail loading the entrypoint module with `ImportError: cannot import name 'dataplex_v1' from 'google.cloud'`.
-2. **REST Endpoint Routing Mismatch (404 Not Found)**:
-   * During our initial resolution, we attempted to suppress the client-side `Unsupported api mode: async` registration warnings by pruning the `"async"` and `"async_stream"` keys from the server's `register_operations()` method in `agent_runtime_app.py`.
-   * However, this broke the Vertex AI Control Plane router's routing table. The Control Plane relies on the server's `register_operations()` dictionary payload to dynamically map and validate incoming REST requests before forwarding them to the container. Without these keys, the Control Plane rejected incoming calls to `async_create_session` and immediately returned `404 Not Found` (detail: `"Not Found"`).
-
-**Resolution**:
-1. **Dependency Addition**: Added `"google-cloud-dataplex>=2.20.0,<3.0.0"` to the `dependencies` list in [app/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/app/pyproject.toml) and re-compiled [app/finops_agent/requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/requirements.txt) offline.
-2. **Operations Mapping Restoration**:
-   * Restored `register_operations()` in [agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py) to its original working implementation. This leaves the `"async"` and `"async_stream"` keys intact, ensuring the Vertex AI Control Plane retains a complete routing table.
-   * Confirmed that the client-side warning (`Unsupported api mode: async`) is a harmless, known warning from the client-side `google-cloud-aiplatform` SDK, while pruning the server keys leads to hard routing failures.
-3. **Validation**: All 52 unit tests and local linting checks pass successfully.
-
-### Resolving Hanging Remote Agent Response with Unary LLM Routing (Vertex AI SDK Streaming + AFC Bug)
-
-**Problem**:
-After resolving container entrypoints and routing mismatches, the remote Reasoning Engine started up, initialized toolsets, and executed Developer Knowledge and Gemini Cloud Assist MCP calls successfully. However, the connection hung indefinitely right after printing `models.py:8686 - AFC is enabled with max remote calls: 10.`, returning empty responses to the React UI and resulting in high BFF HTTP response latencies.
-
-**Investigation**:
-1. **Network Connectivity**: Checked domain resolution and TCP routing. The container successfully connected to internal Google APIs (returning `200 OK` for MCP lookups), proving egress was fully functional.
-2. **SDK Bug Identification**: Discovered a known client-side streaming bug in the `google-genai` SDK. When combining **Automatic Function Calling (AFC)** with **streaming** (`generate_content_stream`) in Vertex AI mode, the generator hangs indefinitely after tool execution, failing to return the final text response.
-3. **Interactions API Compatibility**: Researched migrating the agent layer to the stateful, cloud-managed **Interactions API**. However, the Interactions API returned `Unsupported model interaction: gemini-3.5-flash` under our required `gemini-3.5-flash` model, making migration impossible due to strict project constraints.
-
-**Resolution**:
-We bypassed the client-side SDK streaming hang by running the LLM in unary (non-streaming) mode while preserving SSE compatibility in the BFF:
-1. **BFF Run Config Injection**: Modified [fast_api_app.py](../bff/fast_api_app.py) to pass `run_config={"streaming_mode": None}` to all `agent_engine.async_stream_query` calls.
-2. **How it Works**: This instructs the ADK runner inside the container to call the model using unary `generate_content` instead of `generate_content_stream`, bypassing the AFC streaming bug. The runner still compiles the final response events and yields them as an async generator.
-3. **SSE Preservation**: The FastAPI BFF's SSE stream to the React UI remains fully intact, receiving and forwarding the final aggregated text and reasoning events without any UI modifications.
-4. **Validation**: All 52 unit tests pass successfully.
-
-This resolves the hanging response bug, enabling reliable tool execution and quick query responses on the remote Reasoning Engine! Hurrah!
-
----
-
-### Unswallowing the Final Response: Unary SSE Routing Fix
-
-**Problem**:
-After switching to unary mode to bypass the Vertex AI SDK streaming hang, the remote agent began executing quickly and returning correct responses. However, the React frontend still received empty responses.
-*Investigation:*
-The FastAPI BFF's SSE stream generator in [bff/fast_api_app.py](../bff/fast_api_app.py) contained an `if not is_final:` filter when yielding text chunks. In streaming mode, the ADK yields multiple partial events followed by a final accumulated event containing the entire text. To prevent rendering the text twice, the BFF skipped the final event (`is_final = True`).
-However, in unary mode, there are no partial chunks—only a single final event (where `is_final_response()` is `True` and `partial` is `False`). The filter skipped this single response entirely, sending exactly `0` bytes of text to the UI.
-
-**Resolution**:
-We modified the BFF text chunk extractor to track whether any partial text chunks have been yielded. It checks `is_partial = getattr(event, "partial", False)`:
-```python
-is_partial = getattr(event, "partial", False)
-if hasattr(event, "content") and event.content:
-    parts = event.content.parts if hasattr(event.content, "parts") else []
-    text_chunk = "".join(
-        part.text for part in parts if hasattr(part, "text") and part.text
-    )
-    if text_chunk:
-        if is_partial:
-            has_yielded_partial_text = True
-            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
-        elif not has_yielded_partial_text:
-            yield "data: " + json.dumps({"text": text_chunk}) + "\n\n"
-```
-This elegantly supports both modes:
-1. **Streaming Mode**: Streams partial chunks (`is_partial = True`, setting `has_yielded_partial_text = True`) and skips the final accumulated response.
-2. **Unary Mode**: Streams the single final response (since `is_partial = False` and `has_yielded_partial_text` remains `False`).
-
-This completely recovers our UI chat updates, bringing the remote Agent Runtime solution fully alive! Hurrah!
-
----
-
-### UI/BFF and Agent Runtime Separation on Cloud Run
-
-**Problem**:
-In production, the unified container was deployed to Cloud Run, meaning it packaged the entire agent cognitive loops, tool configurations, and dependencies. To optimize resource footprint, avoid loading heavy packages, and achieve clean runtime isolation, we wanted to build and deploy a dedicated standalone Backend-for-Frontend (BFF) and React UI container to Cloud Run.
-However:
-1. **gcloud builds submit limitation**: The default `gcloud builds submit --tag TAG .` command is a shortcut that is hardcoded to look for a file named `Dockerfile` at the root of the uploaded directory. It does not support specifying custom or nested Dockerfile paths via a `--dockerfile` argument.
-2. **Context resolution**: We could not run the build from the `bff/` directory directly because the build context must remain the repository root (`.`) to copy sibling packages like `finops_agent` for shared utilities.
-
-**Resolution**:
-1. **Custom Cloud Build Configuration**: Created [deployment/cloudbuild-bff.yaml](file:///home/dazbo/localdev/smart-gcp-finops/deployment/cloudbuild-bff.yaml) that runs the Docker build step using the `-f bff/Dockerfile` parameter.
-2. **Makefile update**: Updated the `deploy-cloud-run` target in [Makefile](file:///home/dazbo/localdev/smart-gcp-finops/Makefile) to submit the build using `--config deployment/cloudbuild-bff.yaml` and pass the image tag and commit SHA via substitutions.
-3. **CI/CD pipeline update**: Updated [.github/workflows/staging.yaml](file:///home/dazbo/localdev/smart-gcp-finops/.github/workflows/staging.yaml) to use `-f bff/Dockerfile` in its Docker build step.
-4. **Conditional Lifespan initialization**: Optimised BFF startup in [bff/fast_api_app.py](file:///home/dazbo/localdev/smart-gcp-finops/bff/fast_api_app.py) by checking if `AGENT_RUNTIME_ID` is set (production remote mode). If set, it bypasses importing `finops_agent.agent` or initialising the local runner and A2A routes, saving CPU and memory.
-
-This ensures a cleanly isolated BFF container serves the web clients on Cloud Run, while the agent loop runs entirely in Gemini Enterprise Agent Runtime. Hurrah!
-
----
-
-### Resolving SessionNotFoundError in Gemini Enterprise Agent Platform Playground
-
-**Problem**:
-When querying the deployed agent remotely through the Google Cloud Console "Playground", the playground UI sends queries to the Reasoning Engine with a session ID. However, the Reasoning Engine immediately threw a `SessionNotFoundError: Session not found` exception and failed to respond.
-*Investigation:*
-1. Under the hood, Google's `AdkApp` template initializes the ADK `Runner` without specifying `auto_create_session`, defaulting it to `False`.
-2. When the console Playground UI submits a query, it provides a session ID. If the container instance has scaled down or restarted, the in-memory session is lost. Since `auto_create_session` is `False`, the runner raises `SessionNotFoundError` instead of creating a new session.
-3. Our custom BFF does not hit this because it explicitly invokes `agent_engine.async_create_session()` to create the session before sending queries. But the Playground UI queries the runtime directly and suffers from the scale-down/eviction mismatch.
-4. Furthermore, the ADK API server's ASGI/FastAPI endpoints (in `google/adk/cli/fast_api.py`) instantiate a fresh `AdkApp(agent=Agent(name="tmp"))` directly, bypassing our custom `AgentRuntimeApp` subclass.
-5. In addition, when resolving queries, the ASGI server bypassed the app's `set_up()` method entirely by lazily building and caching runners directly via `adk_web_server.get_runner_async(app_name)`. This method calls the `Runner(...)` constructor directly.
-
-**Resolution**:
-To address both framework bypasses, we implemented global class-level monkeypatches:
-1. **Runner Class Monkeypatch**: In [app/finops_agent/agent_runtime_app.py](file:///home/dazbo/localdev/smart-gcp-finops/app/finops_agent/agent_runtime_app.py), we globally intercept `Runner.__init__` to ensure any runner built by the ASGI server or the templates gets `auto_create_session = True`:
-   ```python
-   from google.adk.runners import Runner
-
-   _original_runner_init = Runner.__init__
-
-   def _patched_runner_init(self, *args, **kwargs) -> None:
-       kwargs["auto_create_session"] = True
-       _original_runner_init(self, *args, **kwargs)
-
-   Runner.__init__ = _patched_runner_init
-   ```
-2. **AdkApp.set_up Monkeypatch**: We retained the class patch for `AdkApp.set_up` as a fallback to ensure template-driven invocations are also fully covered:
-   ```python
-   _original_set_up = AdkApp.set_up
-
-   def _patched_set_up(self) -> None:
-       _original_set_up(self)
-       if runner := self._tmpl_attrs.get("runner"):
-           runner.auto_create_session = True
-       if in_memory_runner := self._tmpl_attrs.get("in_memory_runner"):
-           in_memory_runner.auto_create_session = True
-
-   AdkApp.set_up = _patched_set_up
-   ```
-
-This makes the Agent Runtime resilient to session eviction, enabling seamless direct interaction in the Cloud Console Playground. Hurrah!
-
-
----
-
-### Implementing API Rate Limiting for Financial and Quota Protection
-
-**Problem**:
-In a public-facing, data-heavy GenAI system like FinSavant, there was no protection against Denial of Wallet (DoW) attacks or API quota exhaustion. A user (or a frontend infinite loop) could send unlimited queries to `/api/chat/stream` or `/api/dashboard`, generating massive costs on Gemini and BigQuery billing queries. Furthermore, since the FastAPI BFF uses thread pools to serve background agent streams, concurrent streaming requests could starve the application event loop.
-
-**Resolution**:
-We implemented user-level rate limiting in the FastAPI BFF using `slowapi` (built on the `limits` library):
-1. **IAP User Identification**: Configured the rate limiter key generator to extract the authenticated user's email from the `X-Goog-Authenticated-User-Email` header, falling back to local credentials in dev.
-2. **Endpoint Decorators**:
-   * Restricted `/api/dashboard` to **10 requests per minute** and **100 per day** (`@limiter.limit("10/minute; 100/day")`).
-   * Restricted `/api/chat/stream` to **5 requests per minute** and **100 per day** (`@limiter.limit("5/minute; 100/day")`).
-3. **Environment Parity**: Since our Cloud Run setup is optimized to scale to a maximum of 1 instance, a fast local in-memory token-bucket limiter is completely accurate and requires no external Redis instance.
-4. **Validation & Testing**: Added the `test_rate_limiting_dashboard` test in `tests/unit/test_fast_api_app.py` to assert that 11 consecutive requests correctly return a `429 Too Many Requests` status code with the expected `"Rate limit exceeded"` detail.
-
-This protects the billing and quota footprint of the application. Hurrah!
 
 ---
 
@@ -1735,168 +1868,30 @@ The pipeline is now fully green, and rate limiting is robust and configurable. H
 
 ---
 
-### Graceful Tool Error Handling & Retry Mitigation
+## Blog 7 - Agent Observability, Evaluation, and Tuning with Gemini Enterprise Agent Platform
+
+### Deep Dives
+
+### Standard ADK Telemetry & OpenTelemetry Instrumentation
 
 **Problem**:
-If a tool execution encountered a transient database error or invalid generated SQL (like the `_PARTITIONTIME` BadRequest), the agent's default Automatic Function Calling (AFC) logic would recursively rewrite and retry the tool execution. In a remote Agent Runtime environment, this multi-turn loop frequently triggered the `google-genai` SDK's streaming/unary connection hangs, leaving the user with a frozen UI and no feedback.
+While our application had basic logging capabilities, the agent lacked structured OpenTelemetry (OTel) instrumentation for distributed tracing, metrics, and GenAI SDK message capturing. To gain deep observability (e.g. tracking latency, span hierarchies, and tool execution flows) in both local development and deployed Vertex AI/Cloud Run environments, we needed to implement standard ADK telemetry.
 
 **Resolution**:
-We implemented prompt-level error handling constraints to enforce a graceful exit strategy:
-1. **System Instruction Warnings**: Added a `CRITICAL ON TOOL ERRORS` instruction to the agent system prompt:
-   * Instructs the model that if any tool call fails, returns an error key, or raises an exception, it **MUST NOT** attempt to rewrite parameters, guess schemas, or retry the call.
-   * Forces the model to immediately halt further tool execution and return a friendly, helpful message to the user explaining which tool failed, stating the specific error message, and suggesting how they might rephrase their query.
-2. **Result**: Instead of looping endlessly and hanging, the agent now terminates cleanly on tool failures, providing a clear explanation of what went wrong so the user can easily rephrase or troubleshoot. Hurrah!
-39. Aligned environment variable files (`.env` and `app/.env`), retaining `LOG_LEVEL` in both, moving logging and telemetry to `app/.env`, and cleaning up duplicate GITHUB_TOKEN entries in root `.env`. Updated the Makefile to parse `.env` files dynamically, excluding forbidden variables (like `GOOGLE_CLOUD_PROJECT`) from the Agent Runtime. Integrated dynamic environment parsing in Terraform (`locals.tf`) to synchronize GitHub repository variables and container configurations directly from `app/.env` without duplicate definitions.
+We configured and integrated standard ADK telemetry and OpenTelemetry instrumentation:
+1. **API Enablement & Resource Config (Terraform)**:
+   * Added `monitoring.googleapis.com` (Cloud Monitoring API) to the `deploy_project_services` list in [locals.tf](../deployment/terraform/locals.tf) to support OTel metric exporting.
+   * Updated [service.tf](../deployment/terraform/service.tf) to inject standard telemetry environment variables `OTEL_SERVICE_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` to both the Cloud Run service and the Vertex AI Reasoning Engine.
+   * Configured `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` conditionally based on the environment tier (`"NO_CONTENT"` in production for data privacy, and `"true"` in staging/development to capture full GenAI prompts and responses).
+2. **Standard OTel Telemetry Setup**:
+   * Updated `setup_telemetry()` in [telemetry.py](../app/app_utils/telemetry.py) to import `get_gcp_exporters`, `get_gcp_resource`, and `maybe_set_otel_providers` from `google.adk.telemetry`.
+   * Programmatically registered standard Google Cloud exporters for Cloud Trace and Cloud Logging when running in a serverless environment or when `OTEL_TO_CLOUD=true` is enabled.
+   * Hooked the Google GenAI SDK into the OpenTelemetry span lifecycle by programmatically calling `GoogleGenAiSdkInstrumentor().instrument()`.
+3. **Verification & Quality Control**:
+   * Ran `make test` and verified all 44 unit tests pass successfully.
+   * Executed formatting and linting controls (`uvx codespell` and `uvx ruff`) to ensure clean code standards.
 
-### Folder Layout Refactoring: `app/` to `agent/`
-
-**Problem**:
-The ADK agent runtime package was historically placed in an `app/` folder. This conflicted conceptually with the general standard where "app" represents the entire application, whereas our repository is structured as a decoupled monorepo containing distinct component folders (`bff/`, `frontend/`, `agent/`). This caused semantic confusion, and forced developers to select the `app/` directory for agent interactions in local playground scripts.
-
-**Resolution**:
-We surgically renamed and refactored the project's folder layout to improve readability and conform to best practices:
-1. **Renaming**: Renamed the `/app` directory to `/agent`. The inner python package name (`finops_agent`) was preserved to keep all import paths clean and logical.
-2. **Path Insertion**: Updated `/bff/fast_api_app.py` to insert `/agent` to the python search path so it correctly resolves utility imports from the `finops_agent` package:
-   ```python
-   sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent"))
-   ```
-3. **Docker Build Files**: Updated `/bff/Dockerfile` to copy `./agent/finops_agent` instead of `./app/finops_agent`.
-4. **Makefile & CI/CD Pipelines**: Substituted `/app` with `/agent` across all local execution targets (eval targets, PYTHONPATH, lint tools) and GitHub workflow actions (`staging.yaml`, `deploy-to-prod.yaml`, `pr_checks.yaml`, `gemini-review.yml`).
-5. **Terraform**: Updated local env parsing in `deployment/terraform/locals.tf` to parse variables from `agent/.env` instead of `app/.env`.
-
-This brings clean semantic naming to our repository structure, with a self-evident `/agent`, `/bff`, and `/frontend` hierarchy! Hurrah!
-
----
-
-### Designing with the Interactions API: Server-Side Stateful Sessions
-
-**Problem**:
-We initially planned to use the stateful, cloud-managed **Gemini Interactions API** (`use_interactions_api=True`) on Vertex AI to leverage server-side conversation history and reduce network payload size.
-
-**Backend Constraint**:
-However, testing proved that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects raw text models (like `gemini-3.5-flash` or `gemini-2.5-flash`) on the Interactions API route, returning:
-```json
-Error code: 400 - {'error': {'message': 'Unsupported model interaction: gemini-3.5-flash', 'code': 'invalid_request'}}
-```
-The Vertex AI Interactions API is restricted to specific media models (`lyria-3-*`) and managed agents (`deep-research-*`).
-
-**Resolution**:
-We rejected the Interactions API and reverted to standard stateless model inference (`use_interactions_api=False`), keeping the conversation history management in the FastAPI BFF/client. We established `tests/unit/test_interactions_api.py` as a test guard to prevent future attempts to enable this unsupported mode on Vertex AI.
-
----
-
-### BigQuery Partition Pruning, Session Caching, and Blackboard State Sharing
-
-**Problem**:
-Our multi-agent system executed heavy database queries and CAI lookups frequently across turns. This caused three main issues:
-1. **Inefficient Database Scans**: BigQuery billing export SQL queries scanned too much data because they did not leverage double-temporal partition pruning.
-2. **Process-Level Caching Overhead**: The database query cache was stored globally, violating multi-tenant session boundaries and potentially leaking data.
-3. **Redundant Agent Execution**: Subagents (such as `BillingExplorer`, `InfrastructureAuditor`, and `RootCauseAnalyst`) ran identical queries or scans sequentially because they had no way of checking what data had already been resolved during the session.
-
-**Resolution**:
-We implemented a complete cost and latency optimization layer:
-1. **Double-Temporal Partition Pruning**: Enforced SQL filters on both `export_time` (partition key) and `usage_start_time` for cost trends, SKU periods, and storage/secret waste queries. This prunes unnecessary partitions and reduces data scans.
-2. **Session-Bound State Caching**: Replaced the global query cache with an ADK session-bound cache (`tool_context.state["bq_cache"]`). This isolates data per conversation and prevents cross-session leaks.
-3. **Semantic Blackboard Pattern**: Created central Blackboard instructions (`BLACKBOARD_KEY_INSTRUCTIONS` constant in `tools.py`) dynamically appended to all subagents' prompts during instantiation. All subagents are now trained to check the shared session state using standard keys before invoking expensive tools:
-   * `'daily_service_costs_30d'`: Daily aggregated service costs (date, service, cost).
-   * `'sku_period_costs_60d'`: Period comparison costs over 60 days (is_current_period, project, service, SKU, cost).
-   * `'gcs_secret_waste'`: Idle storage buckets and Secret Manager replica waste list.
-   * `'zombie_resources'`: Idle static IPs and unattached boot/data disks.
-   * `'rightsizing_recommendations'`: Cloud Assist optimization recommendations.
-4. **Parallel Function Calling (PFC)**: Added strict rules to the `BillingExplorer` subagent instruction prompt requiring it to call `execute_cached_bigquery_sql` in parallel during a single turn when fetching independent cost tables. This leverages Gemini's native PFC capability to slash turn latency by up to 60%.
-5. **Validation & Quality Control**:
-   * Added unit tests asserting that all subagents' system prompts contain the central naming standard.
-   * Added `test_blackboard_dynamic_key_lookups` to test all 5 standardized blackboard keys.
-   * Ran spelling and Ruff checks, keeping the codebase clean.
-
-This ensures state-of-the-art agent coordination, reduces table scans, and makes cost analysis extremely fast! Hurrah!
-
-
----
-
-### Overcoming Multi-Agent Session Alignment Bugs, thought_signature Checks, and 403 API Loops
-
-**Problem**:
-During local testing of our multi-agent architecture (using `mode="task"` subagents like `BillingExplorer`, `InfrastructureAuditor`, and `CloudAdvisor`), we encountered three critical orchestration bugs:
-1. **ADK Local Runner Alignment Bug**: When a subagent node finished execution, the local runner appended the subagent's result to the session history as a `FunctionResponse` event, but completely forgot to append the coordinator's original `ModelResponse` event (which contained the initial `FunctionCall` delegating the task to the subagent). Because a `FunctionResponse` was present without a matching `FunctionCall`, the ADK framework crashed with a `ValueError: No function call event found`.
-2. **Gemini 3.5 API thought_signature Enforcement**: When we tried to repair the history by injecting a matching dummy `FunctionCall` event (args and ID matched), the Gemini 3.5 API rejected the subsequent model call with `400 Bad Request: Function call is missing a thought_signature in functionCall parts`. The API enforces a strict safety contract requiring all historical tool calls to contain the exact `thought_signature` returned by the model during generation. Since the runner never saved the original parent response containing the signature, we couldn't reconstruct it.
-3. **Gemini Cloud Assist 403 Loops**: When querying `geminicloudassist` remote MCP tools, the gateway would return a `403 Forbidden` response for projects that were discovered in the user's scope but didn't have the Gemini Cloud Assist API enabled or lacked appropriate IAM bindings. Because the 403 error was returned cleanly inside the MCP payload, the subagent model didn't crash; instead, it tried to handle the error by repeatedly calling the tool with other projects or slightly different queries, entering an infinite billing and token loop.
-
-**Resolution**:
-We implemented two highly robust, production-grade workarounds inside `callbacks.py` and `cloud_advisor_agent.py`:
-1. **In-Place Plain-Text Handoff**: Rather than trying to repair the broken function call history (which is blocked by the API's `thought_signature` check), we refactored `clean_history_callback` to scan the cleaned history and convert any subagent `FunctionResponse` event into a standard plain-text user message in-place (changing `event.author = "user"`, `event.content.role = "user"`, and overwriting its parts with a plain-text markdown payload: `"For context: Subagent [name] returned: ..."`). This completely wipes any trace of the subagent tool call/response from the history, bypassing all API signature and event alignment checks while keeping the coordinator fully informed of the subagent's results! We also stripped any empty coordinator model events.
-2. **Strict 403 Termination Prompt Rule**: Added a strict instruction (`CRITICAL AUTH/PERMISSION RULE`) to the `CloudAdvisor` subagent system prompt. If the model receives a `403`, `Forbidden`, or `Permission Denied` tool result from Cloud Assist, it is instructed to stop querying immediately, skip any retries, and execute `finish_task` with a clean report explaining the permission issue. This breaks any infinite loops instantly.
-
-With these fixes, our multi-agent cognitive loops execute, route, and report across all subagents with 100% stability! Hurrah!
-
----
-
-### BigQuery Partition Filter Pushdown inside Scoping Subqueries
-
-**Problem**:
-In a multi-project FinOps setup, our agent enforces row-level security by wrapping all BigQuery queries in a dynamic scoping subquery that filters data strictly to the user's list of allowed projects:
-```sql
-FROM (SELECT * FROM `standard_table` WHERE project.id IN ('project-1', 'project-2', ...))
-```
-While this successfully prevents data access leaks, billing export tables are partitioned by `export_time` (or sometimes `_PARTITIONTIME` / `_PARTITIONDATE`). Because the scoping subquery did not contain the temporal filters present in the outer query, BigQuery's optimizer would scan the entire history of the billing export tables to filter by `project.id` before applying the outer query's date filter. With 38 projects in the user's scope, this resulted in massive query latencies, frequently hitting the client socket/connection idle timeouts and triggering `ServerDisconnectedError` on the GenAI client.
-
-**Resolution**:
-We implemented a dynamic AST/Regex parser inside `execute_cached_bigquery_sql` in `tools.py` to extract and push down date/partition filters into the project-scoping subqueries:
-1. **Temporal Expression Extraction**: Designed a robust regular expression supporting up to 3 levels of nested parentheses (to capture nested SQL function expressions like `TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))`):
-   ```python
-   nested_parens = r"\((?:[^()]*|\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))*\)"
-   date_filter_pattern = re.compile(
-       rf"\b(?:export_time|usage_start_time|usage_end_time)\s*(?:>=|<=|>|<|=)\s*(?:TIMESTAMP\s*{nested_parens}|TIMESTAMP_SUB\s*{nested_parens}|CAST\s*{nested_parens}|DATE_SUB\s*{nested_parens}|['\"\w\d\-\s:]+)",
-       re.IGNORECASE
-   )
-   ```
-2. **Subquery Filter Injection**: The parsed filters are joined and injected directly into the inner scoping subqueries:
-   ```sql
-   FROM (SELECT * FROM `standard_table` WHERE project.id IN (...) AND export_time >= ... AND usage_start_time >= ...)
-   ```
-3. **Partition Pruning**: Pushing these date filters into the table scans forces BigQuery to prune partitions *before* executing the project filters, dropping execution time from over a minute to less than a second.
-4. **Validation**: Added `test_execute_cached_bigquery_sql_filter_pushdown` in `test_tools.py` to assert correct parsing and rewrite logic, ensuring no syntax errors or cut-offs.
-
-This solves the client timeout issues and makes multi-project billing analysis incredibly performant! Hurrah!
-
----
-
-### BigQuery Targeted Scoping Filter Intersection
-
-**Problem**:
-Even with partition pruning active, wrapping table scans in a subquery that lists all 38 allowed projects:
-```sql
-WHERE project.id IN ('proj-1', 'proj-2', ..., 'proj-38')
-```
-forces BigQuery to perform a broad scan filtering across many projects, which increases latency. If the agent's query specifically targets a single project (e.g. `WHERE project.id = 'vpc-host-prd-dzb1'`), we are still querying all 38 projects first inside the subquery before filtering it down.
-
-**Resolution**:
-We implemented an explicit project filter extraction and intersection phase in `execute_cached_bigquery_sql`:
-1. **Explicit Filter Parsing**: We parse the SQL query for any explicit project filters using regex patterns:
-   * Match equality filters: `project.id = 'project-id'`
-   * Match list filters: `project.id IN ('project-id-1', 'project-id-2')`
-2. **Intersection Scoping**: If explicit project targets are identified, we perform a set intersection between those targets and the user's `allowed_projects` list. 
-3. **Optimized Subquery Injection**: The resulting intersected project list is injected into the scoping subquery instead of the full list of allowed projects.
-   * If a user queries a single allowed project, the subquery filters strictly for that 1 project (speeding up clustering checks significantly).
-   * If a user tries to query an unauthorized project, the intersection is empty, automatically resolving to a `LIMIT 0` secure stub query.
-4. **Validation**: Added `test_execute_cached_bigquery_sql_targeted_scoping` to cover equality and unauthorized scenarios.
-
-This dramatically improves query latency for targeted project views while preserving absolute row-level security. Hurrah!
-
----
-
-### BigQuery Defensive Routing & Temporal Guardrails
-
-**Problem**:
-If the agent dynamically issues exploratory queries (e.g. finding min/max dates, listing overall cost spikes) without date filters, or queries the massive resource-level table without referencing resource-specific properties (like `resource.name`), it forces a highly expensive full table scan on BigQuery over years of historical data.
-
-**Resolution**:
-We implemented two automatic runtime query safety guardrails inside `execute_cached_bigquery_sql`:
-1. **Dynamic Table Routing**: If a query targets the massive resource-level table (`gcp_billing_export_resource_v1_*`) but does not reference any `resource.` fields, the query tool automatically rewrites the query to use the standard billing table (`gcp_billing_export_v1_*`). This instantly shrinks the scan footprint by roughly 100x since the columns are identical, but without the high-cardinality resource dimensions.
-2. **Defensive Temporal Guardrail**: If a query is issued with no date or partition filters on `export_time`, the tool automatically injects a default partition bound: `export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))`. This blocks runaway scans from querying the full historical table footprint.
-3. **Validation**: Added unit tests `test_execute_cached_bigquery_sql_dynamic_routing` and `test_execute_cached_bigquery_sql_defensive_temporal` to verify rewriting and partition injection.
-
-This keeps exploratory agent actions fast, cheap, and safe! Hurrah!
+This enables out-of-the-box distributed tracing and monitoring for all agent runs, tool calls, and model interactions, providing a clear window into our agent's cognitive trajectories! Hurrah!
 
 ---
 
@@ -1923,69 +1918,3 @@ We implemented a custom, hook-based verbose logger using ADK's `BasePlugin` call
 This provides the developer with standard, verbose event tracking in local development without bloat or leakage in production logs! Hurrah!
 
 ---
-
-### Shift Calculations to Python Precomputation and Stripping Subagent Tools for Latency Reductions
-
-**Problem**:
-Even with BigQuery partition pruning and targeted scoping, Month-to-Date (MTD) billing queries and Root Cause Analysis (RCA) cost spike queries resulted in high latency. The subagents were fetching thousands of rows of raw, unaggregated billing and telemetry data. This forced the LLM's reasoning engine (such as `gemini-3.5-flash`) to generate over 1,000 thinking/reasoning tokens per turn performing math, summing costs, and correlating cost spikes with Cloud Asset Inventory (CAI) logs. Additionally, when a user provided a slightly incorrect date range, the subagents entered recursive self-correction tool loops (e.g. executing multiple SQL queries to check min/max dates or verify baselines), increasing latency.
-
-**Failed Optimization (Thinking Budget Overrides)**:
-We initially tried to override the model's reasoning/thinking budget to `0` at the request config level in `client.py` and `callbacks.py`. However, testing revealed that for reasoning-enabled models like `gemini-3.5-flash`, forcing `thinking_budget = 0` causes the model to return empty response blocks, which violates ADK framework output validation rules ("model output must contain either output text or tool calls, these cannot both be empty") and crashed the conversational flow.
-
-**Resolution**:
-We shifted analytical calculations from the LLM's reasoning loop to native, deterministic Python functions, and restricted subagent capabilities to eliminate tool loops:
-1. **Python Precomputation Helpers (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**:
-   - `get_precomputed_spend_analysis`: Executes the MTD, SKU period, and Secret/GCS waste queries in parallel. It calculates current vs. previous totals, computes percentage trends, pivots service costs by date, filters out flat baseline days to keep only active spikes (max 10), and compiles recommendation messages entirely in Python.
-   - `get_precomputed_root_cause`: Executes a single comparative query comparing the spike date to the previous day in Python. If persistent resources are found, it automatically fetches CAI configuration logs for those resources in Python (passing the correct ISO timestamps: `{prev_day}T00:00:00Z` to `{spike_day}T23:59:59Z`) and returns a clean, fully correlated dictionary.
-2. **Subagent Tool Stripping**:
-   - We completely removed raw SQL execution (`execute_cached_bigquery_sql`) and raw CAI queries (`get_cai_history_for_resource`) from the tools list of `BillingExplorer` and `RootCauseAnalyst`, leaving them only with the precomputed Python helper tools.
-   - This prevents the subagents from launching custom SQL queries or trying to troubleshoot dates on their own, guaranteeing a single deterministic tool invocation per turn.
-3. **In-Memory Telemetry Caching**:
-   - Replaced storing large, raw BigQuery results in the `SessionState` blackboard (which bloated the SQLite database serialization log on every turn) with a global thread-safe, in-memory private cache dictionary (`_IN_MEMORY_BQ_CACHE`) keyed by session ID, keeping state payload sizes tiny.
-
-This combined optimization reduced the subagent prompts by 90%, slashed token footprint, completely avoided large reasoning token generation, and dropped subagent execution time to under 1.5 seconds. Hurrah!
-
----
-
-### Introducing Hybrid Model Routing to Optimise Turn Latency and Inference Cost
-
-**Problem**:
-While our multi-agent architecture successfully decouples domains and prevents prompt bloat, running every agent on the deeper, costlier `gemini-3.5-flash` model created unnecessary latency and cost overheads. Specifically:
-1. The root agent (`FinOpsCoordinator`) functions purely as a router and dispatcher. It does not run direct BQ or CAI queries, meaning it does not need the deep reasoning model for intent classification and tool routing.
-2. Some subagents (like `CloudAdvisor`) function as simple proxies that forward prompt payloads to external tools (such as the Gemini Cloud Assist MCP) and return the response text. They do not perform complex logic or SQL generation themselves.
-3. Other subagents (like `KnowledgeAssistant`) run standard document lookups (RAG) using the Developer Knowledge MCP in a single turn. Large RAG contexts consume high token counts, driving up billing costs unnecessarily on the deeper reasoning model.
-4. Complex composite UI actions, like the "Align with best practices" chip, sequentially invoke both of these subagents. Having both run on the slower standard model compounded response latency.
-
-**Resolution**:
-We implemented a **Hybrid Model Routing** scheme, matching each agent's cognitive workload to the most cost-effective and latency-efficient model:
-1. **Model Categorisation**:
-   - **Reasoning/Calculation (`gemini-3.5-flash`)**: Retained for `BillingExplorer` (handles critical SQL, forecasting, and precise A2UI JSON payloads), `InfrastructureAuditor` (formats recommendation A2UI tables), and `RootCauseAnalyst` (requires cause-and-effect timeline deduction).
-   - **Lite/Utility / Router (`gemini-3.1-flash-lite`)**: Allocated to the `FinOpsCoordinator` (for fast classification/routing), `CloudAdvisor` (proxy-only), and `KnowledgeAssistant` (RAG-only).
-2. **Speed & Latency Gains**:
-   - The first turn routing latency drops by over 60% since the coordinator classifies the query on the fast model.
-   - The multi-agent "Align with best practices" flow is now significantly faster, as the coordinator routing, the architectural documentation search, and the cloud recommendation lookup are all executed using the faster lite model.
-3. **Cost Reduction**:
-   - Shifting large-context RAG documentation queries and routing/orchestration logic to the lite model reduces inference costs by approximately 90% (given the 10x price difference between flash and flash-lite) for those specific turns.
-
-
-This hybrid approach ensures that our agents are optimised for both reasoning depth and computational efficiency. Hurrah!
-
----
-
-### Documenting Authentication Modes and Cost Model Drivers
-
-**Problem**:
-As the architecture evolved across local development, local container testing, and remote deployment to Google Agent Runtime and Cloud Run, it became essential to clarify how authentication credentials (API Keys vs. Vertex AI Google Cloud IAM) operate, and where system costs originate across different execution modes.
-
-**Resolution**:
-We authored [docs/authentication-and-costs.md](../docs/authentication-and-costs.md) to formally document:
-1. **Authentication Routing**: Clarified that `GOOGLE_GENAI_USE_VERTEXAI=True` is the default across both local dev and production. In local dev, it uses local Application Default Credentials (`gcloud auth application-default login`) via Vertex AI without requiring a `GEMINI_API_KEY`. In production, it uses the Service Account IAM role.
-2. **AI Studio Fallback**: Explained that setting `GOOGLE_GENAI_USE_VERTEXAI=False` enables `GEMINI_API_KEY` for LLM inferences, but GCP ADC is still required for BigQuery billing data and Cloud Asset Inventory.
-3. **Comprehensive Cost Drivers**: Detailed costs for Vertex AI model tokens (`gemini-3.5-flash` and `gemini-3.1-flash-lite`), BigQuery scanned data ($6.25/TB), Cloud Run & Agent Runtime hosting, and Cloud Asset Inventory sweeps, highlighting built-in optimisations like context caching, partition pruning, and Python precomputation.
-4. **README Links**: Updated [README.md](../README.md) to integrate the new guide into the directory tree and the Technical Architecture section.
-
-This ensures complete architectural clarity for developers and FinOps practitioners regarding credential management and operational costs! Hurrah!
-
-
-
-
