@@ -216,11 +216,23 @@ def get_cai_history_for_resource(
         billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
 
-        for project_id in project_ids:
-            scope = f"projects/{project_id}"
-            history_results = get_asset_history(resource_name, scope, start_time, end_time)
-            if history_results:
-                break
+        if project_ids:
+            def search_scope_history(pid: str) -> list[dict]:
+                scope = f"projects/{pid}"
+                return get_asset_history(resource_name, scope, start_time, end_time)
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=min(len(project_ids), 10)) as executor:
+                futures = [executor.submit(search_scope_history, pid) for pid in project_ids]
+                for future in as_completed(futures):
+                    try:
+                        res = future.result()
+                        if res:
+                            history_results = res
+                            break
+                    except Exception as ex:
+                        logger.debug(f"Error fetching CAI history for project scope: {ex}")
 
     logger.debug(
         "CAI history lookup returned %d records for resource: %s",

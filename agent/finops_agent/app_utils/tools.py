@@ -881,7 +881,8 @@ def get_today_top_services_and_usage(
 
         existing_svcs = {(s.get("service_name"), s.get("project_id")) for s in top_services}
 
-        for proj in priority_projects:
+        def query_project_monitoring(proj: str) -> list[dict[str, Any]]:
+            items = []
             try:
                 results = m_client.list_time_series(
                     request={
@@ -901,7 +902,7 @@ def get_today_top_services_and_usage(
                 for svc_id, total_cnt in proj_counts.items():
                     sname = service_name_map.get(svc_id, svc_id)
                     if (sname, proj) not in existing_svcs:
-                        top_services.append(
+                        items.append(
                             {
                                 "service_name": sname,
                                 "gcp_service_id": svc_id,
@@ -912,6 +913,13 @@ def get_today_top_services_and_usage(
                         )
             except Exception as pe:
                 logger.debug(f"Could not query Cloud Monitoring for project {proj}: {pe}")
+            return items
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(len(priority_projects), 5)) as executor:
+            for item_list in executor.map(query_project_monitoring, priority_projects):
+                top_services.extend(item_list)
     except Exception as me:
         logger.warning(f"Could not initialize Cloud Monitoring client: {me}")
 
@@ -947,8 +955,8 @@ def get_today_top_services_and_usage(
             f'protoPayload.serviceName="run.googleapis.com") AND timestamp >= "{today_iso}"'
         )
 
-        counts: dict[str, int] = {}
-        for proj in target_project_list:
+        def query_project_audit_logs(proj: str) -> dict[str, int]:
+            proj_counts: dict[str, int] = {}
             try:
                 entries_iter = client.list_entries(
                     resource_names=[f"projects/{proj}"],
@@ -962,7 +970,7 @@ def get_today_top_services_and_usage(
                         proto = repr_data.get("protoPayload", {})
                         sid = proto.get("serviceName", "")
                         if sid:
-                            counts[sid] = counts.get(sid, 0) + 1
+                            proj_counts[sid] = proj_counts.get(sid, 0) + 1
                     except StopIteration:
                         break
                     except Exception:
@@ -970,6 +978,13 @@ def get_today_top_services_and_usage(
             except Exception as proj_ex:
                 # Silently skip deleted or inaccessible 404 projects
                 logger.debug(f"Skipping project {proj} in Cloud Audit Log probe: {proj_ex}")
+            return proj_counts
+
+        counts: dict[str, int] = {}
+        with ThreadPoolExecutor(max_workers=min(len(target_project_list), 10)) as executor:
+            for p_counts in executor.map(query_project_audit_logs, target_project_list):
+                for sid, count in p_counts.items():
+                    counts[sid] = counts.get(sid, 0) + count
 
         service_id_to_name = {
             "generativelanguage.googleapis.com": "Gemini API",
