@@ -803,13 +803,16 @@ def get_today_top_services_and_usage(
         logger.warning(f"Could not fetch intra-day billing export records: {e}")
 
     # 2. Query BigQuery INFORMATION_SCHEMA for today's query spend (fast single BigQuery query)
-    bq_sql = """
+    location_lower = (settings.google_cloud_billing_location or "us").lower()
+    bq_region = "region-eu" if any(loc in location_lower for loc in ["europe", "eu", "west4"]) else "region-us"
+
+    bq_sql = f"""
     SELECT
       project_id,
       SUM(total_bytes_billed) / POWER(1024, 4) AS tb_billed,
       ROUND(SUM(total_bytes_billed) / POWER(1024, 4) * 6.25, 2) AS estimated_cost_usd,
       COUNT(*) AS query_count
-    FROM `region-us`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
+    FROM `{bq_region}`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
     WHERE creation_time >= TIMESTAMP(CURRENT_DATE())
     GROUP BY 1
     ORDER BY tb_billed DESC
