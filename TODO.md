@@ -84,5 +84,6 @@
   - [x] Profile and tune system instructions and loop thresholds to minimize routing latency and prevent runaway token consumption
 [x] n-day review is not updating the graph
 [x] Perform ADK best practices review
+[x] Make tools multi-threaded
 [ ] Introduce ADK-based evaluation, including trajectory.
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

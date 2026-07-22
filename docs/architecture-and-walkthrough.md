@@ -33,6 +33,7 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Default Vertex AI Inferences** | Use Vertex AI mode (`GOOGLE_GENAI_USE_VERTEXAI=True`) with Google Cloud IAM credentials (ADC in local dev, Service Account identity in production) as the primary model inference route, avoiding raw `GEMINI_API_KEY` dependencies for enterprise security and unified billing. |
 | **2-Stage Intra-Day Discovery** | Use BQ `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and intra-day billing partitions to discover active top services today (`get_today_top_services_and_usage`), write them to the session blackboard (`state['today_top_services']`), and query Cloud Audit Logs (`investigate_today_service_logs`) for caller identities and method metrics. Rationale: Standard GCP Billing Export has a 3 to 12+ hour ingestion delay. Direct INFORMATION_SCHEMA and Cloud Audit Log telemetry provides instant intra-day visibility for "today" prompts. |
 | **Conditional Cloud Assist Anomaly Diagnosis** | Trigger Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) conditionally ONLY when `investigate_today_service_logs` detects operational errors (`has_operational_anomaly == True`, error severities, or status code failures) or when explicit operational diagnostics are requested. Rationale: Eliminates unnecessary Cloud Assist MCP execution latency on clean, routine cost queries while preserving deep infrastructure diagnostics when anomalies occur. |
+| **Multi-Threaded Concurrency & TTL Caching** | Parallelise project IAM checks (`ProjectDiscoveryManager.get_user_accessible_projects`), org project searches (`get_projects_in_org`), dashboard metric queries (`get_actual_dashboard_metrics`), active service probes (`investigate_today_active_services`), and unscoped CAI asset history searches (`get_cai_history_for_resource`) using `ThreadPoolExecutor` and thread-safe in-memory TTL caching. Rationale: Eliminates serial gRPC and BigQuery network roundtrip latency, reducing application startup and initial dashboard load time from ~19.3s to < 2.5s (~8x speedup). |
 
 ## BigQuery Query Optimization
 
@@ -73,6 +74,15 @@ To completely eliminate model reasoning token generation and multi-turn conversa
 - **Python Precomputation Tools (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**: Heavy data analysis, cost summation, daily cost spike grouping, and Cloud Asset Inventory configuration log correlation are executed natively in Python. The LLM receives clean, pre-aggregated summary metrics instead of raw database rows, slashing subagent execution time to under 1.5 seconds.
 - **Subagent Tool Stripping**: By completely removing raw database/cai tools (`execute_cached_bigquery_sql` and `get_cai_history_for_resource`) from the `RootCauseAnalyst` and `BillingExplorer` subagents and exposing only the precomputed helpers, we force them to run a single deterministic precomputation query, eliminating redundant queries and self-correcting loop chains.
 - **Failed Optimization (Thinking Budget Overrides)**: We attempted to override the model's reasoning/thinking budget to `0` at the request config level. However, testing confirmed that for reasoning-enabled models like `gemini-3.5-flash`, forcing `thinking_budget = 0` causes the model to return empty response blocks, which violates ADK framework output validation rules ("model output must contain either output text or tool calls, these cannot both be empty"). We reverted request-level overrides and instead relied on shifting analytical calculations from the LLM reasoning loop to native Python to resolve reasoning token overhead.
+
+### 7. Dynamic Regional Metadata Resolution
+
+To ensure compatibility across both European and US deployments without hardcoding region qualifiers, `get_today_top_services_and_usage` dynamically resolves `region-eu` vs `region-us` in BigQuery `INFORMATION_SCHEMA.JOBS_BY_PROJECT` queries based on `settings.google_cloud_billing_location`:
+```python
+location_lower = (settings.google_cloud_billing_location or "us").lower()
+bq_region = "region-eu" if any(loc in location_lower for loc in ["europe", "eu", "west4"]) else "region-us"
+```
+This ensures that BigQuery metadata queries automatically target the correct regional catalog, avoiding `Table not found` errors in non-US environments.
 
 ## Solution Architecture
 
