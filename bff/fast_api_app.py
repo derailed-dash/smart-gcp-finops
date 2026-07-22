@@ -264,6 +264,35 @@ def get_dashboard(
         }
 
 
+TOOL_FRIENDLY_NAMES: dict[str, str] = {
+    "root_cause_analyst": "Root Cause Analyst",
+    "billing_explorer": "Billing Explorer",
+    "infrastructure_auditor": "Infrastructure Auditor",
+    "cloud_advisor": "Cloud Advisor",
+    "knowledge_assistant": "Knowledge Assistant",
+    "get_today_top_services_and_usage": "Discovering Today's Active Services",
+    "investigate_today_service_logs": "Auditing Today's Service Logs",
+    "get_precomputed_spend_analysis": "Analysing Spend and Cost Trends",
+    "get_precomputed_root_cause": "Analysing Cost Spike Root Cause",
+    "list_zombie_resources": "Scanning for Unused Zombie Assets",
+    "get_cai_metadata_for_resources": "Retrieving Real-Time Asset Metadata",
+    "get_cai_history_for_resource": "Auditing Configuration History",
+    "execute_cached_bigquery_sql": "Querying GCP Cost Database",
+    "finish_task": "Finalising Analysis",
+    "get_session_value": "Retrieving Session Context",
+    "set_session_value": "Saving Session Context",
+}
+
+
+def _get_friendly_tool_name(name: str) -> str:
+    if not name:
+        return "Tool"
+    if name in TOOL_FRIENDLY_NAMES:
+        return TOOL_FRIENDLY_NAMES[name]
+    clean = name.replace("_mcp_server", "").replace("mcp_", "").replace("_", " ").strip()
+    return clean.title()
+
+
 # Custom SSE streaming chat endpoint with heartbeat
 @app.post("/api/chat/stream")
 @limiter.limit(settings.chat_rate_limit)
@@ -298,7 +327,6 @@ async def chat_stream(request: Request):
             else "Step 1: Initialising dynamic billing table discovery...\nStep 2: Connected successfully. Spawning agent workflow...\n"
         )
         yield ("data: " + json.dumps({"reasoning": initial_reasoning}) + "\n\n")
-        await asyncio.sleep(0.5)
 
         from google.adk.agents.run_config import RunConfig, StreamingMode
         from google.genai import types
@@ -490,10 +518,11 @@ async def chat_stream(request: Request):
                             call_key = f"{fc.name}:{args_str}:{fc_id}"
                             if call_key not in seen_function_calls:
                                 seen_function_calls.add(call_key)
+                                fname = _get_friendly_tool_name(fc.name)
                                 yield (
                                     "data: "
                                     + json.dumps(
-                                        {"reasoning": f"⚙️ Tool Call: Invoking {fc.name}...\n"}
+                                        {"reasoning": f"⚙️ Tool Call: Invoking {fname}...\n"}
                                     )
                                     + "\n\n"
                                 )
@@ -515,12 +544,11 @@ async def chat_stream(request: Request):
                             resp_key = f"{fr.name}:{resp_str}:{fr_id}"
                             if resp_key not in seen_function_responses:
                                 seen_function_responses.add(resp_key)
+                                fname = _get_friendly_tool_name(fr.name)
                                 yield (
                                     "data: "
                                     + json.dumps(
-                                        {
-                                            "reasoning": f"✅ Tool Complete: {fr.name} response received\n"
-                                        }
+                                        {"reasoning": f"✅ Tool Complete: {fname} response received\n"}
                                     )
                                     + "\n\n"
                                 )

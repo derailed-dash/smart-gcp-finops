@@ -22,60 +22,6 @@ interface Message {
   a2uiPayload?: any
 }
 
-const formatFriendlyDate = (dateObj: Date): string => {
-  const day = dateObj.getDate()
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ]
-  const month = monthNames[dateObj.getMonth()]
-  
-  let suffix = 'th'
-  if (day === 1 || day === 21 || day === 31) suffix = 'st'
-  else if (day === 2 || day === 22) suffix = 'nd'
-  else if (day === 3 || day === 23) suffix = 'rd'
-  
-  return `${day}${suffix} ${month}`
-}
-
-const formatSpikeDate = (dateStr: string): string => {
-  if (!dateStr) return '23rd May'
-  
-  // Check for YYYY-MM-DD
-  if (dateStr.includes('-')) {
-    const parts = dateStr.split('-')
-    if (parts.length === 3) {
-      const year = parseInt(parts[0], 10)
-      const month = parseInt(parts[1], 10)
-      const day = parseInt(parts[2], 10)
-      try {
-        const dateObj = new Date(year, month - 1, day)
-        return formatFriendlyDate(dateObj)
-      } catch {
-        return dateStr
-      }
-    }
-  }
-  
-  // Check for MM/DD
-  if (dateStr.includes('/')) {
-    const parts = dateStr.split('/')
-    if (parts.length === 2) {
-      const month = parseInt(parts[0], 10)
-      const day = parseInt(parts[1], 10)
-      const currentYear = new Date().getFullYear()
-      try {
-        const dateObj = new Date(currentYear, month - 1, day)
-        return formatFriendlyDate(dateObj)
-      } catch {
-        return dateStr
-      }
-    }
-  }
-  
-  return dateStr
-}
-
 export default function App() {
   // Navigation State
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
@@ -790,20 +736,13 @@ export default function App() {
 
   // Compiled dynamic sample questions using real-time spike telemetry
   const sampleQuestions = useMemo(() => {
-    let spikeDateText = '23rd May'
     const isSpikeQuestionDisabled = isLoadingDashboard
-    if (hasSpikes && maxIdx !== -1) {
-      const peakDateStr = recentSpikes[maxIdx]?.date
-      if (peakDateStr) {
-        spikeDateText = formatSpikeDate(peakDateStr)
-      }
-    }
     return [
       { label: 'Scan Zombie Resources', text: 'Run a Cloud Asset Inventory scan across all projects to detect zombie resources, unattached persistent disks, and unused storage.' },
       { label: 'Show Top Cost Drivers', text: 'Query our BigQuery billing export to show top spend drivers and service utilization over the last 30 days.' },
       { 
         label: isLoadingDashboard ? 'Resolving Spikes...' : 'Analyze Cost Spikes', 
-        text: `Why did our production costs spike on ${spikeDateText}? Cross-reference billing records with CAI config changes.`,
+        text: 'Why did our costs spike? Cross-reference billing records with CAI config changes for the peak spike dates.',
         disabled: isSpikeQuestionDisabled
       },
       { label: 'Run Cost Forecast', text: 'Run a 3-month cost forecast and explain any projected anomalies.' },

@@ -1,23 +1,18 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Agent2Agent (A2A) protocol endpoints and FastAPI mounting.
 
-"""Attach A2A (Agent2Agent) endpoints to the FastAPI app.
+What:
+    Provides the ``attach_a2a_routes`` function to register dynamic Agent Card metadata
+    endpoints and JSON-RPC communication handlers on the main FastAPI application.
 
-func:`attach_a2a_routes` registers the dynamic
-agent-card endpoint and the JSON-RPC endpoint so the same app serves A2A
-alongside the adk_api routes, reachable by A2A clients and Gemini Enterprise A2A
-registration.
+Why:
+    Enables external systems, other ADK agents, and Gemini Enterprise Agent Platform registries
+    to discover, inspect capabilities of, and interact with the FinOps agent via the standard
+    A2A protocol alongside standard REST/ADK API routes.
+
+How:
+    Constructs an A2A agent card using ``AgentCardBuilder`` and wraps the ADK runner/agent using
+    ADK's ``A2aAgentExecutor``. It attaches HTTP endpoints for ``/.well-known/agent.json`` and
+    JSON-RPC execution onto the FastAPI application instance.
 """
 
 from __future__ import annotations

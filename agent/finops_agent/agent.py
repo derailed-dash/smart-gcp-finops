@@ -33,11 +33,11 @@ from finops_agent.callbacks import (
     FinOpsTelemetryPlugin,
     after_agent_save_cache,
     before_agent_cache_lookup,
+    before_agent_clean_history,
+    before_agent_discover_projects,
+    before_agent_reset_tool_call_counter,
     before_model_bypass,
-    check_tool_call_limit,
-    clean_history_callback,
-    discover_projects_callback,
-    reset_tool_call_counter,
+    before_tool_check_limit,
 )
 
 # Expose shared variables and models for other parts of the application
@@ -56,11 +56,12 @@ Your primary role is to receive user requests, understand their intent, and dele
 2. InfrastructureAuditor: Use for auditing zombie resources like idle static IPs or unattached disks (recommendations dashboard).
 3. CloudAdvisor: Use for active GCP rightsizing and resource-level cost/performance optimizations.
 4. KnowledgeAssistant: Use for general GCP Q&A and grounding recommendations in official architectural guidelines.
-5. RootCauseAnalyst: Use for analyzing cost spikes by correlating BigQuery spend shifts with CAI configuration change history.
+5. RootCauseAnalyst: Use for analyzing cost spikes and intra-day (today's) cost drivers by correlating BigQuery metrics, intra-day telemetry, and CAI configuration change history with Cloud Audit Logs.
 
 CRITICAL SELECTIVE ROUTING AND A2UI PRESERVATION RULES:
 1. You MUST only delegate tasks to the specific subagent(s) directly relevant to the user's request.
-   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer.
+   - If the user asks about costs "today", "right now", or "intra-day", delegate to RootCauseAnalyst or BillingExplorer, which execute intra-day service discovery (`get_today_top_services_and_usage`) and dynamic log investigation (`investigate_today_service_logs`) for today's active services.
+   - If the user only asks about historical costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer.
      Do NOT invoke CloudAdvisor or InfrastructureAuditor.
    - If the user asks for active recommendations, rightsizing, or optimizations, identify the top active cost-driver services and projects already discovered in conversation history (e.g. Vertex AI in finops-admin-dev, Gemini API in finops-admin-prd, BigQuery), and pass those specific services/projects when delegating to CloudAdvisor.
    - If the user asks to "Audit Best Practices" or assess services against GCP architectural guidelines, identify the top cost-driving services from conversation history (e.g. Vertex AI, Gemini API, BigQuery) and ONLY invoke KnowledgeAssistant to retrieve official GCP architectural best practices and citations for those specific services.
@@ -98,12 +99,12 @@ root_agent = Agent(
         root_cause_analyst,
     ],
     before_agent_callback=[
-        clean_history_callback,
-        reset_tool_call_counter,
-        discover_projects_callback,
+        before_agent_clean_history,
+        before_agent_reset_tool_call_counter,
+        before_agent_discover_projects,
         before_agent_cache_lookup,
     ],
-    before_tool_callback=check_tool_call_limit,
+    before_tool_callback=before_tool_check_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,
 )

@@ -31,12 +31,15 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
 | **Hybrid Model Routing** | Switch the root coordinator (`FinOpsCoordinator`) and lightweight proxy/RAG subagents (`CloudAdvisor` and `KnowledgeAssistant`) to `gemini-3.1-flash-lite`, while keeping reasoning-intensive subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`) on `gemini-3.5-flash`. Rationale: Drastically reduces turn latency and token consumption/costs for orchestration, RAG documentation lookups, and tool proxying. |
 | **Default Vertex AI Inferences** | Use Vertex AI mode (`GOOGLE_GENAI_USE_VERTEXAI=True`) with Google Cloud IAM credentials (ADC in local dev, Service Account identity in production) as the primary model inference route, avoiding raw `GEMINI_API_KEY` dependencies for enterprise security and unified billing. |
+| **2-Stage Intra-Day Discovery** | Use BQ `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and intra-day billing partitions to discover active top services today (`get_today_top_services_and_usage`), write them to the session blackboard (`state['today_top_services']`), and query Cloud Audit Logs (`investigate_today_service_logs`) for caller identities and method metrics. Rationale: Standard GCP Billing Export has a 3 to 12+ hour ingestion delay. Direct INFORMATION_SCHEMA and Cloud Audit Log telemetry provides instant intra-day visibility for "today" prompts. |
+| **Conditional Cloud Assist Anomaly Diagnosis** | Trigger Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) conditionally ONLY when `investigate_today_service_logs` detects operational errors (`has_operational_anomaly == True`, error severities, or status code failures) or when explicit operational diagnostics are requested. Rationale: Eliminates unnecessary Cloud Assist MCP execution latency on clean, routine cost queries while preserving deep infrastructure diagnostics when anomalies occur. |
 
 ## BigQuery Query Optimization
 
 To maintain sub-second response times and prevent high scan costs on massive billing export datasets (which contain millions of resource-level entries), the query execution wrapper (`execute_cached_bigquery_sql`) enforces the following optimization, caching, and security strategies:
 
 ### 1. Partition Pruning (Double-Temporal Filtering)
+
 Standard Google Cloud Billing exports are partitioned by `export_time`. The query engine dynamically extracts temporal/partition filters (`export_time`, `usage_start_time`, and `usage_end_time`) from the agent's outer query and pushes them down directly into the inner scoping subqueries:
 ```sql
 FROM (SELECT * FROM `table` WHERE project.id IN (...) AND export_time >= ... AND usage_start_time >= ...)
@@ -44,12 +47,15 @@ FROM (SELECT * FROM `table` WHERE project.id IN (...) AND export_time >= ... AND
 This forces BigQuery to prune partitions at the table-scan level, dropping execution time from over a minute to less than a second.
 
 ### 2. Targeted Scoping (Project Filter Intersection)
+
 When the agent queries a single project, the scoping subquery is narrowed to that single project instead of listing all 38 allowed projects. The tool parses explicit project filters (`project.id = '...'` or `project.id IN (...)`) from the SQL query and intersects them with the user's `allowed_projects` context, accelerating clustering index lookups.
 
 ### 3. Dynamic Table Routing
+
 Queries targeting the massive resource-level billing table (`gcp_billing_export_resource_v1_*`) that do not query or reference any `resource.` fields (e.g. general cost spikes or aggregations by project/SKU) are automatically rewritten at runtime to query the standard billing table (`gcp_billing_export_v1_*`). This instantly shrinks the scanned data footprint by ~100x.
 
 ### 4. Defensive Temporal Guardrail
+
 If a query is issued with no date or partition filters on `export_time` (e.g. exploratory min/max date checks), the tool automatically injects a default partition constraint:
 ```sql
 export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
@@ -57,10 +63,12 @@ export_time >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
 This prevents unconstrained queries from scanning the full historical footprint of the table.
 
 ### 5. Private In-Memory Caching & Blackboard Auto-Caching
+
 - **Private In-Memory Caching (`_IN_MEMORY_BQ_CACHE`)**: Raw BigQuery SQL caches are kept in a private, thread-safe in-memory Python dictionary mapped by `session_id` rather than ADK `SessionState` (`tool_context.state`). Because `SessionState` is serialized and persisted to disk or network stores on every turn, keeping the heavy SQL rows in a private process-level map avoids significant database I/O, network latency, trace/telemetry log bloat, and framework deepcopy CPU spikes.
 - **Blackboard Auto-Caching**: Query execution results are automatically written to standard blackboard keys in python memory (`'daily_service_costs_30d'`, `'sku_period_costs_60d'`, and `'gcs_secret_waste'`). Subagents are instructed via prompt guidelines to consult the blackboard first and **not** call `set_session_value` with database results, completely eliminating the latency of the LLM generating large JSON lists.
 
 ### 6. Deterministic Python Precomputation & Subagent Tool Stripping
+
 To completely eliminate model reasoning token generation and multi-turn conversational loop latency during heavy telemetry investigations:
 - **Python Precomputation Tools (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`)**: Heavy data analysis, cost summation, daily cost spike grouping, and Cloud Asset Inventory configuration log correlation are executed natively in Python. The LLM receives clean, pre-aggregated summary metrics instead of raw database rows, slashing subagent execution time to under 1.5 seconds.
 - **Subagent Tool Stripping**: By completely removing raw database/cai tools (`execute_cached_bigquery_sql` and `get_cai_history_for_resource`) from the `RootCauseAnalyst` and `BillingExplorer` subagents and exposing only the precomputed helpers, we force them to run a single deterministic precomputation query, eliminating redundant queries and self-correcting loop chains.
@@ -121,6 +129,7 @@ To support clean isolation, local testing, and separate scaling in production, t
 To manage the decoupled lifecycle of the UI/BFF and the Agent, the project maintains two isolated configuration sets. It is crucial to understand which files govern each deployment:
 
 #### 1. The Root Deployment Set (FastAPI BFF & React UI)
+
 This set manages the web container deployed to Cloud Run, which hosts the static frontend assets and exposes the endpoints to the user client.
 *   **Dependencies**: Governed by the root [pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/pyproject.toml) and root `uv.lock`. This includes web frameworks (`fastapi`, `uvicorn`), database drivers (`asyncpg`), and the client SDK (`google-genai`) to communicate with the remote agent.
 *   **Build Target**: Governed by [bff/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/bff/Dockerfile) for Cloud Run deployment. This is a multi-stage Docker build that compiles the React application using Node.js/Vite and mounts the static dist output directly inside the FastAPI Python runtime.
@@ -133,6 +142,7 @@ This set manages the web container deployed to Cloud Run, which hosts the static
     ```
 
 #### 2. The Agent Deployment Set (ADK Agent & Agent Runtime)
+
 This set manages the Agent container deployed to Gemini Enterprise Agent Runtime, which executes the cognitive loops and calls tools.
 *   **Dependencies**: Governed by [agent/pyproject.toml](file:///home/dazbo/localdev/smart-gcp-finops/agent/pyproject.toml) and `agent/uv.lock`. This contains only the execution dependencies (`google-adk`, `mcp`, `google-cloud-logging`, `gcsfs`, `google-cloud-aiplatform`).
 *   **Build Target**: Governed by [agent/Dockerfile](file:///home/dazbo/localdev/smart-gcp-finops/agent/Dockerfile). This builds the python serving container wrapping the ADK agent logic, exposing port `8080` with the `google.adk.cli` API server as its CMD.
@@ -143,6 +153,7 @@ This set manages the Agent container deployed to Gemini Enterprise Agent Runtime
     ```
 
 #### 3. Automatic Requirements Compilation (`requirements.txt`)
+
 In the `agent/finops_agent/` directory, there is a [requirements.txt](file:///home/dazbo/localdev/smart-gcp-finops/agent/finops_agent/requirements.txt) file. 
 *   **Purpose**: The Gemini Enterprise Agent Platform requires a standard `requirements.txt` file inside the agent source directory during Agent registration/serialization to map package dependencies.
 *   **Maintenance**: **Developers must not edit this file manually.** Instead, define all dependencies inside `agent/pyproject.toml` and run the compilation target to generate it automatically:
@@ -189,6 +200,7 @@ graph TD
 ```
 
 #### 1. Project Ownership and Identity
+
 - **Central Billing Project (`finops-admin-473520`)**: Hosts the primary BigQuery billing export dataset (`all_billing_data`). No application services are deployed here; it serves strictly as the financial data source of truth.
 - **Prod / CICD Project (`finops-admin-prd`)**: Hosts the CI/CD pipeline assets (GitHub Workload Identity Pool/Providers, central Artifact Registry repository) and the **Production** deployment of the Cloud Run app and its production-specific application Service Account.
 - **Dev / Staging Project (`finops-admin-dev`)**: Hosts the **Staging** deployment of the Cloud Run application, its staging-specific application Service Account, and any local assets or staging databases.
@@ -267,7 +279,7 @@ graph TD
 Since users can invoke subagents directly (or via UI action chips) without a strict sequential order (e.g. clicking "Align with best practices" immediately upon opening a clean chat session), the system enforces two state-resiliency rules:
 
 1. **Bootstrap Project Discovery**:
-   The root `FinOpsCoordinator` executes `discover_projects_callback` during the initial connection handshake. This populates `session.state.allowed_projects` immediately on turn 1, establishing the tenant boundaries.
+   The root `FinOpsCoordinator` executes `before_agent_discover_projects` during the initial connection handshake. This populates `session.state.allowed_projects` immediately on turn 1, establishing the tenant boundaries.
 2. **Lazy Context Hydration**:
    If a subagent (such as `KnowledgeAssistant` or `CloudAdvisor`) is invoked but finds cost spikes or active service lists are missing from `session.state`, it must not fail or return generic suggestions. Instead, it lazily triggers a fast, cached lookup query to BigQuery to resolve the top cost-driving services for the allowed projects, populating the session state on-the-fly.
 3. **Global Plugin Observability and Error Interception**:
@@ -284,6 +296,76 @@ To design the decoupled execution paths, the table below maps each standard use 
 | **GCP Best Practices Chip**<br>*(e.g. "Align with best practices")* | `FinOpsCoordinator` | Combination: `KnowledgeAssistant` (`single_turn`) + `CloudAdvisor` (`task`) | Reads active services, cost spikes, and project scopes from `session.state`. Queries Cloud Assist for live recommendations and Developer Knowledge to ground the advice. | Renders rightsizing/configuration suggestions grounded in official GCP best practices. |
 | **Get Optimization Advice Chip**<br>*(e.g. "Optimize active resources")* | `FinOpsCoordinator` | `CloudAdvisor` (`task`) | Reads the user's active cloud project from state to scope Gemini Cloud Assist API queries. | Renders architectural/rightsizing suggestions for active infrastructure. |
 | **Investigate Cost Spike**<br>*(e.g. "Why did costs spike yesterday?")* | `FinOpsCoordinator` | `RootCauseAnalyst` (`task`) | Invokes `get_precomputed_root_cause` to perform comparative cost analysis and correlate configuration logs for persistent resources in a single turn. | Renders comparative SQL findings and correlated resource configuration logs. |
+| **Intra-Day Real-Time Cost Query**<br>*(e.g. "What drove costs today?")* | `FinOpsCoordinator` | `RootCauseAnalyst` (`task`) or `BillingExplorer` (`task`) | Invokes `get_today_top_services_and_usage` to discover today's active top services, populates `state['today_top_services']`, and calls `investigate_today_service_logs`. If operational errors are detected, sets `state['today_operational_anomaly'] = True`. | Renders intra-day SQL/metric figures, Cloud Audit Log caller findings, and optional Gemini Cloud Assist diagnostic suggestions. |
+
+---
+
+### Agent Evaluation Trajectories & Expected Tool Paths
+
+To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Analysis), the system defines strict expected trajectories, tool execution chains, input parameters, and output contracts for each core user intent domain:
+
+#### Trajectory 1: Month-to-Date Spend & Trend Analysis
+
+- **User Prompts**: `"Show MTD spend"`, `"What is my cost forecast?"`, `"Summarise 30-day spend"`.
+- **Target Subagent**: `BillingExplorer` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Expected Tool Trajectory**:
+  1. `get_precomputed_spend_analysis(days=30)`
+  2. `finish_task(result=...)`
+- **Data & Output Contract**:
+  - `days`: Default 30 (or user specified: 7, 14, 60, 90).
+  - Output MUST contain a concise Markdown summary (<250 words) AND two structured ```json+a2ui ... ``` code blocks (`explorer` dashboard block and `dashboard` overview block).
+
+#### Trajectory 2: Real-Time Intra-Day Cost Investigation
+
+- **User Prompts**: `"What drove costs today?"`, `"Why is my bill high today?"`, `"Who is running queries right now?"`.
+- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.5-flash`) or `BillingExplorer`.
+- **Expected Tool Trajectory**:
+  1. `get_today_top_services_and_usage()` ➔ Populates `state['today_top_services']`.
+  2. `investigate_today_service_logs(target_services=[...])` ➔ Uses `state['today_top_services']` or explicit service names to query Cloud Audit Logs.
+  3. *(Conditional)* If `has_operational_anomaly == True`, suggests or delegates to `CloudAdvisor` (`investigate_issue`).
+  4. `finish_task(result=...)`
+- **Data & Output Contract**:
+  - Returns intra-day query metrics (bytes billed, estimated cost USD) combined with Cloud Audit Log caller identities (`principalEmail`) and API method counts. Explicitly includes GCP billing export ingestion latency disclaimer.
+
+#### Trajectory 3: Historical Cost Spike Root Cause Analysis
+
+- **User Prompts**: `"Why did costs spike on July 18th?"`, `"Investigate cost surge on 2026-07-18"`.
+- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Expected Tool Trajectory**:
+  1. `get_precomputed_root_cause(date_str="YYYY-MM-DD")` (AT MOST ONCE).
+  2. `finish_task(result=...)`
+- **Data & Output Contract**:
+  - Compares `date_str` against `date_str - 1 day` in resource billing table. If persistent resources are found, correlates spikes with Cloud Asset Inventory (CAI) configuration logs.
+
+#### Trajectory 4: Zombie Resource Audit
+
+- **User Prompts**: `"Scan for unused resources"`, `"Audit zombie disks and idle IPs"`.
+- **Target Subagent**: `InfrastructureAuditor` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Expected Tool Trajectory**:
+  1. `list_zombie_resources()`
+  2. `get_cai_metadata_for_resources(...)`
+  3. `finish_task(result=...)`
+- **Data & Output Contract**:
+  - Populates `state['zombie_resources']`. Output MUST contain Markdown audit report and structured ```json+a2ui ... ``` code block (`recommendations`).
+
+#### Trajectory 5: Active Resource Optimization
+
+- **User Prompts**: `"Optimize active resources"`, `"How can I reduce Cloud Run / Vertex AI costs?"`.
+- **Target Subagent**: `CloudAdvisor` (`mode="task"`, Model: `gemini-3.1-flash-lite`).
+- **Expected Tool Trajectory**:
+  1. `get_session_value(key='allowed_projects')`
+  2. `cloud_assist_mcp_ask_cloud_assist(prompt=...)` or `cloud_assist_mcp_investigate_issue(...)`
+  3. `finish_task(result=...)`
+- **Data & Output Contract**:
+  - Must inspect discovered active services/projects from context to provide tailored optimization advice rather than generic unconfigured boilerplate.
+
+#### Trajectory 6: Architectural Guidelines & Best Practices Q&A
+
+- **User Prompts**: `"Align with GCP best practices"`, `"What is the best practice for Cloud Storage tiering?"`.
+- **Target Subagent**: `KnowledgeAssistant` (`mode="single_turn"`, Model: `gemini-3.1-flash-lite`).
+- **Expected Tool Trajectory**:
+  1. `gde_mcp_answer_query(query=...)` or `gde_mcp_search_documents(...)`
+  2. Direct single-turn Markdown answer with official GCP documentation citations.
 
 ---
 
@@ -301,6 +383,7 @@ The agent logic in `agent/finops_agent/agent.py` uses the native ADK `BigQueryTo
 ```python
 # agent/finops_agent/agent.py snippet
 # Configure native BigQuery Toolset using Application Default Credentials (ADC)
+
 import google.auth
 from google.adk.integrations.bigquery import BigQueryToolset, BigQueryCredentialsConfig
 
@@ -390,6 +473,7 @@ graph TD
 ## A2UI Rationale & Gemini Enterprise Portability
 
 ### Rationale for A2UI Protocol
+
 The **Agent-to-UI (A2UI)** protocol decouples the backend agent's cognitive loops from the specific frontend rendering framework. Rather than returning hardcoded HTML, CSS, or framework-specific elements, the agent generates structured JSON payloads conforming to a standardized MIME type (`application/json+a2ui`). 
 
 This architecture guarantees that the backend is fully **frontend-agnostic**:
@@ -397,6 +481,7 @@ This architecture guarantees that the backend is fully **frontend-agnostic**:
 * **Independent Evolution**: The design system or front-end layout can be completely overhauled without changing a single line of Python agent code or altering tool logic.
 
 ### Fallback & Execution Mode Visual Indicator
+
 To ensure full operational visibility for developers and operators, the React UI includes a visual execution indicator badge located in the main header of the chat panel. 
 * **State Check**: On initialisation, the React client queries the thin BFF status endpoint (`GET /api/status`).
 
@@ -409,6 +494,7 @@ Surfacing this backend through text-centric enterprise interfaces like **Gemini 
 To bring rich cost trends and cost curves to Gemini Enterprise without building custom frontend web components, we will implement **Dynamic Server-Side Chart Rendering (Solution 1)** in a future phase:
 
 ### Dynamic PNG Charting Architecture
+
 ```text
 [ Gemini Enterprise ] <--- (Markdown + PNG Link) --- [ FastAPI BFF Gateway ]
                                                            |

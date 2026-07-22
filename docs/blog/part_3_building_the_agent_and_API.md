@@ -18,6 +18,8 @@ In this part we're going to take a close look at the agent code. We'll be lookin
 - Building a FastAPI _Backend-for-Frontend_
 - Creating and running a local Docker container
 
+I'll explain concepts and provide code snippets as we go. But don't forget: you can always refer to the full code in the [repo](https://github.com/derailed-dash/smart-gcp-finops).
+
 Let's get cracking!
 
 ## Series Orientation
@@ -127,12 +129,27 @@ Your primary role is to receive user requests, understand their intent, and dele
 4. KnowledgeAssistant: Use for general GCP Q&A and grounding recommendations in official architectural guidelines.
 5. RootCauseAnalyst: Use for analyzing cost spikes by correlating BigQuery spend shifts with CAI configuration change history.
 
-CRITICAL SELECTIVE ROUTING RULES:
+CRITICAL SELECTIVE ROUTING AND A2UI PRESERVATION RULES:
 1. You MUST only delegate tasks to the specific subagent(s) directly relevant to the user's request.
-   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer. Do NOT invoke CloudAdvisor or InfrastructureAuditor.
-   - If the user only asks about rightsizing, active recommendations, or optimizations, ONLY invoke CloudAdvisor.
+   - If the user only asks about costs, spend trends, SKU prices, or budgets, ONLY invoke BillingExplorer.
+     Do NOT invoke CloudAdvisor or InfrastructureAuditor.
+   - If the user asks for active recommendations, rightsizing, or optimizations, identify the top active cost-driver services and projects already discovered in conversation history (e.g. Vertex AI in finops-admin-dev, Gemini API in finops-admin-prd, BigQuery), and pass those specific services/projects when delegating to CloudAdvisor.
+   - If the user asks to "Audit Best Practices" or assess services against GCP architectural guidelines, identify the top cost-driving services from conversation history (e.g. Vertex AI, Gemini API, BigQuery) and ONLY invoke KnowledgeAssistant to retrieve official GCP architectural best practices and citations for those specific services.
    - If the user only asks about zombie resources, idle IPs, or unattached disks, ONLY invoke InfrastructureAuditor.
-2. Do NOT run a full multi-agent audit (calling multiple subagents) unless the user explicitly requests a "full audit", "comprehensive review", "complete environment analysis", or asks a multi-faceted question that spans multiple domains. Keep simple queries fast and single-scoped!
+2. Do NOT run a full multi-agent audit (calling multiple subagents) unless the user explicitly requests a "full audit",
+   "comprehensive review", "complete environment analysis", or asks a multi-faceted question that spans multiple domains.
+   Keep simple queries fast and single-scoped!
+3. CRITICAL A2UI PAYLOAD PRESERVATION:
+   When a subagent (such as BillingExplorer or InfrastructureAuditor) returns a response containing structured ```json+a2ui ... ``` code blocks, you MUST preserve and re-emit those exact ```json+a2ui ... ``` code blocks unchanged in your final output so the React frontend can render dynamic A2UI dashboard components!
+
+RESPONSE SYNTHESIS & HELPFULNESS GUIDELINES:
+1. Executive Summary First: Always lead with a crisp 1-2 sentence summary directly answering the user's prompt
+   (e.g. total spend, primary cost driver, top recommendation).
+2. Scannable & Structured Formatting: Use clear Markdown headings, bold key financial metrics
+   (e.g. **£41.34 GBP**), and scannable bullet points.
+3. Proactive & Actionable Next Steps: Conclude with a helpful, context-aware follow-up suggestion
+   (e.g. offering to analyze cost spikes on a specific project, query rightsizing options).
+4. Tone: Senior FinOps advisory tone — professional, precise, and encouraging without unnecessary boilerplate.
 """
 
 root_agent = Agent(
@@ -152,12 +169,12 @@ root_agent = Agent(
         root_cause_analyst,
     ],
     before_agent_callback=[
-        clean_history_callback,
-        reset_tool_call_counter,
-        discover_projects_callback,
+        before_agent_clean_history,
+        before_agent_reset_tool_call_counter,
+        before_agent_discover_projects,
         before_agent_cache_lookup,
     ],
-    before_tool_callback=check_tool_call_limit,
+    before_tool_callback=before_tool_check_limit,
     before_model_callback=before_model_bypass,
     after_agent_callback=after_agent_save_cache,
 )
@@ -166,7 +183,7 @@ app = App(
     root_agent=root_agent,
     name="finops_agent",
     context_cache_config=ContextCacheConfig(
-        min_tokens=2048,  # Trigger caching for large prompts/histories
+        min_tokens=2048,  # Trigger caching for large prompts/histories on Vertex AI / Gemini
         ttl_seconds=600,  # Store the cache for up to 10 minutes
         cache_intervals=10,  # Refresh after 10 turns
     ),
@@ -182,27 +199,32 @@ There's a few interesting things to note about this agent:
 - Native Gemini **context caching** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
 - There are **agent callbacks** (defined on `root_agent`) and **global application plugins** (defined on `App`) for managing lifecycle hooks across the execution loop.
 
-### Quick Aside: ADK Callbacks vs. App Plugins
+### Quick Aside: ADK Callbacks vs App Plugins
 
-In ADK, lifecycle hooks allow deterministic Python functions to execute at specific points in the execution pipeline (before/after an agent runs, before/after a model call, or before/after a tool executes). However, there is an important distinction between **Agent-level Callbacks** and **App-level Plugins**:
+In ADK, lifecycle hooks allow deterministic Python functions to execute at specific points in the execution pipeline, i.e. before/after an agent runs, before/after a model call, or before/after a tool executes. 
 
-1. **Agent-Level Callbacks (`before_agent_callback`, etc)**:
+However, there is an important distinction between **Agent-level Callbacks** and **App-level Plugins**:
 
-    Attached to a specific agent (like `root_agent`). These fire **once** when that specific agent initiates its execution. For instance, `discover_projects_callback` runs on the `root_agent` at the very start of a user turn. It calls the Cloud Billing API (`billingAccounts.projects.list`) to retrieve all linked GCP project IDs and populates `session.state['allowed_projects']`. Because this happens before delegating, every subagent can simply read `allowed_projects` from session state. We don't re-run the API call for subagents!
+1. **Agent-Level Callbacks**:
+
+    Attached to a specific agent (like `root_agent`). These fire **once** when that specific agent initiates its execution. For instance, `before_agent_discover_projects` runs on the `root_agent` at the very start of a user turn. It calls the Cloud Billing API (`billingAccounts.projects.list`) to retrieve all linked GCP project IDs and populates `session.state['allowed_projects']`. Because this happens before delegating, every subagent can simply read `allowed_projects` from session state. We don't re-run the API call for subagents!
 
 2. **App-Level Plugins (`BasePlugin`)**: 
     
-    Registered globally on the `App` container via `App(plugins=[...])`. Plugins subclass `BasePlugin` and hook into **every** agent turn and tool call across the entire hierarchy (root coordinator and subagents alike).
+    These are registered globally on the `App` container via `App(plugins=[...])`. They subclass `BasePlugin` and hook into **every** agent turn and tool call across the entire hierarchy (root coordinator and subagents alike).
 
 Here are a few concrete examples of how we leverage callbacks and plugins in _FinSavant_:
 
-- **Dynamic Project Discovery (`discover_projects_callback`)**: Attached to `root_agent`. Fires once at turn start to discover live GCP project IDs and write them to `session.state['allowed_projects']`.
-- **Subagent History Cleaning (`clean_history_callback`)**: Attached to `root_agent`. Fires before the root agent processes a subagent's return, converting subagent `finish_task` responses into plain-text user context.
+- **Error Handling (`DefensiveToolErrorPlugin`)**: Globally intercepts unhandled tool exceptions across any subagent, storing formatted errors in session state so the coordinator can inform the user gracefully without crashing the process.
+- **Logging and Telemetry (`FinOpsTelemetryPlugin`)**: Automatically instruments OpenTelemetry spans; logs agent handoffs, model execution latency, and token consumption across all turns.
+- **Dynamic Project Discovery (`before_agent_discover_projects`)**: Attached to `root_agent`. Fires once at turn start to discover live GCP project IDs and write them to `session.state['allowed_projects']`.
+- **Subagent History Cleaning (`before_agent_clean_history`)**: Attached to `root_agent`. Fires before the root agent processes a subagent's return, converting subagent `finish_task` responses into plain-text user context.
 - **Turn-Level Response Caching (`before_agent_cache_lookup` & `after_agent_save_cache`)**: Attached to `root_agent`. This checks the current issued prompt before execution. It uses the fast model to determine if this prompt is semantically very similar to a previous prompt in the conversation. If it is, we can return a response from the cached responses.
-- **Tool Call Limiting (`check_tool_call_limit`)**: Attached to `root_agent`. This plugin enforces a tool ceiling per turn, ensuring that we don't end up with runaway subagent loops that try to make tool calls dozens of times.
+Instead of duplicating logging or exception handlers inside every subagent constructor, ADK allows registering global plugins on the root `App`:
+- **Tool Call Limiting (`before_tool_check_limit`)**: Attached to `root_agent`. This callback enforces a tool ceiling per turn, ensuring that we don't end up with runaway subagent loops that try to make tool calls dozens of times.
 
 ```python
-def check_tool_call_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+def before_tool_check_limit(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """Defensive callback to count and limit tool calls in a single turn to prevent runaways."""
     count = tool_context.state.get("_turn_tool_call_count", 0) + 1
     tool_context.state["_turn_tool_call_count"] = count
@@ -237,11 +259,28 @@ from finops_agent.client import (
     ConfiguredGemini,
     bigquery_toolset,
 )
+from finops_agent.app_utils.typing import TaskOutput
+from finops_agent.client import (
+    ConfiguredGemini,
+    bigquery_toolset,
+)
 from finops_agent.config import settings
 
 BILLING_EXPLORER_INSTRUCTION = """You are the BillingExplorer subagent.
-Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics.
-Do NOT attempt to run standard SQL queries or other cache functions directly if `get_precomputed_spend_analysis` is available, as it provides pre-aggregated and filtered cost results in a single call.
+Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed cloud costs, period-over-period trends, cost drivers, cost forecasts, and Secret Manager/GCS zombie waste metrics. Pass the `days` parameter matching the timeframe requested by the user (e.g. `days=7` for 7 days, `days=14` for 14 days, `days=30` for 30 days, `days=60` for 60 days, `days=90` for 90 days; default to 30 if unspecified).
+
+CRITICAL COST FORECASTING & TOOL SELECTION RULES:
+1. For ALL spend queries, cost trend analysis, and cost forecasting (including prompts like "Run Cost Forecast", "Future Trend", "Projected Spend"), ALWAYS call `get_precomputed_spend_analysis(days=...)`.
+2. `get_precomputed_spend_analysis` ALREADY computes the Month-to-Date (MTD) spend, period-over-period trends, and the projected end-of-month spend forecast in Python instantaneously.
+3. Do NOT attempt to run standard SQL queries or construct custom BigQuery ML statements (`CREATE OR REPLACE MODEL`, `ML.FORECAST`) directly if `get_precomputed_spend_analysis` is available.
+4. NEVER execute multi-query loops or attempt dataset/model creation. Use the result returned by `get_precomputed_spend_analysis` to generate the complete report in a single tool call!
+
+Based on the dictionary returned by `get_precomputed_spend_analysis`, generate a concise final report:
+1. Total Spend and currency.
+2. Top Cost Drivers by Service.
+3. Period-over-Period Changes & Trends (percentage changes).
+4. Major cost spikes (date and service/cost).
+5. Zombie/inactive waste (secrets, buckets, etc).
 
 < trimmed for readability >
 
@@ -278,7 +317,7 @@ billing_explorer = Agent(
 
 Some notes about this agent...
 
-- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. Here you see another benefit of using separate subagents: we can use different models and parameters for each one.
+- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
 - It has **no subagents**, but it has several **tools**.
 - Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
 - The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts.
@@ -321,7 +360,11 @@ The code for this agent is very simple; it's basically just the prompt and the u
 KNOWLEDGE_ASSISTANT_INSTRUCTION = """You are the KnowledgeAssistant subagent.
 Query the Developer Knowledge MCP to retrieve and ground cost optimization recommendations in official GCP architectural guidelines.
 
-Always provide citations referencing official GCP documentation when presenting architectural advice or product recommendations.
+GUIDELINES:
+1. Identify the specific GCP services provided in the user prompt or identified as top cost drivers (e.g. Vertex AI, Gemini API, BigQuery, Cloud Storage).
+2. Query the Developer Knowledge MCP to find official Google Cloud cost optimization strategies, architectural patterns, quota management, lifecycle policies, and scaling guidelines for those specific services.
+3. Always provide inline citations referencing official GCP documentation when presenting architectural advice or product recommendations.
+4. When outputting references or citations, ALWAYS format them as standard single-line Markdown links: [Title](URL). Never insert line breaks or whitespace inside the URL or between `]` and `(`.
 """
 
 knowledge_assistant = Agent(
@@ -337,6 +380,8 @@ knowledge_assistant = Agent(
         dev_knowledge_mcp_toolset,
     ],
     mode="single_turn",
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
 )
 ```
 
@@ -371,59 +416,9 @@ The `mode` is defined as a property as part of each subagent definition. So we'v
 4. `KnowledgeAssistant`: `single_turn`
 5. `RootCauseAnalyst`: `task`
 
-## Handling Cross-Cutting Concerns across Agents
+## Testing with `ADK Web`
 
-Managing multi-agent systems requires handling logging, error resilience, session state, and caching cleanly across all agents without repeating boilerplates.
-
-### 1. Global ADK Plugins (`BasePlugin`)
-
-Instead of duplicating logging or exception handlers inside every subagent constructor, ADK allows registering global plugins on the root `App`:
-
-```python
-app = App(
-    root_agent=root_agent,
-    name="finops_agent",
-    context_cache_config=ContextCacheConfig(
-        min_tokens=2048,
-        ttl_seconds=600,
-        cache_intervals=10,
-    ),
-    plugins=[DefensiveToolErrorPlugin(), FinOpsTelemetryPlugin()],
-)
-```
-
-- **`DefensiveToolErrorPlugin`**: Globally intercepts unhandled tool exceptions across any subagent, storing formatted error alerts in session state so the coordinator can inform the user gracefully without crashing the process.
-- **`FinOpsTelemetryPlugin`**: Automatically instruments OpenTelemetry spans and logs agent handoffs, model execution latency, and token consumption across all turns.
-
-### 2. Overcoming Subagent Event Alignment & `thought_signature` Errors
-
-During multi-agent handoffs in ADK task mode, subagents return their results via `finish_task`. Under certain execution paths, standard event history appending can create an alignment mismatch (a `FunctionResponse` event without a preceding `FunctionCall` event in the coordinator's message history).
-
-Furthermore, Gemini 3.5 API strictly enforces `thought_signature` checks on historical function call events. To solve this cleanly, we created **`clean_history_callback`**:
-
-```python
-def clean_history_callback(callback_context: AgentCallbackContext) -> None:
-    """Cleans up subagent handoff history by converting subagent FunctionResponses
-
-    in-place into plain-text user messages, avoiding event alignment and thought_signature errors.
-    """
-    history = callback_context.session.events
-    # Scans history and transforms subagent finish_task payloads into plain-text user context
-    ...
-```
-
-This transforms subagent task responses in-place into clean, plain-text markdown context (`"For context: Subagent BillingExplorer returned: ..."`), wiping internal subagent tool call artifacts and guaranteeing 100% stability across turns! Hurrah!
-
-### 3. Session State, Blackboard Pattern, and In-Memory Caching
-
-Passing massive datasets (e.g. 500 rows of BigQuery billing records) through ADK `SessionState` (`tool_context.state`) creates severe serialization bottlenecks (I/O latency, network payload bloat, and deepcopy CPU spikes). We adopted a two-tier caching strategy:
-
-- **Private In-Memory SQL Cache (`_IN_MEMORY_BQ_CACHE`)**: Raw SQL query results are cached in a thread-safe Python dictionary in process memory, keyed by `session_id`.
-- **The Blackboard Pattern**: Shared state keys (`allowed_projects`, `daily_service_costs_30d`, `gcs_secret_waste`) are set in Python memory. Subagents check the blackboard first before triggering new queries, enabling instant data sharing across subagents without LLM JSON re-generation.
-
----
-
-## Validating Agent Trajectories with `ADK Web`
+Now we've got our root agent, subagents and tools defined, we've got enough to try it out.
 
 During local development, validating how the coordinator routes user queries, inspecting tool parameters, and observing subagent handbacks is critical.
 
@@ -471,6 +466,14 @@ Rather than having LLM subagents generate complex SQL queries, inspect raw data 
 
 - **Python Precomputation**: Cost summation, daily spike calculations, MoM changes, and CAI log correlations run natively in Python.
 - **Subagent Tool Stripping**: We stripped raw database query tools from `RootCauseAnalyst` and `BillingExplorer`, exposing only the precomputation helpers. This forces them into a single-turn deterministic execution path, reducing prompt token footprint by **90%** and dropping subagent execution time to under **1.5 seconds**!
+
+### 4. Real-Time Intra-Day Service Discovery & Conditional Cloud Assist Integration
+
+Standard GCP Billing Export has an inherent **3 to 12+ hour ingestion delay**, meaning queries asking "what drove my costs today?" return incomplete or delayed data from BigQuery billing export tables. To solve this, we implemented a 2-stage intra-day investigation pipeline:
+
+1. **Intra-Day Service Discovery (`get_today_top_services_and_usage`)**: Queries near-real-time BigQuery `INFORMATION_SCHEMA.JOBS_BY_PROJECT` (for query execution bytes) and intra-day billing partitions to find the top active services and projects today. Discovered services are saved to the ADK session blackboard (`state["today_top_services"]`).
+2. **Targeted Cloud Logging (`investigate_today_service_logs`)**: Reads `today_top_services` from the session blackboard and maps GCP display names (`Vertex AI`, `BigQuery`, `Cloud Run`) to canonical audit log identifiers (`aiplatform.googleapis.com`, `bigquery.googleapis.com`, `run.googleapis.com`). It constructs targeted LQL log filters to extract caller identities and API method counts.
+3. **Conditional Gemini Cloud Assist Operational Diagnosis**: If `investigate_today_service_logs` detects active operational errors (`has_operational_anomaly == True`, error severity logs, or status code failures), the agent automatically flags the anomaly and delegates to `CloudAdvisor` to invoke Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) for infrastructure diagnostics.
 
 ---
 

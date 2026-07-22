@@ -83,6 +83,12 @@ export const mapToolNameToFriendlyName = (name: string): string => {
   if (clean.includes('fetch_docs') || clean.includes('get_documents') || clean.includes('list_doc_sources')) {
     return 'Retrieving Developer Documentation';
   }
+  if (clean.includes('get_today_top_services_and_usage')) {
+    return 'Discovering Today\'s Active Services';
+  }
+  if (clean.includes('investigate_today_service_logs')) {
+    return 'Auditing Today\'s Service Logs';
+  }
   if (clean.includes('finish_task')) {
     return 'Finalising Analysis';
   }

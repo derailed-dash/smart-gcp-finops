@@ -1,8 +1,17 @@
-"""
-Description: Cloud Asset Inventory (CAI) custom tools.
-Why: Exposes project, resource, and history scanning capabilities to the agent.
-How: Integrates with CAI REST APIs using the Google API Python client,
-providing cached discovery and temporal configuration drift checks.
+"""Cloud Asset Inventory (CAI) custom tools for ADK agents.
+
+What:
+    Defines ADK agent tools for searching Cloud Asset Inventory (CAI) resources, auditing IAM access
+    policies across projects/organizations, and examining temporal asset modification history.
+
+Why:
+    Exposes resource discovery, access footprint analysis, and configuration drift detection tools
+    directly to the ADK agent, enabling intelligent FinOps security and resource auditing.
+
+How:
+    Wraps Google Cloud Asset Inventory REST API calls with thread-safe client helpers, enforces user
+    permission scoping boundaries, caches asset metadata in memory, and converts API responses into
+    agent-consumable dicts/text.
 """
 
 import logging
@@ -207,11 +216,23 @@ def get_cai_history_for_resource(
         billing_account_name = f"billingAccounts/{settings.google_cloud_billing_account}"
         project_ids = list_billing_projects(billing_account_name)
 
-        for project_id in project_ids:
-            scope = f"projects/{project_id}"
-            history_results = get_asset_history(resource_name, scope, start_time, end_time)
-            if history_results:
-                break
+        if project_ids:
+            def search_scope_history(pid: str) -> list[dict]:
+                scope = f"projects/{pid}"
+                return get_asset_history(resource_name, scope, start_time, end_time)
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=min(len(project_ids), 10)) as executor:
+                futures = [executor.submit(search_scope_history, pid) for pid in project_ids]
+                for future in as_completed(futures):
+                    try:
+                        res = future.result()
+                        if res:
+                            history_results = res
+                            break
+                    except Exception as ex:
+                        logger.debug(f"Error fetching CAI history for project scope: {ex}")
 
     logger.debug(
         "CAI history lookup returned %d records for resource: %s",

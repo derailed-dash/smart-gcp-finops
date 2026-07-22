@@ -11,7 +11,7 @@ from finops_agent.app_utils.cai_tools import (
     get_cai_metadata_for_resources,
 )
 from finops_agent.app_utils.tools import (
-    BLACKBOARD_KEY_INSTRUCTIONS,
+    COMMON_AGENT_HEADER,
     get_precomputed_spend_analysis,
     get_session_value,
     set_session_value,
@@ -63,7 +63,7 @@ infrastructure_auditor = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
-    instruction=INFRASTRUCTURE_AUDITOR_INSTRUCTION + BLACKBOARD_KEY_INSTRUCTIONS,
+    instruction=COMMON_AGENT_HEADER + "\n\n" + INFRASTRUCTURE_AUDITOR_INSTRUCTION,
     tools=[
         list_zombie_resources,
         get_precomputed_spend_analysis,

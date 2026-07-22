@@ -7,10 +7,12 @@ from google.adk.agents import Agent
 from google.genai import types
 
 from finops_agent.app_utils.tools import (
-    BLACKBOARD_KEY_INSTRUCTIONS,
+    COMMON_AGENT_HEADER,
     execute_cached_bigquery_sql,
     get_precomputed_spend_analysis,
     get_session_value,
+    get_today_top_services_and_usage,
+    investigate_today_service_logs,
     set_session_value,
 )
 from finops_agent.app_utils.typing import TaskOutput
@@ -21,15 +23,26 @@ from finops_agent.client import (
 from finops_agent.config import settings
 
 BILLING_EXPLORER_INSTRUCTION = """You are the BillingExplorer subagent.
-Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed cloud costs, period-over-period trends, cost drivers, and Secret Manager/GCS zombie waste metrics. Pass the `days` parameter matching the timeframe requested by the user (e.g. `days=7` for 7 days, `days=14` for 14 days, `days=30` for 30 days, `days=60` for 60 days, `days=90` for 90 days; default to 30 if unspecified).
-Do NOT attempt to run standard SQL queries or other cache functions directly if `get_precomputed_spend_analysis` is available, as it provides pre-aggregated and filtered cost results in a single call.
+Use the `get_precomputed_spend_analysis` tool to retrieve pre-computed cloud costs, period-over-period trends, cost drivers, cost forecasts, and Secret Manager/GCS zombie waste metrics. Pass the `days` parameter matching the timeframe requested by the user (e.g. `days=7` for 7 days, `days=14` for 14 days, `days=30` for 30 days, `days=60` for 60 days, `days=90` for 90 days; default to 30 if unspecified).
+
+INTRA-DAY (TODAY'S COST) QUERY RULE:
+If the user asks specifically about "today", "right now", or "intra-day" cost drivers:
+1. Call `get_today_top_services_and_usage()` alongside `get_precomputed_spend_analysis(days=30)` to get near-real-time intra-day metrics (BigQuery INFORMATION_SCHEMA and operational usage).
+2. Option: Call `investigate_today_service_logs()` with the top services returned to get caller and log detail.
+3. Explicitly highlight in your report that standard GCP Billing Export has a 3-12h ingestion delay, so today's figures represent near-real-time telemetry probes.
+
+CRITICAL COST FORECASTING & TOOL SELECTION RULES:
+1. For ALL spend queries, cost trend analysis, and cost forecasting (including prompts like "Run Cost Forecast", "Future Trend", "Projected Spend"), ALWAYS call `get_precomputed_spend_analysis(days=...)`.
+2. `get_precomputed_spend_analysis` ALREADY computes the Month-to-Date (MTD) spend, period-over-period trends, and the projected end-of-month spend forecast in Python instantaneously.
+3. Do NOT attempt to run standard SQL queries or construct custom BigQuery ML statements (`CREATE OR REPLACE MODEL`, `ML.FORECAST`) directly if `get_precomputed_spend_analysis` is available.
+4. NEVER execute multi-query loops or attempt dataset/model creation. Use the result returned by `get_precomputed_spend_analysis` to generate the complete report in a single tool call!
 
 Based on the dictionary returned by `get_precomputed_spend_analysis`, generate a concise final report:
 1. Total Spend and currency.
 2. Top Cost Drivers by Service.
 3. Period-over-Period Changes & Trends (percentage changes).
 4. Major cost spikes (date and service/cost).
-5. Zombie/inactive waste (secrets, buckets, etc.).
+5. Zombie/inactive waste (secrets, buckets, etc).
 
 CRITICAL A2UI PROTOCOL INTEGRATION:
 You MUST include two structured JSON payloads wrapped in 'json+a2ui' markdown code blocks at the very end of your response:
@@ -48,15 +61,13 @@ You MUST include two structured JSON payloads wrapped in 'json+a2ui' markdown co
   "type": "dashboard",
   "data": {
     "currency": "GBP",
-    "mtdSpend": 12450.0,
-    "mtdChange": -5.4,
-    "forecast": 15200.0,
-    "forecastLabel": "Projected end-of-month",
+    "mtdSpend": 12450.50,
+    "mtdChange": 12.3,
+    "forecast": 18200.00,
+    "forecastLabel": "Projected EOM Spend",
     "anomaliesCount": 2,
-    "zombieWaste": 2400.0,
-    "recentSpikes": [
-      { "date": "05/20", "Compute Engine": 340.0, "Cloud Storage": 220.0 }
-    ],
+    "zombieWaste": 450.00,
+    "recentSpikes": [],
     "zombies": []
   }
 }
@@ -68,7 +79,7 @@ CRITICAL: CONCISE SYNTHESIS RULE
 Write your report in a highly concise style. Keep the markdown text under 250 words total.
 
 CRITICAL COORDINATION AND TERMINATION RULES:
-1. Call `finish_task` and pass the complete final markdown report directly into the `result` parameter.
+1. Call `finish_task` and pass the complete final report directly into the `result` parameter.
 2. Once you have generated the report and returned it via `finish_task`, stop execution.
 """
 
@@ -80,8 +91,10 @@ billing_explorer = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
-    instruction=BILLING_EXPLORER_INSTRUCTION + BLACKBOARD_KEY_INSTRUCTIONS,
+    instruction=COMMON_AGENT_HEADER + "\n\n" + BILLING_EXPLORER_INSTRUCTION,
     tools=[
+        get_today_top_services_and_usage,
+        investigate_today_service_logs,
         get_precomputed_spend_analysis,
         execute_cached_bigquery_sql,
         bigquery_toolset,

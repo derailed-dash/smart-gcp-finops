@@ -7,6 +7,7 @@ from google.adk.agents import Agent
 from google.genai import types
 
 from finops_agent.app_utils.mcp_config import dev_knowledge_mcp_toolset
+from finops_agent.app_utils.tools import COMMON_AGENT_HEADER
 from finops_agent.client import ConfiguredGemini
 from finops_agent.config import settings
 
@@ -28,7 +29,7 @@ knowledge_assistant = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
-    instruction=KNOWLEDGE_ASSISTANT_INSTRUCTION,
+    instruction=COMMON_AGENT_HEADER + "\n\n" + KNOWLEDGE_ASSISTANT_INSTRUCTION,
     tools=[
         dev_knowledge_mcp_toolset,
     ],
