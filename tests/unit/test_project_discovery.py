@@ -172,3 +172,67 @@ def test_get_user_accessible_projects_cli_user(mock_settings, mock_get_service, 
 
     projects = get_user_accessible_projects("cli-user")
     assert projects == {"proj-a"}
+
+
+@patch("finops_agent.app_utils.project_discovery.list_billing_projects")
+@patch("finops_agent.app_utils.project_discovery.get_service")
+@patch("finops_agent.app_utils.project_discovery.settings")
+def test_get_user_accessible_projects_includes_orgless_and_filters_deleted(
+    mock_settings, mock_get_service, mock_list_billing
+):
+    """Test that get_user_accessible_projects merges billing-linked (orgless) projects
+
+    and excludes projects that are deleted/inactive according to Cloud Resource Manager.
+    """
+    from finops_agent.app_utils.project_discovery import (
+        _USER_PROJECTS_CACHE,
+        get_user_accessible_projects,
+    )
+
+    _USER_PROJECTS_CACHE.clear()
+    mock_settings.google_cloud_organization = "123456789"
+    mock_settings.google_cloud_billing_account = "012345-ABCDEF-012345"
+
+    # Mock list_billing_projects to return both an active orgless project and a deleted project
+    mock_list_billing.return_value = ["active-orgless-project", "deleted-tf-generator-prd"]
+
+    # Mock get_service for cloudasset and cloudresourcemanager
+    mock_asset_service = MagicMock()
+    mock_crm_service = MagicMock()
+
+    def get_service_side_effect(name, version):
+        if name == "cloudasset":
+            return mock_asset_service
+        return mock_crm_service
+
+    mock_get_service.side_effect = get_service_side_effect
+
+    # 1. Cloud Asset searchAllIamPolicies returns org project
+    mock_asset_req = mock_asset_service.v1().searchAllIamPolicies()
+    mock_asset_req.execute.return_value = {
+        "results": [
+            {"resource": "//cloudresourcemanager.googleapis.com/projects/active-org-project"},
+            {"resource": "//cloudresourcemanager.googleapis.com/projects/deleted-tf-generator-prd"},
+        ]
+    }
+    mock_asset_service.v1().searchAllIamPolicies_next.return_value = None
+
+    # 2. Cloud Resource Manager projects.list(filter="lifecycleState:ACTIVE") returns ONLY active projects
+    mock_crm_list_req = mock_crm_service.projects().list()
+    mock_crm_list_req.execute.return_value = {
+        "projects": [
+            {"projectId": "active-org-project", "lifecycleState": "ACTIVE"},
+            {"projectId": "active-orgless-project", "lifecycleState": "ACTIVE"},
+        ]
+    }
+
+    projects = get_user_accessible_projects("test-user@dazbo.co.uk")
+
+    # Verify: active-org-project and active-orgless-project must be included
+    assert "active-org-project" in projects
+    assert "active-orgless-project" in projects
+
+    # Verify: deleted-tf-generator-prd MUST be excluded
+    assert "deleted-tf-generator-prd" not in projects
+    assert projects == {"active-org-project", "active-orgless-project"}
+

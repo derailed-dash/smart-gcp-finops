@@ -467,6 +467,14 @@ Rather than having LLM subagents generate complex SQL queries, inspect raw data 
 - **Python Precomputation**: Cost summation, daily spike calculations, MoM changes, and CAI log correlations run natively in Python.
 - **Subagent Tool Stripping**: We stripped raw database query tools from `RootCauseAnalyst` and `BillingExplorer`, exposing only the precomputation helpers. This forces them into a single-turn deterministic execution path, reducing prompt token footprint by **90%** and dropping subagent execution time to under **1.5 seconds**!
 
+### 4. Real-Time Intra-Day Service Discovery & Conditional Cloud Assist Integration
+
+Standard GCP Billing Export has an inherent **3 to 12+ hour ingestion delay**, meaning queries asking "what drove my costs today?" return incomplete or delayed data from BigQuery billing export tables. To solve this, we implemented a 2-stage intra-day investigation pipeline:
+
+1. **Intra-Day Service Discovery (`get_today_top_services_and_usage`)**: Queries near-real-time BigQuery `INFORMATION_SCHEMA.JOBS_BY_PROJECT` (for query execution bytes) and intra-day billing partitions to find the top active services and projects today. Discovered services are saved to the ADK session blackboard (`state["today_top_services"]`).
+2. **Targeted Cloud Logging (`investigate_today_service_logs`)**: Reads `today_top_services` from the session blackboard and maps GCP display names (`Vertex AI`, `BigQuery`, `Cloud Run`) to canonical audit log identifiers (`aiplatform.googleapis.com`, `bigquery.googleapis.com`, `run.googleapis.com`). It constructs targeted LQL log filters to extract caller identities and API method counts.
+3. **Conditional Gemini Cloud Assist Operational Diagnosis**: If `investigate_today_service_logs` detects active operational errors (`has_operational_anomaly == True`, error severity logs, or status code failures), the agent automatically flags the anomaly and delegates to `CloudAdvisor` to invoke Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) for infrastructure diagnostics.
+
 ---
 
 ## Test-Driven Development & Unit Testing

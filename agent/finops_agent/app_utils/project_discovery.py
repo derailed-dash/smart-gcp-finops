@@ -106,15 +106,19 @@ class ProjectDiscoveryManager:
                     "Falling back to project-level check."
                 )
 
-        # Scenario B: Fallback to project-level check for standalone or billing projects
-        if not settings.google_cloud_organization or (not projects and not has_top_level_access):
+        # Scenario B: Always merge billing-linked projects (catches orgless projects like dazbo-scratch-orgless)
+        if settings.google_cloud_billing_account:
             try:
                 billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
                 all_billing_projects = list_billing_projects(billing_account)
+                for b_proj in all_billing_projects:
+                    projects.add(b_proj)
                 logger.debug(
-                    "Falling back to project-level checks. Auditing %d billing projects.",
+                    "Merged %d billing-linked projects into user accessible projects set.",
                     len(all_billing_projects),
                 )
+            except Exception as be:
+                logger.warning(f"Failed to query billing-linked projects: {be}")
 
                 from google.cloud import asset_v1
 
@@ -183,13 +187,28 @@ class ProjectDiscoveryManager:
                         logger.warning(
                             f"Failed to verify IAM policy for project {project_id}: {ex}"
                         )
-            except Exception as e:
-                logger.error(f"Error executing project-level permission discovery: {e}")
 
         # If the user has top-level organization/folder access, they have access to all org projects
         if has_top_level_access and settings.google_cloud_organization:
             org_projects = get_projects_in_org(settings.google_cloud_organization)
             projects.update(org_projects)
+
+        # Filter out DELETED / DELETE_REQUESTED projects using Cloud Resource Manager
+        try:
+            crm_service = get_service("cloudresourcemanager", "v1")
+            active_req = crm_service.projects().list(filter="lifecycleState:ACTIVE")
+            active_res = active_req.execute()
+            active_project_ids = {
+                p["projectId"] for p in active_res.get("projects", [])
+            }
+            if active_project_ids:
+                projects = {p for p in projects if p in active_project_ids}
+                logger.info(
+                    "Filtered user accessible projects down to %d ACTIVE projects.",
+                    len(projects),
+                )
+        except Exception as filter_ex:
+            logger.warning(f"Could not filter active projects via Resource Manager: {filter_ex}")
 
         # Update cache
         with self.cache_lock:

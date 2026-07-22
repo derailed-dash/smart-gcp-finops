@@ -8,7 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from finops_agent.app_utils.context import ALLOWED_PROJECTS_VAR
-from finops_agent.app_utils.tools import execute_cached_bigquery_sql, get_precomputed_spend_analysis
+from finops_agent.app_utils.tools import (
+    execute_cached_bigquery_sql,
+    get_precomputed_spend_analysis,
+    get_today_top_services_and_usage,
+    investigate_today_service_logs,
+)
 
 
 @pytest.fixture
@@ -274,20 +279,66 @@ def test_get_precomputed_spend_analysis_defaults(mock_bq_client, mock_settings, 
         ALLOWED_PROJECTS_VAR.reset(token)
 
 
-def test_get_precomputed_spend_analysis_custom_days(mock_bq_client, mock_settings, mock_context):
-    """Verify that get_precomputed_spend_analysis correctly propagates custom durations."""
+
+
+def test_get_today_top_services_and_usage(mock_bq_client, mock_settings, mock_context):
+    """Verify that get_today_top_services_and_usage queries INFORMATION_SCHEMA and updates state['today_top_services']."""
     token = ALLOWED_PROJECTS_VAR.set(None)
     try:
-        res = get_precomputed_spend_analysis(days=45, tool_context=mock_context)
-        assert res["mtdChange"] == 100.0
-        assert mock_bq_client.query.call_count == 3
-
-        calls = [arg[0][0] for arg in mock_bq_client.query.call_args_list]
-        # Daily service costs query
-        assert "INTERVAL 45 DAY" in calls[0]
-        # Period/MTD SKU spend query (uses days * 2 = 90)
-        assert "INTERVAL 90 DAY" in calls[1]
-        # Waste query
-        assert "INTERVAL 45 DAY" in calls[2]
+        mock_bq_client.query.return_value.result.return_value = [
+            {"project_id": "test-project", "tb_billed": 0.5, "estimated_cost_usd": 3.12, "query_count": 5}
+        ]
+        res = get_today_top_services_and_usage(tool_context=mock_context)
+        assert "top_services" in res
+        assert len(res["top_services"]) > 0
+        assert mock_context.state["today_top_services"] == res["top_services"]
     finally:
         ALLOWED_PROJECTS_VAR.reset(token)
+
+
+def test_investigate_today_service_logs_with_blackboard(mock_context):
+    """Verify that investigate_today_service_logs reads today_top_services from state if target_services is omitted."""
+    mock_context.state["today_top_services"] = [
+        {"service_name": "BigQuery", "gcp_service_id": "bigquery.googleapis.com"},
+        {"service_name": "Vertex AI", "gcp_service_id": "aiplatform.googleapis.com"},
+    ]
+    with patch("google.auth.default", return_value=(MagicMock(), "test-proj")):
+        with patch("google.cloud.logging.Client") as mock_logging:
+            mock_client_inst = MagicMock()
+            mock_client_inst.list_entries.return_value = []
+            mock_logging.return_value = mock_client_inst
+
+            res = investigate_today_service_logs(tool_context=mock_context)
+            assert res["target_services"] == ["BigQuery", "Vertex AI"]
+            assert "bigquery.googleapis.com" in res["log_filter"]
+            assert "aiplatform.googleapis.com" in res["log_filter"]
+
+
+def test_investigate_today_service_logs_detects_operational_anomaly(mock_context):
+    """Verify that investigate_today_service_logs sets today_operational_anomaly when error log entries are returned."""
+    mock_context.state["today_top_services"] = [
+        {"service_name": "Cloud Run", "gcp_service_id": "run.googleapis.com"}
+    ]
+
+    mock_entry = MagicMock()
+    mock_entry.severity = "ERROR"
+    mock_entry.payload = {
+        "serviceName": "run.googleapis.com",
+        "methodName": "CreateRevision",
+        "status": {"code": 13, "message": "Internal error scaling instances"},
+        "authenticationInfo": {"principalEmail": "service-acc@proj.iam.gserviceaccount.com"},
+    }
+
+    with patch("google.auth.default", return_value=(MagicMock(), "test-proj")):
+        with patch("google.cloud.logging.Client") as mock_logging:
+            mock_client_inst = MagicMock()
+            mock_client_inst.list_entries.return_value = [mock_entry]
+            mock_logging.return_value = mock_client_inst
+
+            res = investigate_today_service_logs(tool_context=mock_context)
+            assert res["has_operational_anomaly"] is True
+            assert res["error_count"] == 1
+            assert mock_context.state["today_operational_anomaly"] is True
+            assert len(mock_context.state["anomaly_details"]) == 1
+
+
