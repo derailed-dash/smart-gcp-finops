@@ -368,7 +368,13 @@ def get_precomputed_root_cause(date_str: str, tool_context: ToolContext) -> dict
             target_date_str = peak_item.get("date", "")
 
     try:
-        dt = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        if "-" in target_date_str:
+            dt = datetime.datetime.strptime(target_date_str.split("T")[0], "%Y-%m-%d").date()
+        elif "/" in target_date_str:
+            parsed_dt = datetime.datetime.strptime(target_date_str, "%m/%d")
+            dt = parsed_dt.replace(year=datetime.date.today().year).date()
+        else:
+            dt = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     except Exception:
         dt = datetime.date.today() - datetime.timedelta(days=1)
     prev_dt = dt - datetime.timedelta(days=1)
@@ -1096,11 +1102,22 @@ def investigate_today_service_logs(
         error_count = 0
         anomaly_details: list[str] = []
 
-        while True:
+        for entry in entries_iter:
             try:
-                entry = next(entries_iter)
-                repr_data = entry.to_api_repr()
-                proto = repr_data.get("protoPayload", {})
+                if hasattr(entry, "payload") and isinstance(entry.payload, dict):
+                    proto = entry.payload
+                    severity = str(getattr(entry, "severity", "DEFAULT")).upper()
+                elif hasattr(entry, "to_api_repr"):
+                    repr_data = entry.to_api_repr()
+                    if isinstance(repr_data, dict):
+                        proto = repr_data.get("protoPayload", {})
+                        severity = str(repr_data.get("severity", "DEFAULT")).upper()
+                    else:
+                        proto = {}
+                        severity = "DEFAULT"
+                else:
+                    proto = {}
+                    severity = "DEFAULT"
 
                 svc = proto.get("serviceName", "unknown.googleapis.com")
                 method = proto.get("methodName", "unknownMethod")
@@ -1109,7 +1126,6 @@ def investigate_today_service_logs(
                 status = proto.get("status", {}) or {}
                 status_code = status.get("code", 0)
                 status_msg = status.get("message", "")
-                severity = str(repr_data.get("severity", "DEFAULT")).upper()
 
                 # Detect operational errors (non-zero status codes or ERROR/CRITICAL severity)
                 if status_code > 0 or severity in ("ERROR", "CRITICAL"):
@@ -1130,8 +1146,6 @@ def investigate_today_service_logs(
                 summary[key]["call_count"] += 1
                 if status_code > 0 or severity in ("ERROR", "CRITICAL"):
                     summary[key]["error_count"] += 1
-            except StopIteration:
-                break
             except Exception:
                 pass
 

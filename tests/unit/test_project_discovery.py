@@ -89,6 +89,7 @@ def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = "123456789"
+    mock_settings.google_cloud_billing_account = None
 
     mock_service = MagicMock()
     mock_get_service.return_value = mock_service
@@ -107,14 +108,20 @@ def test_get_user_accessible_projects_org(mock_settings, mock_get_service):
     assert projects == {"allowed-project-1", "allowed-project-2"}
 
 
+@patch("finops_agent.app_utils.project_discovery._get_asset_v1_client")
 @patch("finops_agent.app_utils.project_discovery.list_billing_projects")
 @patch("finops_agent.app_utils.project_discovery.get_service")
 @patch("finops_agent.app_utils.project_discovery.settings")
 def test_get_user_accessible_projects_standalone(
-    mock_settings, mock_get_service, mock_list_billing
+    mock_settings, mock_get_service, mock_list_billing, mock_get_asset_client
 ):
     """Test get_user_accessible_projects in standalone mode using project-level IAM policies."""
     from finops_agent.app_utils.project_discovery import get_user_accessible_projects
+
+    # Ensure asset_v1 client raises an error to trigger CRM fallback
+    mock_asset_inst = MagicMock()
+    mock_asset_inst.search_all_iam_policies.side_effect = Exception("Asset API forbidden")
+    mock_get_asset_client.return_value = mock_asset_inst
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = None
@@ -148,12 +155,19 @@ def test_get_user_accessible_projects_standalone(
     assert projects == {"proj-a"}
 
 
+@patch("finops_agent.app_utils.project_discovery._get_asset_v1_client")
 @patch("finops_agent.app_utils.project_discovery.list_billing_projects")
 @patch("finops_agent.app_utils.project_discovery.get_service")
 @patch("finops_agent.app_utils.project_discovery.settings")
-def test_get_user_accessible_projects_cli_user(mock_settings, mock_get_service, mock_list_billing):
+def test_get_user_accessible_projects_cli_user(
+    mock_settings, mock_get_service, mock_list_billing, mock_get_asset_client
+):
     """Test that 'cli-user' is mapped to settings.local_developer_email."""
     from finops_agent.app_utils.project_discovery import get_user_accessible_projects
+
+    mock_asset_inst = MagicMock()
+    mock_asset_inst.search_all_iam_policies.side_effect = Exception("Asset API forbidden")
+    mock_get_asset_client.return_value = mock_asset_inst
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = None
@@ -174,11 +188,12 @@ def test_get_user_accessible_projects_cli_user(mock_settings, mock_get_service, 
     assert projects == {"proj-a"}
 
 
+@patch("finops_agent.app_utils.project_discovery._get_asset_v1_client")
 @patch("finops_agent.app_utils.project_discovery.list_billing_projects")
 @patch("finops_agent.app_utils.project_discovery.get_service")
 @patch("finops_agent.app_utils.project_discovery.settings")
 def test_get_user_accessible_projects_includes_orgless_and_filters_deleted(
-    mock_settings, mock_get_service, mock_list_billing
+    mock_settings, mock_get_service, mock_list_billing, mock_get_asset_client
 ):
     """Test that get_user_accessible_projects merges billing-linked (orgless) projects
 
@@ -188,6 +203,10 @@ def test_get_user_accessible_projects_includes_orgless_and_filters_deleted(
         _USER_PROJECTS_CACHE,
         get_user_accessible_projects,
     )
+
+    mock_asset_inst = MagicMock()
+    mock_asset_inst.search_all_iam_policies.side_effect = Exception("Asset API forbidden")
+    mock_get_asset_client.return_value = mock_asset_inst
 
     _USER_PROJECTS_CACHE.clear()
     mock_settings.google_cloud_organization = "123456789"
@@ -224,6 +243,12 @@ def test_get_user_accessible_projects_includes_orgless_and_filters_deleted(
             {"projectId": "active-org-project", "lifecycleState": "ACTIVE"},
             {"projectId": "active-orgless-project", "lifecycleState": "ACTIVE"},
         ]
+    }
+    mock_crm_service.projects().list_next.return_value = None
+
+    # Mock getIamPolicy for billing-linked project check
+    mock_crm_service.projects().getIamPolicy().execute.return_value = {
+        "bindings": [{"role": "roles/viewer", "members": ["user:test-user@dazbo.co.uk"]}]
     }
 
     projects = get_user_accessible_projects("test-user@dazbo.co.uk")

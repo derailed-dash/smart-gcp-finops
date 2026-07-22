@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_SECONDS = 600  # 10 minutes
 
 
+def _get_asset_v1_client():
+    from google.cloud import asset_v1
+
+    return asset_v1.AssetServiceClient()
+
+
 class ProjectDiscoveryManager:
     """Manages thread-safe caching and lookup of user-accessible Google Cloud projects."""
 
@@ -82,8 +88,13 @@ class ProjectDiscoveryManager:
 
                 logger.debug("Querying searchAllIamPolicies: scope=%s, query=%s", scope, query)
                 request = service.v1().searchAllIamPolicies(scope=scope, query=query)
-                while request is not None:
+                max_pages = 100
+                page_count = 0
+                while request is not None and page_count < max_pages:
+                    page_count += 1
                     response = request.execute()
+                    if not isinstance(response, dict):
+                        break
                     logger.debug(
                         "searchAllIamPolicies returned %d policy bindings.",
                         len(response.get("results", [])),
@@ -97,65 +108,66 @@ class ProjectDiscoveryManager:
                             proj_id = resource.split("/projects/")[-1].split("/")[0]
                             projects.add(proj_id)
 
-                    request = service.v1().searchAllIamPolicies_next(
+                    next_req = service.v1().searchAllIamPolicies_next(
                         previous_request=request, previous_response=response
                     )
+                    if next_req is request:
+                        break
+                    request = next_req
             except Exception as e:
                 logger.warning(
                     f"Failed to query Cloud Asset IAM policies for organization {settings.google_cloud_organization}: {e}. "
                     "Falling back to project-level check."
                 )
 
-        # Scenario B: Always merge billing-linked projects (catches orgless projects like dazbo-scratch-orgless)
+        # Scenario B: Always merge billing-linked projects for which user has IAM permissions
         if settings.google_cloud_billing_account:
             try:
                 billing_account = f"billingAccounts/{settings.google_cloud_billing_account}"
                 all_billing_projects = list_billing_projects(billing_account)
-                for b_proj in all_billing_projects:
-                    projects.add(b_proj)
-                logger.debug(
-                    "Merged %d billing-linked projects into user accessible projects set.",
-                    len(all_billing_projects),
-                )
             except Exception as be:
                 logger.warning(f"Failed to query billing-linked projects: {be}")
+                all_billing_projects = []
 
-                from google.cloud import asset_v1
+            if all_billing_projects:
+                try:
+                    asset_client = _get_asset_v1_client()
+                except Exception as asset_err:
+                    logger.debug("Failed to instantiate AssetServiceClient: %s", asset_err)
+                    asset_client = None
 
-                asset_client = asset_v1.AssetServiceClient()
-                crm_service = None
-
-                for project_id in all_billing_projects:
-                    try:
-                        # Try to use Cloud Asset API first (requires roles/cloudasset.viewer)
-                        scope = f"projects/{project_id}"
-                        query = f"policy: {user_email}"
-                        response = asset_client.search_all_iam_policies(
-                            request={"scope": scope, "query": query}
-                        )
-                        has_bindings = False
-                        for _ in response:
-                            has_bindings = True
-                            break
-
-                        if has_bindings:
-                            projects.add(project_id)
-                            logger.info(
-                                "Confirmed user access to project %s via Asset API searchAllIamPolicies",
-                                project_id,
+                def check_single_project_access(project_id: str) -> str | None:
+                    if asset_client is not None:
+                        try:
+                            # Try to use Cloud Asset API first (requires roles/cloudasset.viewer)
+                            scope = f"projects/{project_id}"
+                            query = f"policy: {user_email}"
+                            response = asset_client.search_all_iam_policies(
+                                request={"scope": scope, "query": query}
                             )
-                            continue
-                    except Exception as asset_ex:
-                        logger.debug(
-                            "Failed to search IAM policies via Asset API for project %s: %s. Trying Cloud Resource Manager...",
-                            project_id,
-                            asset_ex,
-                        )
+                            has_bindings = False
+                            for _ in response:
+                                has_bindings = True
+                                break
+
+                            if has_bindings:
+                                logger.info(
+                                    "Confirmed user access to project %s via Asset API searchAllIamPolicies",
+                                    project_id,
+                                )
+                                return project_id
+                        except Exception as asset_ex:
+                            logger.debug(
+                                "Failed to search IAM policies via Asset API for project %s: %s. Trying Cloud Resource Manager...",
+                                project_id,
+                                asset_ex,
+                            )
 
                     try:
-                        if crm_service is None:
-                            crm_service = get_service("cloudresourcemanager", "v1")
+                        crm_service = get_service("cloudresourcemanager", "v1")
                         policy = crm_service.projects().getIamPolicy(resource=project_id).execute()
+                        if not isinstance(policy, dict):
+                            policy = {}
                         logger.debug(
                             "Fetched IAM policy for project %s. bindings count: %d",
                             project_id,
@@ -182,25 +194,46 @@ class ProjectDiscoveryManager:
                                 break
 
                         if is_member:
-                            projects.add(project_id)
+                            return project_id
                     except Exception as ex:
                         logger.warning(
                             f"Failed to verify IAM policy for project {project_id}: {ex}"
                         )
+                    return None
+
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    for pid in executor.map(check_single_project_access, all_billing_projects):
+                        if pid:
+                            projects.add(pid)
 
         # If the user has top-level organization/folder access, they have access to all org projects
         if has_top_level_access and settings.google_cloud_organization:
             org_projects = get_projects_in_org(settings.google_cloud_organization)
             projects.update(org_projects)
 
-        # Filter out DELETED / DELETE_REQUESTED projects using Cloud Resource Manager
+        # Filter out DELETED / DELETE_REQUESTED projects using Cloud Resource Manager (with pagination)
         try:
             crm_service = get_service("cloudresourcemanager", "v1")
+            active_project_ids = set()
             active_req = crm_service.projects().list(filter="lifecycleState:ACTIVE")
-            active_res = active_req.execute()
-            active_project_ids = {
-                p["projectId"] for p in active_res.get("projects", [])
-            }
+            max_pages = 100
+            page_count = 0
+            while active_req is not None and page_count < max_pages:
+                page_count += 1
+                active_res = active_req.execute()
+                if not isinstance(active_res, dict):
+                    break
+                for p in active_res.get("projects", []):
+                    if "projectId" in p:
+                        active_project_ids.add(p["projectId"])
+                next_req = crm_service.projects().list_next(
+                    previous_request=active_req, previous_response=active_res
+                )
+                if next_req is active_req:
+                    break
+                active_req = next_req
             if active_project_ids:
                 projects = {p for p in projects if p in active_project_ids}
                 logger.info(
@@ -242,9 +275,14 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
         logger.debug("Querying billingAccounts.projects.list for name=%s", billing_account_name)
         request = service.billingAccounts().projects().list(name=billing_account_name)
         projects = []
+        max_pages = 100
+        page_count = 0
 
-        while request is not None:
+        while request is not None and page_count < max_pages:
+            page_count += 1
             response = request.execute()
+            if not isinstance(response, dict):
+                break
 
             project_billing_info = response.get("projectBillingInfo", [])
             logger.debug(
@@ -253,17 +291,25 @@ def list_billing_projects(billing_account_name: str) -> list[str]:
             for info in project_billing_info:
                 projects.append(info["projectId"])
 
-            request = (
+            next_req = (
                 service.billingAccounts()
                 .projects()
                 .list_next(previous_request=request, previous_response=response)
             )
+            if next_req is request:
+                break
+            request = next_req
 
         return projects
 
     except Exception as e:
         logger.error(f"Error listing projects for billing account {billing_account_name}: {e}")
         return []
+
+
+_ORG_PROJECTS_CACHE: dict[str, tuple[float, set[str]]] = {}
+_ORG_PROJECTS_LOCK = threading.Lock()
+ORG_PROJECTS_CACHE_TTL = 600  # 10 minutes
 
 
 def get_projects_in_org(org_id: str) -> set[str]:
@@ -275,6 +321,14 @@ def get_projects_in_org(org_id: str) -> set[str]:
     Returns:
         A set of project IDs.
     """
+    now = time.time()
+    with _ORG_PROJECTS_LOCK:
+        if org_id in _ORG_PROJECTS_CACHE:
+            expiry, cached_projects = _ORG_PROJECTS_CACHE[org_id]
+            if now <= expiry:
+                logger.debug("Cache hit for organization projects: %s", org_id)
+                return cached_projects
+
     try:
         service = get_service("cloudasset", "v1")
         scope = f"organizations/{org_id}"
@@ -287,9 +341,14 @@ def get_projects_in_org(org_id: str) -> set[str]:
             asset_types,
         )
         request = service.v1().searchAllResources(scope=scope, assetTypes=asset_types)
+        max_pages = 100
+        page_count = 0
 
-        while request is not None:
+        while request is not None and page_count < max_pages:
+            page_count += 1
             response = request.execute()
+            if not isinstance(response, dict):
+                break
             logger.debug(
                 "searchAllResources returned %d resource items.", len(response.get("results", []))
             )
@@ -299,9 +358,15 @@ def get_projects_in_org(org_id: str) -> set[str]:
                     project_id = name.split("/projects/")[-1].split("/")[0]
                     projects.add(project_id)
 
-            request = service.v1().searchAllResources_next(
+            next_req = service.v1().searchAllResources_next(
                 previous_request=request, previous_response=response
             )
+            if next_req is request:
+                break
+            request = next_req
+
+        with _ORG_PROJECTS_LOCK:
+            _ORG_PROJECTS_CACHE[org_id] = (now + ORG_PROJECTS_CACHE_TTL, projects)
 
         return projects
     except Exception as e:
