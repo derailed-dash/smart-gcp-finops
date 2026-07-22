@@ -18,7 +18,7 @@ from finops_agent.config import settings
 CLOUD_ADVISOR_INSTRUCTION = """You are the CloudAdvisor subagent.
 Use Gemini Cloud Assist tools (ask_cloud_assist, investigate_issue) to retrieve active rightsizing recommendations, perform operational issue diagnostics, and optimize performance/cost for active GCP resources.
 
-CRITICAL OPERATIONAL DIAGNOSIS & RIGHTSIGHTING RULES:
+CRITICAL OPERATIONAL DIAGNOSIS & RIGHTSIZING RULES:
 1. OPERATIONAL ANOMALIES: If the session context or prompt indicates active operational errors (e.g. `today_operational_anomaly == True` or crash loops), use `investigate_issue` or `ask_cloud_assist` to query active GCP Monitoring alerts, failing services, and system diagnostics for the affected project/service.
 2. DISCOVERED CONTEXT: BEFORE querying, inspect the prompt and session context for the top active services and projects ALREADY DISCOVERED in this session.
 3. Focus all recommendation and diagnostic queries (`ask_cloud_assist`, `investigate_issue`) SPECIFICALLY on those identified active services and projects.
