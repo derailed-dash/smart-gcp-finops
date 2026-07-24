@@ -23,13 +23,13 @@ This document serves as the "Blueprint" for the **FinSavant** system (developed 
 | **Direct Table Binding**   | Programmatically resolve and inject the exact standard and resource-level table IDs into the agent system instructions at startup to eliminate table listing/schema exploration latency and avoid self-correction query loops. (_Potentially fragile?_) |
 | **Keep-Alive Heartbeat SSE** | Implemented a custom `/api/chat/stream` post-endpoint in FastAPI that streams agent responses via Server-Sent Events, running the agent in a dedicated background thread and writing event logs to an `asyncio.Queue` (with a `: heartbeat\n\n` comment every 15 seconds). Rationale: Prevents event loop blockages and thread pool starvation, ensuring reliable connection streaming on serverless runtimes like Cloud Run. |
 | **Context Caching** | Used `ContextCacheConfig` on the global `App` container to cache system instructions and tool declarations model-side on the Gemini Enterprise Agent Platform. Rationale: Minimises turn latency and slashes token usage for large system instructions and tools. |
-| **Semantic Caching** | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.1-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
+| **Semantic Caching** | Replaced exact string query normalisation with a GenAI Semantic Cache Resolver using `gemini-3.5-flash-lite` configured in `.env.enc`. Rationale: Intelligently skips database queries and expensive LLM calls on semantically matching prompts while keeping billing scopes precise. |
 | **Agent Runtime Hosting** | Gemini Enterprise Agent Runtime for agent execution. Provides our agent with the benefits of native Gemini Enterprise Agent Platform, with automatic registration/synchronisation in the central Google Cloud Console Agent Registry catalog. |
 | **BFF Rate Limiting** | Implemented `slowapi` rate limiting on the FastAPI BFF endpoints (/api/chat/stream, /api/dashboard) keyed by the user's authenticated IAP email. Rationale: Protects against Denial of Wallet (DoW) and quota exhaustion, and works natively in memory since Cloud Run is scaled to a single instance. |
-| **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.5-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.5-flash`). We stick to stateless model inference with client/BFF side history management. |
+| **Gemini Interactions API** | Rejected for Vertex AI. Rationale: Testing confirmed that the Vertex AI endpoint (`aiplatform.googleapis.com`) rejects standard Gemini text models (`gemini-3.6-flash`) via the Interactions API with a `400 BadRequest` (`Unsupported model interaction: gemini-3.6-flash`). We stick to stateless model inference with client/BFF side history management. |
 | **ADK Global Plugins** | Register custom plugins subclassing `BasePlugin` at the global `App` level. Rationale: Avoids repeating logging, tracing, and tool error-handling callbacks in individual subagent constructors. Observability, logging, and defensive error-handling hooks automatically apply to all subagents globally. |
 | **Parallel Function Calling (PFC)** | Instructed subagents (specifically `BillingExplorer`) via prompt rules to call `execute_cached_bigquery_sql` concurrently in a single turn for independent queries. Rationale: Exploits Gemini's native Parallel Function Calling capabilities to reduce turn latency by up to 60%. |
-| **Hybrid Model Routing** | Switch the root coordinator (`FinOpsCoordinator`) and lightweight proxy/RAG subagents (`CloudAdvisor` and `KnowledgeAssistant`) to `gemini-3.1-flash-lite`, while keeping reasoning-intensive subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`) on `gemini-3.5-flash`. Rationale: Drastically reduces turn latency and token consumption/costs for orchestration, RAG documentation lookups, and tool proxying. |
+| **Hybrid Model Routing** | Switch the root coordinator (`FinOpsCoordinator`) and lightweight proxy/RAG subagents (`CloudAdvisor` and `KnowledgeAssistant`) to `gemini-3.5-flash-lite`, while keeping reasoning-intensive subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`) on `gemini-3.6-flash`. Rationale: Drastically reduces turn latency and token consumption/costs for orchestration, RAG documentation lookups, and tool proxying. |
 | **Default Vertex AI Inferences** | Use Vertex AI mode (`GOOGLE_GENAI_USE_VERTEXAI=True`) with Google Cloud IAM credentials (ADC in local dev, Service Account identity in production) as the primary model inference route, avoiding raw `GEMINI_API_KEY` dependencies for enterprise security and unified billing. |
 | **2-Stage Intra-Day Discovery** | Use BQ `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and intra-day billing partitions to discover active top services today (`get_today_top_services_and_usage`), write them to the session blackboard (`state['today_top_services']`), and query Cloud Audit Logs (`investigate_today_service_logs`) for caller identities and method metrics. Rationale: Standard GCP Billing Export has a 3 to 12+ hour ingestion delay. Direct INFORMATION_SCHEMA and Cloud Audit Log telemetry provides instant intra-day visibility for "today" prompts. |
 | **Conditional Cloud Assist Anomaly Diagnosis** | Trigger Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) conditionally ONLY when `investigate_today_service_logs` detects operational errors (`has_operational_anomaly == True`, error severities, or status code failures) or when explicit operational diagnostics are requested. Rationale: Eliminates unnecessary Cloud Assist MCP execution latency on clean, routine cost queries while preserving deep infrastructure diagnostics when anomalies occur. |
@@ -276,12 +276,12 @@ graph TD
 
 ![FinSavant Multi-Agent Collaborative Architecture](./images/illustrated_agent_architecture.png)
 
-* **`FinOpsCoordinator` (Root)**: Acts as the conversation router, utilising `gemini-3.1-flash-lite` for low routing and delegation latency. Exposes no direct tools but routes prompts via auto-generated delegation tools.
-* **`BillingExplorer` (Mode: `task`)**: Specialised in spend queries, running on `gemini-3.5-flash` to query SQL safely, calculate costs, and output exact A2UI cost explorer/dashboard payloads.
-* **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata, running on `gemini-3.5-flash`.
-* **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimisation, running on `gemini-3.1-flash-lite` to rapidly and cheaply proxy prompts to the Gemini Cloud Assist MCP.
-* **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with the Developer Knowledge MCP, running on `gemini-3.1-flash-lite` for fast document summarisation (RAG) and low latency.
-* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates, running on `gemini-3.5-flash` to perform logical cause-and-effect correlation between cost increases and configuration drift.
+* **`FinOpsCoordinator` (Root)**: Acts as the conversation router, utilising `gemini-3.5-flash-lite` for low routing and delegation latency. Exposes no direct tools but routes prompts via auto-generated delegation tools.
+* **`BillingExplorer` (Mode: `task`)**: Specialised in spend queries, running on `gemini-3.6-flash` to query SQL safely, calculate costs, and output exact A2UI cost explorer/dashboard payloads.
+* **`InfrastructureAuditor` (Mode: `task`)**: Specialised in scanning unattached disks or idle IPs and retrieving live CAI asset metadata, running on `gemini-3.6-flash`.
+* **`CloudAdvisor` (Mode: `task`)**: Specialised in live resource optimisation, running on `gemini-3.5-flash-lite` to rapidly and cheaply proxy prompts to the Gemini Cloud Assist MCP.
+* **`KnowledgeAssistant` (Mode: `single_turn`)**: Handles conceptual reference Q&A with the Developer Knowledge MCP, running on `gemini-3.5-flash-lite` for fast document summarisation (RAG) and low latency.
+* **`RootCauseAnalyst` (Mode: `task`)**: Investigates billing spike dates, running on `gemini-3.6-flash` to perform logical cause-and-effect correlation between cost increases and configuration drift.
 
 
 ### State Sharing and Resiliency Guidelines
@@ -317,7 +317,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 1: Month-to-Date Spend & Trend Analysis
 
 - **User Prompts**: `"Show MTD spend"`, `"What is my cost forecast?"`, `"Summarise 30-day spend"`.
-- **Target Subagent**: `BillingExplorer` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Target Subagent**: `BillingExplorer` (`mode="task"`, Model: `gemini-3.6-flash`).
 - **Expected Tool Trajectory**:
   1. `get_precomputed_spend_analysis(days=30)`
   2. `finish_task(result=...)`
@@ -328,7 +328,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 2: Real-Time Intra-Day Cost Investigation
 
 - **User Prompts**: `"What drove costs today?"`, `"Why is my bill high today?"`, `"Who is running queries right now?"`.
-- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.5-flash`) or `BillingExplorer`.
+- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.6-flash`) or `BillingExplorer`.
 - **Expected Tool Trajectory**:
   1. `get_today_top_services_and_usage()` ➔ Populates `state['today_top_services']`.
   2. `investigate_today_service_logs(target_services=[...])` ➔ Uses `state['today_top_services']` or explicit service names to query Cloud Audit Logs.
@@ -340,7 +340,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 3: Historical Cost Spike Root Cause Analysis
 
 - **User Prompts**: `"Why did costs spike on July 18th?"`, `"Investigate cost surge on 2026-07-18"`.
-- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Target Subagent**: `RootCauseAnalyst` (`mode="task"`, Model: `gemini-3.6-flash`).
 - **Expected Tool Trajectory**:
   1. `get_precomputed_root_cause(date_str="YYYY-MM-DD")` (AT MOST ONCE).
   2. `finish_task(result=...)`
@@ -350,7 +350,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 4: Zombie Resource Audit
 
 - **User Prompts**: `"Scan for unused resources"`, `"Audit zombie disks and idle IPs"`.
-- **Target Subagent**: `InfrastructureAuditor` (`mode="task"`, Model: `gemini-3.5-flash`).
+- **Target Subagent**: `InfrastructureAuditor` (`mode="task"`, Model: `gemini-3.6-flash`).
 - **Expected Tool Trajectory**:
   1. `list_zombie_resources()`
   2. `get_cai_metadata_for_resources(...)`
@@ -361,7 +361,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 5: Active Resource Optimization
 
 - **User Prompts**: `"Optimize active resources"`, `"How can I reduce Cloud Run / Vertex AI costs?"`.
-- **Target Subagent**: `CloudAdvisor` (`mode="task"`, Model: `gemini-3.1-flash-lite`).
+- **Target Subagent**: `CloudAdvisor` (`mode="task"`, Model: `gemini-3.5-flash-lite`).
 - **Expected Tool Trajectory**:
   1. `get_session_value(key='allowed_projects')`
   2. `cloud_assist_mcp_ask_cloud_assist(prompt=...)` or `cloud_assist_mcp_investigate_issue(...)`
@@ -372,7 +372,7 @@ To support automated agent evaluation (ADK Evaluation Flywheel & Trajectory Anal
 #### Trajectory 6: Architectural Guidelines & Best Practices Q&A
 
 - **User Prompts**: `"Align with GCP best practices"`, `"What is the best practice for Cloud Storage tiering?"`.
-- **Target Subagent**: `KnowledgeAssistant` (`mode="single_turn"`, Model: `gemini-3.1-flash-lite`).
+- **Target Subagent**: `KnowledgeAssistant` (`mode="single_turn"`, Model: `gemini-3.5-flash-lite`).
 - **Expected Tool Trajectory**:
   1. `gde_mcp_answer_query(query=...)` or `gde_mcp_search_documents(...)`
   2. Direct single-turn Markdown answer with official GCP documentation citations.

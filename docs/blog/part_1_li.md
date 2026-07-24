@@ -13,7 +13,7 @@ I've just published **Part 1**, focusing on the **Goals, Architecture, and Tech 
 - 🔀 **Intelligent Tool Routing:** Dynamic routing across APIs and MCP servers.
 - 🛡️ **Identity-Aware Security:** Row-level BigQuery filtering tied to user IAP identity.
 - 🚀 **Serverless Infrastructure:** Securing Cloud Run with native IAP, and Agent Runtime.
-- ⚡ **Semantic & Context Caching:** Slashing turn latency/costs using Gemini system caching and a fast classifier model (`gemini-3.1-flash-lite`) to bypass heavy BQ/LLM queries for repeated questions.
+- ⚡ **Semantic & Context Caching:** Slashing turn latency/costs using Gemini system caching and a fast classifier model (`gemini-3.5-flash-lite`) to bypass heavy BQ/LLM queries for repeated questions.
 
 Deploying to Agent Runtime was a proper journey. I fought Hatchling packaging quirks, container path mismatches, and REST routing issues. Honestly, I only got it over the line thanks to my Antigravity skills and local MCPs helping me diagnose Cloud Logging traces and guiding me through the troubleshooting.
 

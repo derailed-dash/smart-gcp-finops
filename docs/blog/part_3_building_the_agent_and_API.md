@@ -113,7 +113,7 @@ With our directory structure in place, let's look at each of our agents in detai
 ### 1. `FinOpsCoordinator` (Root Agent)
 
 - **Name**: Serves as the front door and central router for all user queries.
-- **Model**: `gemini-3.1-flash-lite`.
+- **Model**: `gemini-3.5-flash-lite`.
 - **Tools**: Exposes **zero direct tools** (no SQL or Cloud Asset Inventory access). Its sole capability is delegating to specialized subagents using ADK's native agent routing mechanisms.
 - **Selective Routing Rules**: Prompt instructions strictly enforce selective delegation. For example, if the user asks solely about costs, it delegates exclusively to `BillingExplorer`, avoiding wasteful multi-agent sweeps.
 
@@ -193,7 +193,7 @@ app = App(
 
 There's a few interesting things to note about this agent:
 
-- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to `gemini-3.1-flash-lite`. We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
+- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to `gemini-3.5-flash-lite`. We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
 - We tell the root agent about all the **subagents** it can delegate to in the `sub_agents` parameter.
 - It has **no tools**!
 - Native Gemini **context caching** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
@@ -234,8 +234,11 @@ def before_tool_check_limit(tool: Any, args: dict[str, Any], tool_context: Any) 
         tool.name,
         args,
     )
-    if count > CALL_LIMIT:
-        logger.error("Defensive stop triggered: Tool call count exceeded limit of %d!", CALL_LIMIT)
+    if count > settings.max_tool_calls_per_turn:
+        logger.error(
+            "Defensive stop triggered: Tool call count exceeded limit of %d!",
+            settings.max_tool_calls_per_turn,
+        )
         raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
 ```
 
@@ -243,7 +246,7 @@ Neat, right?
 
 ### 2. `BillingExplorer` (Spend Aggregation & Dashboards)
 
-- **Model**: `gemini-3.5-flash`.
+- **Model**: `gemini-3.6-flash`.
 - **Tools**: `get_precomputed_spend_analysis`, `execute_cached_bigquery_sql`, native `BigQueryToolset`, `get_session_value`, `set_session_value`.
 - **Responsibilities**: Aggregates Month-to-Date (MTD) spend, analyzes SKU costs, forecasts end-of-month spend, and constructs structured `explorer` and `dashboard` JSON+A2UI payloads for the React canvas. (More on that in a later part, naturally!)
 
@@ -317,7 +320,7 @@ billing_explorer = Agent(
 
 Some notes about this agent...
 
-- Here we use `gemini-3.5-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
+- Here we use `gemini-3.6-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
 - It has **no subagents**, but it has several **tools**.
 - Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
 - The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts.
@@ -338,19 +341,19 @@ It's **very important** that all of our custom tools have **good descriptions** 
 
 ### 3. `InfrastructureAuditor` (Waste & Zombie Resource Auditing)
 
-- **Model**: `gemini-3.5-flash`.
+- **Model**: `gemini-3.6-flash`.
 - **Tools**: `list_zombie_resources`, `get_precomputed_spend_analysis`, `get_cai_metadata_for_resources`, `get_cai_history_for_resource`.
 - **Responsibilities**: Scans for unattached Persistent Disks, idle static external IP addresses, inactive GCS storage buckets, and orphaned Secret Manager secrets. Generates `recommendations` JSON+A2UI payloads.
 
-### 4. `CloudAdvisor` (Cloud-Assist Insights)
+### 4. `CloudAdvisor` (Live Guidance Proxy)
 
-- **Model**: `gemini-3.1-flash-lite`.
-- **Tools**: `ask_cloud_assist` (via Gemini Cloud Assist MCP), `get_session_value`.
-- **Responsibilities**: Retrieves active GCP rightsizing and performance optimization recommendations for deployed resources.
+- **Model**: `gemini-3.5-flash-lite`.
+- **Tools**: `cloud_assist_mcp_toolset`.
+- **Responsibilities**: Proxies user prompts directly to Gemini Cloud Assist MCP for infrastructure recommendations.
 
-### 5. `KnowledgeAssistant` (Architectural Grounding RAG)
+### 5. `KnowledgeAssistant` (GCP Architecture Grounding)
 
-- **Model**: `gemini-3.1-flash-lite`.
+- **Model**: `gemini-3.5-flash-lite`.
 - **Tools**: `dev_knowledge_mcp_toolset` (Google Developer Knowledge MCP: `answer_query`, `search_documents`).
 - **Responsibilities**: Grounds cost optimisation and architecture advice directly in official Google Cloud developer and architecture framework documentation, returning authoritative citations.
 
@@ -387,7 +390,7 @@ knowledge_assistant = Agent(
 
 ### 6. `RootCauseAnalyst` (Spike & Drift Correlation)
 
-- **Model**: `gemini-3.5-flash`.
+- **Model**: `gemini-3.6-flash`.
 - **Tools**: `get_precomputed_root_cause`, `get_session_value`, `set_session_value`.
 - **Responsibilities**: Investigates spend anomalies by correlating BigQuery resource-level cost spikes with Cloud Asset Inventory (CAI) configuration change history logs (e.g. machine type upgrades or disk size increases).
 

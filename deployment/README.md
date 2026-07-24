@@ -93,7 +93,7 @@ For local development and container runtime, configuration is driven by variable
 | `GOOGLE_CLOUD_PROJECT` | Deployment Target | The Google Cloud project ID hosting the active app runtime (e.g., staging project during local dev). |
 | `CICD_PROJECT_ID` | CI/CD Infrastructure | The project ID hosting the CI/CD resources (Artifact Registry, WIF). |
 | `GOOGLE_CLOUD_REGION` | Infrastructure Region | The default region where Cloud Run and other regional services are deployed (e.g., `europe-west1`). |
-| `GOOGLE_CLOUD_LOCATION` | GenAI / Gemini Enterprise Agent Platform | The Gemini Enterprise Agent Platform API endpoint location. Should generally be set to `global` to support general-use models like `gemini-3.5-flash`, as regional endpoints like `europe-west1` do not host them. |
+| `GOOGLE_CLOUD_LOCATION` | GenAI / Gemini Enterprise Agent Platform | The Gemini Enterprise Agent Platform API endpoint location. Should generally be set to `global` to support general-use models like `gemini-3.6-flash`, as regional endpoints like `europe-west1` do not host them. |
 | `GOOGLE_CLOUD_BILLING_ACCOUNT` | Billing Scope | The target GCP Billing Account ID being audited (formatted as `XXXXXX-XXXXXX-XXXXXX`). |
 | `GOOGLE_CLOUD_BILLING_LOCATION` | Billing / BigQuery | The geographic location of the BigQuery billing export dataset (e.g. `europe-west4`). |
 | `GOOGLE_CLOUD_BILLING_PROJECT` | Billing Project | The ID of the project hosting the BigQuery billing export dataset (for query execution and data viewing). |
@@ -101,8 +101,8 @@ For local development and container runtime, configuration is driven by variable
 | `SERVICE_SA` | Security / Identity | Prefix name of the custom application service account (e.g., `smart-gcp-finops-app`). |
 | `SERVICE_SA_EMAIL` | Security / Identity | The full email address of the application service account. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | GenAI Backend | Boolean flag (`True`/`False`) indicating whether to authenticate using Gemini Enterprise Agent Platform IAM instead of raw Gemini API keys. |
-| `MODEL` | GenAI Reasoning | The primary model ID used by the ADK agent for cost analysis (e.g., `gemini-3.5-flash`). |
-| `FAST_MODEL` | GenAI Caching / Routing | The lite model ID used for semantic caching and request classification (e.g., `gemini-3.1-flash-lite`). |
+| `MODEL` | GenAI Reasoning | The primary model ID used by the ADK agent for cost analysis (e.g., `gemini-3.6-flash`). |
+| `FAST_MODEL` | GenAI Caching / Routing | The lite model ID used for semantic caching and request classification (e.g., `gemini-3.5-flash-lite`). |
 | `GOOGLE_CLOUD_ORGANIZATION` | Infrastructure Scope | (Optional) The numeric ID of the Google Cloud Organization to enable Org-wide Cloud Asset searches. |
 | `LOCAL_DEVELOPER_EMAIL` | Local Scoping / Testing | **Required**. The email address of the developer (e.g. `developer@example.com`) used to look up and filter project access permissions when running locally. |
 | `OTEL_TO_CLOUD` | Telemetry / Tracing | Set to `true` to export OpenTelemetry traces to Google Cloud Trace. |
@@ -199,9 +199,9 @@ The agent and infrastructure are configured using variables in `deployment/terra
 | `billing_export_dataset` | The name of the dataset containing the billing data (e.g., `all_billing_data`). |
 | `google_cloud_organization_id` | (Required) The numeric ID of your Google Cloud Organization. If you do not use an organization, you must set this to an empty string (`""`) in your `env.tfvars` to satisfy Terraform variable validation. |
 | `google_genai_use_vertexai` | Whether to use Gemini Enterprise Agent Platform for Gemini (default: `true`). |
-| `google_cloud_location` | The location for Gemini Enterprise Agent Platform API endpoint calls. Should generally be set to `global` because `gemini-3.5-flash` is not offered in many regions as regional endpoints. |
-| `model` | The primary model used for reasoning (default: `gemini-3.5-flash`). |
-| `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.1-flash-lite`). |
+| `google_cloud_location` | The location for Gemini Enterprise Agent Platform API endpoint calls. Should generally be set to `global` because `gemini-3.6-flash` is not offered in many regions as regional endpoints. |
+| `model` | The primary model used for reasoning (default: `gemini-3.6-flash`). |
+| `fast_model` | The model used for quick caching/semantic routing (default: `gemini-3.5-flash-lite`). |
 | `cloud_run_staging_min_instances` / `cloud_run_prod_min_instances` | Minimum scaling count for Cloud Run (e.g., `0`). |
 | `cloud_run_staging_max_instances` / `cloud_run_prod_max_instances` | Maximum scaling count for Cloud Run (e.g., `1` for dev, `10` for prod). |
 | `agent_runtime_staging_min_instances` / `agent_runtime_prod_min_instances` | Minimum scaling count for Gemini Enterprise Agent Runtime (e.g., `0`). |
@@ -259,8 +259,8 @@ To separate responsibilities and maintain security, the repository uses two dist
 | `billing_account_id` | `vars.GOOGLE_CLOUD_BILLING_ACCOUNT` | `GOOGLE_CLOUD_BILLING_ACCOUNT` | BFF & Agent | Billing account ID to analyse. |
 | `google_cloud_organization_id` | `vars.GOOGLE_CLOUD_ORGANIZATION` | `GOOGLE_CLOUD_ORGANIZATION` | BFF & Agent | Numeric ID of the GCP Organisation. |
 | `google_genai_use_vertexai` | `vars.GOOGLE_GENAI_USE_VERTEXAI` | `GOOGLE_GENAI_USE_VERTEXAI` | BFF & Agent | Boolean flag to enable Gemini Enterprise Agent Platform connectivity. |
-| `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.5-flash`). |
-| `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.1-flash-lite`). |
+| `model` | `vars.MODEL` | `MODEL` | BFF & Agent | Reasoning model (e.g. `gemini-3.6-flash`). |
+| `fast_model` | `vars.FAST_MODEL` | `FAST_MODEL` | BFF & Agent | Lite model (e.g. `gemini-3.5-flash-lite`). |
 | `rca_cost_increase_threshold` | `vars.RCA_COST_INCREASE_THRESHOLD` | `RCA_COST_INCREASE_THRESHOLD` | BFF & Agent | Cost spike delta threshold (default `0.5` / £0.50) to filter background noise in RCA. |
 | `spend_analysis_daily_cost_threshold` | `vars.SPEND_ANALYSIS_DAILY_COST_THRESHOLD` | `SPEND_ANALYSIS_DAILY_COST_THRESHOLD` | BFF & Agent | Daily aggregated spend threshold (default `0.5` / £0.50) to filter negligible rows in spend analysis. |
 | `spend_analysis_period_cost_threshold` | `vars.SPEND_ANALYSIS_PERIOD_COST_THRESHOLD` | `SPEND_ANALYSIS_PERIOD_COST_THRESHOLD` | BFF & Agent | MTD/30-day aggregated spend threshold (default `2.0` / £2.00) to filter negligible rows in spend analysis. |

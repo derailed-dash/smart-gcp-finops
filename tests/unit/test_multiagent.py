@@ -121,7 +121,7 @@ async def test_telemetry_plugin_callbacks():
 
     # Test before_model_callback
     mock_request = MagicMock(spec=LlmRequest)
-    mock_request.model = "gemini-3.5-flash"
+    mock_request.model = "gemini-3.6-flash"
     res_model = await plugin.before_model_callback(
         callback_context=mock_ctx, llm_request=mock_request
     )
