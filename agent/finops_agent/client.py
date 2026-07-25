@@ -56,10 +56,12 @@ credentials, _ = google.auth.default()
 credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
 
+EXCLUDED_BQ_TOOL_KEYWORDS = {"execute", "query", "forecast", "anomalies"}
+
 def bq_tool_filter(tool: Any, ctx: Any = None) -> bool:
-    """Excludes SQL execution, BQ ML forecast, and query tools from the exposed tool list to prevent bypass of execute_cached_bigquery_sql and get_precomputed_spend_analysis."""
+    """Excludes certain BigQuery tools from the exposed tool list to prevent bypass of custom tools."""
     name = tool.name.lower()
-    return "execute" not in name and "query" not in name and "forecast" not in name and "anomalies" not in name
+    return not any(keyword in name for keyword in EXCLUDED_BQ_TOOL_KEYWORDS)
 
 
 bigquery_toolset = BigQueryToolset(

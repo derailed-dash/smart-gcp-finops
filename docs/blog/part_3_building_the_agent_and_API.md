@@ -193,11 +193,11 @@ app = App(
 
 There's a few interesting things to note about this agent:
 
-- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to `gemini-3.5-flash-lite`. We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
+- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to [`gemini-3.5-flash-lite`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash-lite). We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
 - We tell the root agent about all the **subagents** it can delegate to in the `sub_agents` parameter.
 - It has **no tools**!
-- Native Gemini **context caching** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
-- There are **agent callbacks** (defined on `root_agent`) and **global application plugins** (defined on `App`) for managing lifecycle hooks across the execution loop.
+- Native Gemini **[context caching](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-overview)** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
+- There are [**agent callbacks**](https://adk.dev/callbacks/) (defined on `root_agent`) and [**global application plugins**](https://adk.dev/plugins/) (defined on `App`) for managing lifecycle hooks across the execution loop.
 
 ### Quick Aside: ADK Callbacks vs App Plugins
 
@@ -320,11 +320,44 @@ billing_explorer = Agent(
 
 Some notes about this agent...
 
-- Here we use `gemini-3.6-flash` (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
+- Here we use [`gemini-3.6-flash`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-6-flash) (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
 - It has **no subagents**, but it has several **tools**.
 - Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
-- The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts.
-- Whereas `get_precomputed_spend_analysis` is a bespoke tool that performs some specific SQL queries. I've provided the queries I want it to execute in the function, since this is more token-efficient (and reliable) than getting Gemini to craft a SQL query for me in real-time. It's also **much faster**! My first implementation just used natural language prompts to fetch the required data using the `bigquery_toolset`. But I found this to be painfully slow.
+
+The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts. Let's take a look at how we configure this...
+
+You can see I passed `bigquery_toolset` as a parameter to the tools list. We've defined this in `finops_agent/client.py` which serves as my centralised hub for client initialisation. Instead of having the root orchestrator and individual subagents instantiate their own SDK clients or tools independently, `client.py` sets up thread-safe, shared resources at the module level. Here I'll show you a few snippets from this file, for our BQ tools setup:
+
+```python
+# Imports
+import google.auth
+from google.adk.integrations.bigquery import BigQueryCredentialsConfig, BigQueryToolset
+
+from finops_agent.config import settings
+# Other imports...
+
+# Setup ADC and then configure BQ tools to use it
+credentials, _ = google.auth.default()
+credentials_config = BigQueryCredentialsConfig(credentials=credentials)
+
+EXCLUDED_BQ_TOOL_KEYWORDS = {"execute", "query", "forecast", "anomalies"}
+
+def bq_tool_filter(tool: Any, ctx: Any = None) -> bool:
+    """Excludes certain BigQuery tools from the exposed tool list to prevent bypass of custom tools."""
+    name = tool.name.lower()
+    return not any(keyword in name for keyword in EXCLUDED_BQ_TOOL_KEYWORDS)
+
+bigquery_toolset = BigQueryToolset(
+    credentials_config=credentials_config,
+    tool_filter=bq_tool_filter,
+)
+```
+
+You can see I've added a tool filtering guardrail, which limits which of the out-of-the-box tools are exposed to the agent. For example, I don't want to expose the standard SQL execution tools to the agent, as I want to use my custom tools instead, such as `execute_cached_bigquery_sql` and `get_precomputed_spend_analysis`.
+
+Not a lot of code required!
+
+Now, let's take a look at one my custom tools: `get_precomputed_spend_analysis`. This bespoke tool performs some specific SQL queries. I've provided the queries I want it to execute in the function, since this is more token-efficient (and reliable) than getting Gemini to craft a SQL query for me in real-time. It's also **much faster**! My first implementation just used natural language prompts to fetch the required data using the `bigquery_toolset`. But I found this to be painfully slow.
 
 The tools description looks like this:
 
@@ -335,6 +368,9 @@ def get_precomputed_spend_analysis(
     """Pre-computes Month-to-Date (MTD) cloud costs, period-over-period trends, cost drivers,  daily cost spikes, and Secret Manager/GCS zombie waste in Python for the given duration.
     Reuses cached BQ queries.
     """
+
+    # Now I define the actual SQL queries and execute them
+    # Skipping in the snippet for brevity
 ```
 
 It's **very important** that all of our custom tools have **good descriptions** - as docstrings - like this. This helps our agent always pick the right tool for a given task.
@@ -349,7 +385,92 @@ It's **very important** that all of our custom tools have **good descriptions** 
 
 - **Model**: `gemini-3.5-flash-lite`.
 - **Tools**: `cloud_assist_mcp_toolset`.
-- **Responsibilities**: Proxies user prompts directly to Gemini Cloud Assist MCP for infrastructure recommendations.
+- **Responsibilities**: Proxies requests to Google Gemini Cloud Assist MCP for infrastructure recommendations.
+
+This is a pretty simple agent that makes use of [Google Cloud Assist](https://cloud.google.com/products/gemini/cloud-assist). 
+
+Let's look at the relevant code...
+
+```python
+from finops_agent.app_utils.mcp_config import cloud_assist_mcp_toolset
+# Other imports
+
+CLOUD_ADVISOR_INSTRUCTION = """You are the CloudAdvisor subagent.
+Use Gemini Cloud Assist tools (ask_cloud_assist, investigate_issue) to retrieve active rightsizing recommendations, perform operational issue diagnostics, and optimize performance/cost for active GCP resources.
+
+CRITICAL OPERATIONAL DIAGNOSIS & RIGHTSIZING RULES:
+1. OPERATIONAL ANOMALIES: If the session context or prompt indicates active operational errors (e.g. `today_operational_anomaly == True` or crash loops), use `investigate_issue` or `ask_cloud_assist` to query active GCP Monitoring alerts, failing services, and system diagnostics for the affected project/service.
+2. DISCOVERED CONTEXT: BEFORE querying, inspect the prompt and session context for the top active services and projects ALREADY DISCOVERED in this session.
+3. Focus all recommendation and diagnostic queries (`ask_cloud_assist`, `investigate_issue`) SPECIFICALLY on those identified active services and projects.
+4. Do NOT output generic boilerplate recommendations for unconfigured services (like GKE or Compute Engine VMs if they are not driving spend). Every recommendation MUST be tailored directly to the discovered active workloads.
+
+CRITICAL AUTH & FALLBACK RULES:
+1. If `ask_cloud_assist` returns recommendations or diagnostic findings, compile them into a clear, structured report detailing estimated monthly savings or operational remediation steps.
+2. If `ask_cloud_assist` returns a 403 Forbidden or permission error for certain projects:
+   - Highlight any recommendations retrieved from accessible active projects.
+   - For projects lacking Recommender permissions, provide high-value, actionable optimization guidance strictly tailored to the specific active services discovered in the environment.
+3. Always invoke `finish_task` with your complete, formatted Markdown report in the `result` argument.
+"""
+
+cloud_advisor = Agent(
+    name="cloud_advisor",
+    description="Specialized subagent that calls Gemini Cloud Assist tools to retrieve active rightsizing recommendations, perform operational issue diagnostics, and optimize performance/cost for active GCP resources.",
+    model=ConfiguredGemini(
+        model=settings.fast_model,
+        retry_options=types.HttpRetryOptions(attempts=3),
+        use_interactions_api=False,
+    ),
+    instruction=COMMON_AGENT_HEADER + "\n\n" + CLOUD_ADVISOR_INSTRUCTION,
+    tools=[
+        cloud_assist_mcp_toolset,
+        get_session_value,
+    ],
+    mode="task",
+    output_schema=TaskOutput,
+    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
+)
+```
+
+Now we'll look at how we define `cloud_assist_mcp_toolset`. Obviously, we're using MCP and the actual configuration is defined in my `app_utils/mcp_config.py`:
+
+```python
+class GcpMcpAuthProvider:
+    """Provides valid OAuth2 headers for Google Cloud remote MCP connections."""
+
+    def __init__(self, scopes: list[str] | None = None):
+        self._scopes = scopes or ["https://www.googleapis.com/auth/cloud-platform"]
+        self._credentials = None
+        self._lock = threading.Lock()
+
+    def __call__(self, ctx: ReadonlyContext) -> dict[str, str]:
+        with self._lock:
+            if self._credentials is None:
+                self._credentials, _ = google.auth.default(scopes=self._scopes)
+
+            if not self._credentials.valid:
+                self._credentials.refresh(Request())
+
+            token = self._credentials.token
+
+        return {
+            "Authorization": f"Bearer {token}",
+            "x-goog-user-project": settings.google_cloud_project,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+
+
+# Gemini Cloud Assist MCP Toolset Configuration
+cloud_assist_mcp_toolset = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url="https://geminicloudassist.googleapis.com/mcp",
+    ),
+    header_provider=GcpMcpAuthProvider(),
+)
+```
+
+So now, whenever we need an _investigation_, we can get Gemini Cloud Assist to do the heavy lifting. Nice! 
 
 ### 5. `KnowledgeAssistant` (GCP Architecture Grounding)
 
@@ -562,3 +683,36 @@ With our multi-agent backend, precomputed toolsets, and FastAPI BFF fully operat
 In **Part 4**, we'll dive into **Designing and Building the UI with Google Stitch and A2UI**, exploring how we used Google Stitch to craft our *Emerald Cyber* dark-mode aesthetic and how A2UI dynamically drives interactive SVG area charts, KPI tiles, and waste optimization cards on the React canvas.
 
 Stay tuned!
+
+## Before You Go
+
+- Please **share this** with anyone that you think will be interested. It might help them, and it really helps me!
+- Please give me loads of **claps**! (Just hold down the clap button.)
+- Please leave a **comment** 💬. Interaction is good!
+- Add a **star** on the repo!
+- **Follow and subscribe**, so you don’t miss my content.
+
+## Useful Links and References
+
+### Project Demo & Portfolio
+
+- [FinSavant on GitHub](https://github.com/derailed-dash/smart-gcp-finops)
+- [FinSavant YouTube Demo](https://www.youtube.com/watch?v=zs_IRUxIx4E)
+- [Dazbo’s Portfolio](https://dazbo.co.uk/)
+
+### Series Links
+
+- [Goals, Architecture, and Tech Stack: Capabilities, project goals, target architecture, technology stack, and design decisions.](https://medium.com/google-cloud/finsavant-part-1-building-an-agentic-finops-platform-with-google-adk-a2ui-and-gemini-enterprise-248f59cea3a0?postPublishedType=repub)
+- [Dev Environment Setup with Google Antigravity, ADK, Agents CLI, MCP & Skills](https://medium.com/google-cloud/finsavant-part-2-building-an-agentic-finops-platform-development-environment-setup-google-dd12b8b84ba0)
+
+### Google Cloud Services & APIs
+
+- [Introducing Gemini 3.6 Flash and 3.5 Flash-Lite](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-6-flash-3-5-flash-lite-3-5-flash-cyber/)
+- [Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
+- [Cloud Asset Inventory (CAI) API](https://docs.cloud.google.com/asset-inventory/docs/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
+- [Developer Knowledge MCP Server](https://developers.google.com/knowledge/mcp?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
+
+### ADK
+
+- [ADK Callbacks](https://adk.dev/callbacks/)
+- [ADK Plugins](https://adk.dev/plugins/)
