@@ -129,8 +129,11 @@ def test_get_status_endpoint():
         response = client.get("/api/status")
         assert response.status_code == 200
         data = response.json()
+        assert data["status"] == "ok"
+        assert data["agent_name"] == "finops_agent"
         assert data["mode"] == "local"
-        assert data["agent_runtime_id"] is None
+        assert "agent_runtime_id" not in data
+        assert "project_id" not in data
 
     # Test remote mode
     with patch.dict(
@@ -141,8 +144,11 @@ def test_get_status_endpoint():
         response = client.get("/api/status")
         assert response.status_code == 200
         data = response.json()
+        assert data["status"] == "ok"
+        assert data["agent_name"] == "finops_agent"
         assert data["mode"] == "remote"
         assert data["agent_runtime_id"] == "projects/123/locations/us-central1/reasoningEngines/456"
+        assert "project_id" not in data
 
 
 @patch("finops_agent.app_utils.dashboard_data.get_actual_dashboard_metrics")

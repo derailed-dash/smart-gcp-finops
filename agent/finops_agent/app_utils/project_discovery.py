@@ -46,10 +46,12 @@ class ProjectDiscoveryManager:
         if not user_email:
             return set()
 
-        # Map local CLI user to the developer's email for local testing
-        if user_email == "cli-user":
+        # Map local CLI/ADK test user to the developer's email for local testing
+        if user_email in ("cli-user", "test_user") or user_email.startswith("test_user"):
             logger.info(
-                "Mapping 'cli-user' to local developer email: %s", settings.local_developer_email
+                "Mapping local CLI user '%s' to developer email: %s",
+                user_email,
+                settings.local_developer_email,
             )
             user_email = settings.local_developer_email
 

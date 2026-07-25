@@ -14,9 +14,7 @@ In this part we're going to take a close look at the agent code. We'll be lookin
 - How we handle cross-cutting concerns across agents.
 - Testing with `ADK web`
 - Optimisation
-- Unit testing
-- Building a FastAPI _Backend-for-Frontend_
-- Creating and running a local Docker container
+- Building and Testing a FastAPI _Backend-for-Frontend_
 
 I'll explain concepts and provide code snippets as we go. But don't forget: you can always refer to the full code in the [repo](https://github.com/derailed-dash/smart-gcp-finops).
 
@@ -36,11 +34,12 @@ First, a quick reminder of where we are in the series:
 
 ## Deciding on Our Agents
 
-_FinSavant_ is a FinOps solution that needs to do many different things. We could have one giant agent with a huge monolithic prompt. But this is an antipattern because:
+_FinSavant_ is a FinOps solution that needs to do many different tasks. We could have one giant agent with a huge monolithic prompt. But this is an antipattern because:
 
 - The prompt becomes unwieldy.
 - It's too complicated to manage the possible journeys and workflows the prompt needs to manage.
 - The agent is more likely to not follow the rules.
+- We have to give our giant agent access to all the tools, meaning it's less likely to pick the right one for a task.
 - The agent is ultimately less reliable and less consistent.
 
 ![The Monolithic Agent Antipattern](../images/monolithic_agent_tool_tidal_wave.png)
@@ -62,23 +61,31 @@ Let's deep-dive on the `/agent` directory:
 smart-gcp-finops/
 ├── agent/                     # Core ADK Agent & Agent Runtime package
 │   ├── finops_agent/
-│   │   ├── agents/            # Subagent definitions
-│   │   │   ├── billing_explorer_agent.py
-│   │   │   ├── cloud_advisor_agent.py
-│   │   │   ├── infrastructure_auditor_agent.py
-│   │   │   ├── knowledge_assistant_agent.py
-│   │   │   └── root_cause_analyst_agent.py
-│   │   ├── app_utils/         # Shared tools and utilities
-│   │   │   ├── a2a.py
-│   │   │   ├── cai_tools.py
-│   │   │   ├── cai_utils.py
-│   │   │   ├── context.py
-│   │   │   ├── credentials.py
-│   │   │   └── etc
-│   │   ├── agent.py           # Root agent
-│   │   ├── callbacks.py       # Global callbacks
-│   │   ├── client.py          # Gemini & MCP client initialisation
-│   │   └── config.py          # Agent config
+│   │   ├── agents/                  # Subagent definitions
+│   │   │   ├── billing_explorer_agent.py       # BigQuery spend trends & cost breakdown subagent
+│   │   │   ├── cloud_advisor_agent.py          # Cloud Assist & operational diagnosis subagent
+│   │   │   ├── infrastructure_auditor_agent.py # Idle/zombie resource waste audit subagent
+│   │   │   ├── knowledge_assistant_agent.py    # Developer Knowledge & best practice grounding subagent
+│   │   │   └── root_cause_analyst_agent.py     # Spend anomaly, Audit Logs, and CAI correlation subagent
+│   │   ├── app_utils/               # Shared tools and utilities
+│   │   │   ├── a2a.py                    # Agent-to-Agent (A2A) protocol endpoints
+│   │   │   ├── cai_tools.py              # Cloud Asset Inventory ADK tool wrappers
+│   │   │   ├── cai_utils.py              # Cloud Asset Inventory API search & history helpers
+│   │   │   ├── context.py                # Session context state helpers
+│   │   │   ├── credentials.py            # ADC and Service Account auth helpers
+│   │   │   ├── dashboard_data.py         # Pre-computed spend analysis & UI dataset generator
+│   │   │   ├── logging_and_telemetry.py  # Cloud Logging & Audit Logs intra-day telemetry
+│   │   │   ├── mcp_config.py             # Remote MCP toolsets & OAuth2 auth providers
+│   │   │   ├── project_discovery.py      # Dynamic Google project hierarchy discovery
+│   │   │   ├── services.py               # ADK services
+│   │   │   ├── tools.py                  # BigQuery spend analysis & SQL execution tools
+│   │   │   ├── typing.py                 # Pydantic schemas & structured output models
+│   │   │   ├── zombie_resources.py       # Idle & zombie GCP resource detection logic
+│   │   │   └── zombie_tools.py           # Tools for zombie waste auditing
+│   │   ├── agent.py                 # Root agent
+│   │   ├── callbacks.py             # Global callbacks
+│   │   ├── client.py                # Gemini & MCP client initialisation
+│   │   └── config.py                # Agent config
 │   └── pyproject.toml         # Agent package dependencies
 ├── bff/                       # Backend-for-Frontend FastAPI service
 ├── docs/                      # Documentation
@@ -92,7 +99,7 @@ smart-gcp-finops/
 
 You might be wondering about the directory naming here — why do we have `agent/`, then `finops_agent/`, and then `agents/`? 
 
-It might look a bit repetitive at first glance, but there's clear structural logic behind it:
+It might look a bit repetitive at first glance, but there's clear logic behind it:
 
 1. **`agent/`**:
 
@@ -112,9 +119,9 @@ With our directory structure in place, let's look at each of our agents in detai
 
 ### 1. `FinOpsCoordinator` (Root Agent)
 
-- **Name**: Serves as the front door and central router for all user queries.
+- **Purpose**: Serves as the front door and central router for all user queries.
 - **Model**: `gemini-3.5-flash-lite`.
-- **Tools**: Exposes **zero direct tools** (no SQL or Cloud Asset Inventory access). Its sole capability is delegating to specialized subagents using ADK's native agent routing mechanisms.
+- **Tools**: Uses **zero direct tools**, e.g. no SQL or Cloud Asset Inventory access. Its sole capability is delegating to specialised subagents using ADK's native agent routing mechanisms.
 - **Selective Routing Rules**: Prompt instructions strictly enforce selective delegation. For example, if the user asks solely about costs, it delegates exclusively to `BillingExplorer`, avoiding wasteful multi-agent sweeps.
 
 Here's a snippet of the code:
@@ -193,10 +200,10 @@ app = App(
 
 There's a few interesting things to note about this agent:
 
-- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to [`gemini-3.5-flash-lite`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash-lite). We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
+- We set the **model** to `settings.fast_model`. This is configured by an environment variable and here we've set it to [`gemini-3.5-flash-lite`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash-lite?utm_campaign=DEVECO_GDEMembers&utm_source=deveco). We use this here for fast, low-cost responses and routing. We don't need heavy reasoning in the orchestrator agent.
 - We tell the root agent about all the **subagents** it can delegate to in the `sub_agents` parameter.
 - It has **no tools**!
-- Native Gemini **[context caching](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-overview)** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history model-side on Vertex AI once they exceed 2,048 tokens. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenize the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency! Booyah!
+- Native Gemini **[context caching](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)** is enabled. This caches pre-processed system instructions, subagent definitions, and conversation history. _Why is this useful?_ In a multi-turn chat session, without caching, the LLM has to re-parse and re-tokenise the exact same large system instructions and tool/subagent declarations on every single turn. Context caching slashes input token costs by up to 75–90% and significantly reduces time-to-first-token (TTFT) turn latency. Booyah!
 - There are [**agent callbacks**](https://adk.dev/callbacks/) (defined on `root_agent`) and [**global application plugins**](https://adk.dev/plugins/) (defined on `App`) for managing lifecycle hooks across the execution loop.
 
 ### Quick Aside: ADK Callbacks vs App Plugins
@@ -293,7 +300,7 @@ CRITICAL COORDINATION AND TERMINATION RULES:
 
 billing_explorer = Agent(
     name="billing_explorer",
-    description="Specialized subagent for querying Standard and Resource-level billing tables, summarizing Month-to-Date (MTD) cloud costs, forecasting future spend, identifying top cost drivers, and generating Cost Explorer (explorer/dashboard) workspaces.",
+    description="Specialised subagent for querying Standard and Resource-level billing tables, summarizing Month-to-Date (MTD) cloud costs, forecasting future spend, identifying top cost drivers, and generating Cost Explorer (explorer/dashboard) workspaces.",
     model=ConfiguredGemini(
         model=settings.model,
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -316,11 +323,11 @@ billing_explorer = Agent(
 
 Some notes about this agent...
 
-- Here we use [`gemini-3.6-flash`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-6-flash) (by setting the `model` to `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
+- Here we use [`gemini-3.6-flash`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-6-flash?utm_campaign=DEVECO_GDEMembers&utm_source=deveco) (in `settings.model`) rather than the _fast(er)_ model. We need more reasoning power in this agent. So here we see another benefit of using separate subagents: we can use different models and parameters for each one.
 - It has **no subagents**, but it has several **tools**.
 - Some tools, like `bigquery_toolset` are out-of-the-box in ADK. Others are custom tools that I've written myself.
 
-The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts. Let's take a look at how we configure this...
+The `bigquery_toolset` allows the agent to interact with BigQuery (such as executing SQL queries) in response to natural language prompts. Let's take a look at how we configure this.
 
 You can see I passed `bigquery_toolset` as a parameter to the tools list. We've defined this in `finops_agent/client.py` which serves as my centralised hub for client initialisation. Instead of having the root orchestrator and individual subagents instantiate their own SDK clients or tools independently, `client.py` sets up thread-safe, shared resources at the module level. Here I'll show you a few snippets from this file, for our BQ tools setup:
 
@@ -355,9 +362,9 @@ You can see I've added a tool filtering guardrail, which limits which of the out
 
 Not a lot of code required!
 
-Now, let's take a look at one my custom tools: `get_precomputed_spend_analysis`. This bespoke tool performs some specific SQL queries. I've provided the queries I want it to execute in the function, since this is more token-efficient (and reliable) than getting Gemini to craft a SQL query for me in real-time. It's also **much faster**! My first implementation just used natural language prompts to fetch the required data using the `bigquery_toolset`. But I found this to be painfully slow.
+Now, let's take a look at one my custom tools: `get_precomputed_spend_analysis`. This bespoke tool performs some specific SQL queries. I've provided the queries I want it to execute in the function, since this is more token-efficient (and reliable) than getting Gemini to craft a SQL query for me in real-time. It's also **much faster**! (I'll talk a bit more about this later in this article.)
 
-The tools description looks like this:
+The tool's description looks like this:
 
 ```python
 def get_precomputed_spend_analysis(
@@ -385,7 +392,7 @@ It's **very important** that all of our custom tools have **good descriptions** 
 - **Tools**: `cloud_assist_mcp_toolset`.
 - **Responsibilities**: Proxies requests to Google Gemini Cloud Assist MCP for infrastructure recommendations.
 
-This is a pretty simple agent that makes use of [Google Cloud Assist](https://cloud.google.com/products/gemini/cloud-assist). 
+This is a pretty simple agent that makes use of [Google Cloud Assist](https://cloud.google.com/products/gemini/cloud-assist?utm_campaign=DEVECO_GDEMembers&utm_source=deveco). 
 
 Let's look at the relevant code...
 
@@ -412,7 +419,7 @@ CRITICAL AUTH & FALLBACK RULES:
 
 cloud_advisor = Agent(
     name="cloud_advisor",
-    description="Specialized subagent that calls Gemini Cloud Assist tools to retrieve active rightsizing recommendations, perform operational issue diagnostics, and optimize performance/cost for active GCP resources.",
+    description="Specialised subagent that calls Gemini Cloud Assist tools to retrieve active rightsizing recommendations, perform operational issue diagnostics, and optimize performance/cost for active GCP resources.",
     model=ConfiguredGemini(
         model=settings.fast_model,
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -491,7 +498,7 @@ GUIDELINES:
 
 knowledge_assistant = Agent(
     name="knowledge_assistant",
-    description="Specialized subagent that queries the Developer Knowledge MCP to retrieve and ground cost optimization recommendations in official GCP architectural guidelines and best practices.",
+    description="Specialised subagent that queries the Developer Knowledge MCP to retrieve and ground cost optimization recommendations in official GCP architectural guidelines and best practices.",
     model=ConfiguredGemini(
         model=settings.fast_model,
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -543,11 +550,15 @@ CRITICAL: CONCISE SYNTHESIS & TERMINATION
 2. Call `finish_task` and pass the complete final markdown report directly into the `result` parameter, then terminate execution.
 ```
 
-There are a few key architectural highlights worth calling out in this system prompt:
+There are a few key highlights worth calling out in this system prompt:
 
 - **Explicit Time-Frame Branching**: The prompt mandates a top-level decision step (`TODAY` vs `HISTORICAL`) before executing any tools.
 - **Overcoming Ingestion Lag via Audit Logs**: Standard GCP Billing Exports have a propagation delay, which could be several hours. For intra-day queries, the agent pairs BigQuery partition checks with real-time Cloud Audit Logs (`get_today_top_services_and_usage` and `investigate_today_service_logs`) to capture active API invocations, caller principal identities, and operational errors in real-time.
 - **Clean Advisory Hand-Off**: `RootCauseAnalyst` focuses purely on log and spend telemetry. It does not contain Gemini Cloud Assist tools directly. When `investigate_today_service_logs` detects operational errors (`has_operational_anomaly == True`), our agent explicitly recommends that the user or root coordinator run a follow-up diagnostic turn with `CloudAdvisor` (which holds the `investigate_issue` and `ask_cloud_assist` MCP tools).
+
+---
+
+Okay, that's it for our overview of the agents. Let's take a look at how they're coordinated.
 
 ## Multi-Agent Orchestration Patterns
 
@@ -574,34 +585,88 @@ The `mode` is defined as a property as part of each subagent definition. So we'v
 4. `KnowledgeAssistant`: `single_turn`
 5. `RootCauseAnalyst`: `task`
 
-## Testing with `ADK Web`
+You can see that all of our subagents ultimately return control back to the coordinator. And you can also see - in our agent definitions - that I explicitly prohibit subagents handing off to a peer. They must return to the calling orchestrator agent.
+
+## Testing with ADK UI Tools
 
 Now we've got our root agent, subagents and tools defined, we've got enough to try it out.
 
-During local development, validating how the coordinator routes user queries, inspecting tool parameters, and observing subagent handbacks is critical.
+A great thing about using ADK is that we don't even need to build a UI to test our agents! We can just use the out-of-the-box developer UIs, like **ADK CLI** and **ADK Web**.
 
-We use the ADK CLI web playground to test the multi-agent system interactively:
+ADK CLI is a command-line interface intended for easy text-only chats with our agent. For _FinSavant_, we can launch it like this:
 
 ```bash
-make playground
-# Or directly via agents-cli:
-uv run agents-cli web --agent-dir agent/finops_agent
+uv run adk run agent/finops_agent
 ```
 
-The ADK Web UI launches at `http://localhost:8000`, providing a visual inspector to:
-1. Verify that `FinOpsCoordinator` selects the correct subagent based on prompt intent.
-2. Inspect raw gRPC tool input arguments and returned output structures.
-3. Review system instruction caching and token usage metrics per turn.
+And then you can issue prompts to the agent, like this:
 
----
+![ADK CLI](../images/launch-adk-cli.png)
 
-## Performance Optimisation: Latency, Cost, and Partition Pruning
+Let's ask it what's driving my costs over the last 30 days...
 
-To keep query execution times under **1.5 seconds** and prevent high BigQuery data scan costs on multi-million row billing export tables, we implemented three core optimisations:
+![ADK CLI question](../images/adk-cli-question.png)
 
-### 1. Partition Pruning (Double-Temporal Filtering)
+(Just type `exit` when you're done.)
 
-Standard Google Cloud Billing exports are partitioned by `export_time`. Our BigQuery tool wrapper (`execute_cached_bigquery_sql`) dynamically parses temporal constraints (`export_time`, `usage_start_time`, `usage_end_time`) from the agent's SQL query and pushes them down into the inner scoping subqueries:
+This is okay, but we can do much better! We can use [ADK Web](https://adk.dev/runtime/web-interface/), a rich web UI that gives us loads of insights into what our agents are doing.
+
+```bash
+uv run adk web agent/finops_agent
+```
+
+By the way, this is a convenient time to add a shortcut to our `Makefile`, so we don't have to remember these ADK commands! If you followed my setup guidance from the previous part, this might already be in your `Makefile`. But if not, go ahead and add this target:
+
+```makefile
+# Launch local ADK Web dev playground
+playground:
+	@echo "======================================================="
+	@echo "| 🚀 Starting your agent playground...                |"
+	@echo "======================================================="
+	uv run adk web agent/finops_agent --port 8501 --reload_agents
+```
+
+The ADK Web UI launches at `http://localhost:8000`. And it looks like this:
+
+![ADK Web](../images/adk-web.png)
+
+There's so much cool stuff you can see and do from here. For example:
+
+- We can see which agents and tools are currently being invoked.
+- We can view our request and response payloads, including the exact prompts that were issued to the agent.
+- We can view event metadata, such as number of input and output tokens consumed.
+- We can view the agent state.
+- We can even build and run evaluation sets. (More on this in a future blog.)
+
+I'll issue the same "30 day" prompt that we used before.
+
+Immediately, we get to see a load of useful real-time information. The first thing we see are the state changes, such as which sub-agents and tools are being called:
+
+![ADK Web state changes](../images/state-changes.png)
+
+We can even view a dynamic visual graph, which reflects whatever event (e.g. request or response) we currently have highlighted:
+
+![ADK event graph view](../images/event-graph-view.png)
+
+Of course, we've still got our terminal logs:
+
+![ADK session terminal logs](../images/adk-session-terminal-logs.png)
+
+And this is super-cool... We can even see a trace view in `ADK Web`, that shows a breakdown of the durations of each call:
+
+![ADK trace](../images/adk-web-trace.png)
+
+Once upon a time, it was difficult to know what calls were causing our multi-agent solution to be slow. No longer!!
+
+## Performance Optimisation Lessons Learned
+
+Speaking of slow, let me share a couple of key moments in my _FinSavant_ optimisation journey. I made dozens of performance optimisations, but I'll just share a couple of the most impactful ones.
+
+### Partition Pruning & Predicate Pushdown
+
+Standard Google Cloud Billing export tables in BigQuery are partitioned by `export_time`. However, if an agent generates an outer SQL query with temporal filters wrapped around an un-scoped inner subquery, BigQuery ends up scanning the entire multi-gigabyte historical dataset before filtering the results!
+
+To fix this, our BigQuery tool wrapper (`execute_cached_bigquery_sql`) dynamically parses temporal constraints (`export_time`, `usage_start_time`, `usage_end_time`) from the agent's SQL query and **pushes down the predicates** directly into the inner scoping subqueries:
 
 ```sql
 FROM (
@@ -612,62 +677,142 @@ FROM (
 )
 ```
 
-This forces BigQuery to prune partitions at table-scan time, shrinking query latency from over 45 seconds to under **800ms**.
+**Why is predicate pushdown so powerful?**  
 
-### 2. Dynamic Table Routing
+By moving the date filters directly into the inner table scan, BigQuery performs _partition pruning_ right at the start. It reads *only* the specific disk partitions containing data for the requested time window (e.g. the last 30 days), completely skipping possibly years of irrelevant historical data.
 
-Queries that aggregate costs by project or SKU without requesting resource-level fields (like `resource.name` or `resource.global_name`) are automatically rewritten at runtime to target the standard billing table (`gcp_billing_export_v1_*`) rather than the massive resource-level table (`gcp_billing_export_resource_v1_*`). This instantly reduces scanned data volume by **~100x**.
+This results in queries that are much faster and much cheaper! For me, the total time taken by the subagent was trimmed from over a minute to a few seconds.
 
-### 3. Deterministic Python Precomputation & Subagent Tool Stripping
+### Deterministic Python Precomputation & Subagent Tool Stripping
 
-Rather than having LLM subagents generate complex SQL queries, inspect raw data rows, and run multi-turn self-correction loops, we implemented native Python precomputation tools (`get_precomputed_spend_analysis` and `get_precomputed_root_cause`):
+Rather than having LLM subagents generate complex SQL queries, inspect raw data rows, and run multi-turn self-correction loops, I implemented native Python precomputation tools, like `get_precomputed_spend_analysis` and `get_precomputed_root_cause`. Why do this?
 
-- **Python Precomputation**: Cost summation, daily spike calculations, MoM changes, and CAI log correlations run natively in Python.
-- **Subagent Tool Stripping**: We stripped raw database query tools from `RootCauseAnalyst` and `BillingExplorer`, exposing only the precomputation helpers. This forces them into a single-turn deterministic execution path, reducing prompt token footprint by **90%** and dropping subagent execution time to under **1.5 seconds**!
+Well...
 
-### 4. Real-Time Intra-Day Service Discovery & Conditional Cloud Assist Integration
+- Dynamically writing SQL queries is slow, non-deterministic, and often requires loops if the initial SQL queries are incorrect.
+- And, getting the agent to do this work is costly! It's a waste of tokens.
 
-Standard GCP Billing Export has an inherent **3 to 12+ hour ingestion delay**, meaning queries asking "what drove my costs today?" return incomplete or delayed data from BigQuery billing export tables. To solve this, we implemented a 2-stage intra-day investigation pipeline:
+If we know exactly what we need the agent to do in a given step, and we can code in a deterministic way, **THEN WE SHOULD**. Don't use LLMs to dynamically work out how to do stuff you already know how to do. That's a poor way to use AI!
 
-1. **Intra-Day Service Discovery (`get_today_top_services_and_usage`)**: Queries near-real-time BigQuery `INFORMATION_SCHEMA.JOBS_BY_PROJECT` (for query execution bytes) and intra-day billing partitions to find the top active services and projects today. Discovered services are saved to the ADK session blackboard (`state["today_top_services"]`).
-2. **Targeted Cloud Logging (`investigate_today_service_logs`)**: Reads `today_top_services` from the session blackboard and maps GCP display names (`Vertex AI`, `BigQuery`, `Cloud Run`) to canonical audit log identifiers (`aiplatform.googleapis.com`, `bigquery.googleapis.com`, `run.googleapis.com`). It constructs targeted LQL log filters to extract caller identities and API method counts.
-3. **Conditional Gemini Cloud Assist Operational Diagnosis**: If `investigate_today_service_logs` detects active operational errors (`has_operational_anomaly == True`, error severity logs, or status code failures), the agent automatically flags the anomaly and delegates to `CloudAdvisor` to invoke Gemini Cloud Assist (`investigate_issue` / `ask_cloud_assist`) for infrastructure diagnostics.
-
----
+Across all our agents, this change was probably the most significant time and token saver, overall.
 
 ## Test-Driven Development & Unit Testing
 
-To ensure our multi-agent split remains robust against regressions, we built a comprehensive unit test suite in `tests/unit/test_multiagent.py` covering:
+Of course, I created unit tests. I say _"I created unit tests"_, but in reality, I got Antigravity to build most of them for me. But these proved extremely useful in catching issues and preventing regressions.
 
-- **Router Mocking**: Verifying that `FinOpsCoordinator` correctly delegates cost queries to `BillingExplorer` and zombie queries to `InfrastructureAuditor`.
-- **Session State Assertions**: Verifying that subagents write `allowed_projects` and blackboard keys to session memory.
-- **Mode & Handback Contracts**: Confirming that `single_turn` subagents (`KnowledgeAssistant`) exit immediately upon execution, and `task` subagents return control cleanly via `finish_task`.
-- **Error Recovery**: Asserting that 403 Forbidden errors in `CloudAdvisor` log skipped projects without breaking the execution flow.
+At the time of writing, I have:
 
-Run the test suite from the root directory:
+- 80 unit tests across 13 modules
+- 5 integration tests across 3 modules
 
-```bash
-make test
-# Or using pytest directly:
-uv run pytest tests/unit/
+I run them with `make test`, using these targets in my `Makefile`:
+
+```makefile
+# Run unit tests
+test:
+	uv sync --dev
+	uv run pytest tests/unit
+
+# Run unit and integration tests
+test-all:
+	uv sync --dev
+	uv run pytest tests/unit && uv run pytest tests/integration
 ```
 
----
+I also have these tests integrated into my GitHub Actions CI/CD pipeline. (I'll cover this in a future part.)
 
 ## Building the FastAPI Backend-for-Frontend (BFF)
 
-To serve our React SPA workspace while maintaining serverless scalability on Google Cloud Run, we built a thin, high-performance FastAPI Backend-for-Frontend (`bff/fast_api_app.py`).
+This part of the series is mainly about the agentic parts of the solution, so I won't go into a lot of detail about the BFF itself. But I'll cover it briefly, so you've got an understanding of how our UI will interact with the agentic layer.
 
-### 1. Decoupled BFF Architecture
-The BFF decouples the React frontend from the AI agent:
-- Exposes REST endpoints (`/api/dashboard`, `/api/status`, `/api/feedback`).
-- Exposes an SSE endpoint (`/api/chat/stream`) for real-time streaming of agent thought logs, tool execution badges, and A2UI payloads.
+### What is a BFF and Why Do We Need It?
 
-### 2. Keep-Alive Heartbeat SSE Streaming
-Cloud Run terminates HTTP connections if no bytes are transmitted for a few seconds. To prevent timeouts during multi-tool subagent investigations, the SSE generator emits comment heartbeats every 15 seconds:
+A **Backend-for-Frontend (BFF)** is an architectural pattern where a dedicated server-side application acts as an intermediary (a kind of proxy) between the client frontend (our React UI) and backend services, such as our agents. Rather than having the browser React application talk directly to GCP APIs or remote Agent Runtime endpoints, the BFF handles all the heavy lifting behind the scenes.
+
+In _FinSavant_, the BFF is doing (amongst other things) the following:
+
+- **Protocol & Stream Formatting**: Formats raw agent event streams and tool calls into clean Server-Sent Events (SSE) for the React frontend.
+- **Rate Limiting & Protection**: Enforces per-user rate limits (via `SlowAPI`) to prevent denial-of-wallet API spikes.
+
+### What is FastAPI and Why Have We Used It?
+
+[FastAPI](https://fastapi.tiangolo.com/) is a modern, high-performance Python API framework. It's basically the gold standard for building APIs in Python these days. And Google ADK provides a native FastAPI helper (`get_fast_api_app`), making it simple to bind ADK runners, session storage, and A2A routes.
+
+Let's look at how the BFF (`bff/fast_api_app.py`) interacts with our agent layer...
+
+### Defining the FastAPI App
 
 ```python
-# Stream heartbeats every 15 seconds to prevent Cloud Run timeout
+app: FastAPI = get_fast_api_app(
+    agents_dir=AGENT_DIR,
+    web=False,
+    artifact_service_uri=services.ARTIFACT_SERVICE_URI,
+    allow_origins=allow_origins,
+    session_service_uri=services.SESSION_SERVICE_URI,
+    otel_to_cloud=otel_to_cloud,
+    lifespan=lifespan,
+)
+app.title = "smart-gcp-finops-bff"
+app.description = "BFF API for interacting with the FinOps Agent"
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+```
+
+Note the **`web=False`** setting. By default, ADK's `get_fast_api_app` helper sets `web=True`, which automatically mounts ADK's built-in developer playground UI at the root (`/`) path. Since our BFF container serves our custom React SPA in production, setting `web=False` is essential. Without this, ADK's default playground (i.e. the ADK Web UI) overrides the root route.
+
+The BFF automatically detects its runtime environment at startup. In local dev mode, it runs a standard in-process ADK `Runner`. In production on Cloud Run, it switches to "remote mode" and routes requests directly to **Gemini Enterprise Agent Platform Agent Runtime**:
+
+```python
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
+    if not agent_runtime_id:
+        # Local development mode: run agent in-process via ADK Runner
+        from finops_agent.agent import app as adk_app
+        runner = Runner(
+            app=adk_app,
+            session_service=services.get_session_service(),
+            artifact_service=services.get_artifact_service(),
+        )
+        app.state.runner = runner
+    else:
+        # Production mode: agent runs remotely on Agent Runtime
+        app.state.runner = None
+
+    yield
+```
+
+### Streaming Agent Events over SSE (`/api/chat/stream`)
+
+When a user submits a prompt, the React frontend calls `/api/chat/stream`. The BFF resolves the authenticated user's project permissions, sets contextual state variables (`ALLOWED_PROJECTS_VAR`), invokes the agent, and streams back thought logs, friendly tool names, and A2UI payloads in real time:
+
+```python
+@app.post("/api/chat/stream")
+@limiter.limit(settings.chat_rate_limit)
+async def chat_stream(request: Request):
+    user_email = _get_user_email(request)
+    allowed_projects = get_user_accessible_projects(user_email)
+    
+    # Scope execution context to projects this user is authorised to query
+    token = ALLOWED_PROJECTS_VAR.set(allowed_projects)
+    
+    async def event_generator():
+        # Stream thought logs, tool execution badges, and final text/A2UI payloads
+        async for event in run_agent_stream(request, user_prompt):
+            yield f"data: {json.dumps(event)}\n\n"
+            
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+This ensures the React frontend receives real-time progress updates. For details of what this looks like... You'll have to wait until the next part!
+
+### Cloud Run Keep-Alive Heartbeats
+
+Cloud Run automatically terminates HTTP connections if no data bytes are transmitted for a few seconds. To prevent connection drops during complex multi-tool agent reasoning flows, our SSE generator emits comment heartbeats every 15 seconds while waiting for agent turn updates:
+
+```python
+# Stream heartbeats every 15 seconds to prevent Cloud Run connection timeouts
 seconds_passed = 0
 while not task.done():
     await asyncio.sleep(1)
@@ -678,43 +823,54 @@ while not task.done():
         seconds_passed = 0
 ```
 
-### 3. Hybrid Execution Mode (`AGENT_RUNTIME_ID`)
-The BFF supports a seamless hybrid execution model:
-- **Local Dev Mode (`AGENT_RUNTIME_ID` is unset)**: Loads the ADK agent directly in-process (`from finops_agent.agent import root_agent`) and runs the ADK engine in a background thread using local Application Default Credentials (ADC).
-- **Remote Production Mode (`AGENT_RUNTIME_ID` is set)**: Proxies queries to the deployed managed **Gemini Enterprise Agent Runtime** (Vertex AI Reasoning Engine) using the `google-genai` SDK.
+### BFF Rate Limiting (`slowapi`)
 
-### 4. BFF Rate Limiting (`slowapi`)
-To prevent Denial of Wallet (DoW) attacks and API quota exhaustion, the BFF applies `slowapi` rate limiting on `/api/chat/stream` and `/api/dashboard`, keyed by the user's authenticated IAP identity (`X-Goog-Authenticated-User-Email`).
+To prevent Denial-of-Wallet attacks and API quota exhaustion, the BFF applies `slowapi` rate limiting on some of our endpoints, like `/api/chat/stream`, keyed by the user's authenticated identity.
 
----
+### Testing the BFF
 
-## Creating & Running the Docker Container
+In the absence of a UI (coming in the next part), we just need to be able to send an HTTP request to our new shiny API. Let's create a new target in our `Makefile`:
 
-To support both unified local testing and decoupled production deployments, the project provides dedicated Docker configurations:
-
-### 1. Multi-Stage Unified Dockerfile (`Dockerfile`)
-Used for local container testing (`make run` / `make docker-build`):
-- **Stage 1 (Frontend Builder)**: Uses `node:20-slim` to compile the Vite + React SPA into static production assets (`/dist`).
-- **Stage 2 (Python Runtime)**: Uses `python:3.12-slim` with pinned `uv`. Installs virtual environment dependencies via `uv sync --frozen --no-dev`, copies the static frontend assets and `agent/` code, creates a non-root system user (`USER appuser`), and launches `uvicorn`.
-
-### 2. Running Locally with Makefile
-Build and run the container locally with zero friction:
-
-```bash
-# Build the unified container
-make docker-build
-
-# Launch local container with ADC credentials & FinOps environment variables mapped
-make run
+```makefile
+# Launch local development server with hot-reload (defaults to local in-process ADK agent mode)
+# Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
+local-backend:
+	AGENT_RUNTIME_ID="" PYTHONPATH=agent uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
 ```
 
----
+Now we can launch the API - which automatically launches the backend agent - with this command:
+
+```bash
+make local-backend
+```
+
+![make local-backend](../images/make-local-backend.png)
+
+Once that's running, start a separate terminal session and send some requests to the API with `curl`:
+
+```bash
+curl http://localhost:8000/api/status
+```
+
+![API Status](../images/api-status.png)
+
+Or we can issue a prompt, like this:
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/stream" \
+   -H "Content-Type: application/json" \
+   -d '{"message": "What is driving my costs over the last 30 days?"}'
+```
+
+The response looks a bit horrible, but you get the idea!
+
+![API Chat Stream](../images/api-chat-stream.png)
 
 ## What's Next?
 
 With our multi-agent backend, precomputed toolsets, and FastAPI BFF fully operational and tested, we're ready to build the user interface!
 
-In **Part 4**, we'll dive into **Designing and Building the UI with Google Stitch and A2UI**, exploring how we used Google Stitch to craft our *Emerald Cyber* dark-mode aesthetic and how A2UI dynamically drives interactive SVG area charts, KPI tiles, and waste optimization cards on the React canvas.
+In **Part 4**, we'll dive into **Designing and Building the UI with Google Stitch and A2UI**, exploring how we used Google Stitch to craft our dark-mode aesthetic and how A2UI dynamically drives interactive SVG area charts, KPI tiles, and waste optimisation cards on the React canvas.
 
 Stay tuned!
 
@@ -741,7 +897,7 @@ Stay tuned!
 
 ### Google Cloud Services & APIs
 
-- [Introducing Gemini 3.6 Flash and 3.5 Flash-Lite](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-6-flash-3-5-flash-lite-3-5-flash-cyber/)
+- [Introducing Gemini 3.6 Flash and 3.5 Flash-Lite](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-6-flash-3-5-flash-lite-3-5-flash-cyber/?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Google Cloud Assist](https://docs.cloud.google.com/cloud-assist/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Cloud Asset Inventory (CAI) API](https://docs.cloud.google.com/asset-inventory/docs/overview?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
 - [Developer Knowledge MCP Server](https://developers.google.com/knowledge/mcp?utm_campaign=DEVECO_GDEMembers&utm_source=deveco)
@@ -750,3 +906,6 @@ Stay tuned!
 
 - [ADK Callbacks](https://adk.dev/callbacks/)
 - [ADK Plugins](https://adk.dev/plugins/)
+- [ADK Workflow Patterns](https://adk.dev/workflows/patterns/)
+- [ADK Collaboration Modes](https://adk.dev/workflows/collaboration/)
+- [ADK Web](https://adk.dev/runtime/web-interface/)

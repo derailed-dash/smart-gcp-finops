@@ -72,11 +72,10 @@ playground:
 	@echo "==============================================================================="
 	uv run adk web agent/finops_agent --port 8501 --reload_agents
 
-# Launch local development server with hot-reload
+# Launch local development server with hot-reload (defaults to local in-process ADK agent mode)
 # Usage: make local-backend [PORT=8000] - Specify PORT for parallel scenario testing
 local-backend:
-	PYTHONPATH=agent uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
-
+	AGENT_RUNTIME_ID="" PYTHONPATH=agent uv run uvicorn bff.fast_api_app:app --host 127.0.0.1 --port $(or $(PORT),8000) --reload
 
 # Launch the Vite Dev Server for the React UI
 run-frontend:
