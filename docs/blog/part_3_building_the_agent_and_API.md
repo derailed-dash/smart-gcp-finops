@@ -258,10 +258,6 @@ from finops_agent.app_utils.tools import (
     get_session_value,
     set_session_value,
 )
-from finops_agent.client import (
-    ConfiguredGemini,
-    bigquery_toolset,
-)
 from finops_agent.app_utils.typing import TaskOutput
 from finops_agent.client import (
     ConfiguredGemini,
@@ -303,7 +299,7 @@ billing_explorer = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
-    instruction=BILLING_EXPLORER_INSTRUCTION + BLACKBOARD_KEY_INSTRUCTIONS,
+    instruction=COMMON_AGENT_HEADER + "\n\n" + BILLING_EXPLORER_INSTRUCTION,
     tools=[
         get_precomputed_spend_analysis,
         execute_cached_bigquery_sql,
@@ -342,10 +338,12 @@ credentials_config = BigQueryCredentialsConfig(credentials=credentials)
 
 EXCLUDED_BQ_TOOL_KEYWORDS = {"execute", "query", "forecast", "anomalies"}
 
+
 def bq_tool_filter(tool: Any, ctx: Any = None) -> bool:
     """Excludes certain BigQuery tools from the exposed tool list to prevent bypass of custom tools."""
     name = tool.name.lower()
     return not any(keyword in name for keyword in EXCLUDED_BQ_TOOL_KEYWORDS)
+
 
 bigquery_toolset = BigQueryToolset(
     credentials_config=credentials_config,
@@ -478,7 +476,7 @@ So now, whenever we need an _investigation_, we can get Gemini Cloud Assist to d
 - **Tools**: `dev_knowledge_mcp_toolset` (Google Developer Knowledge MCP: `answer_query`, `search_documents`).
 - **Responsibilities**: Grounds cost optimisation and architecture advice directly in official Google Cloud developer and architecture framework documentation, returning authoritative citations.
 
-The code for this agent is very simple; it's basically just the prompt and the use of the Google Developer Knowledge MCP toolset.
+The code for this agent is very simple; it's basically just the prompt and the use of the Google Developer Knowledge MCP toolset. The toolset itself is defined using the same pattern that we used previously for `cloud_assist_mcp_toolset`.
 
 ```python
 KNOWLEDGE_ASSISTANT_INSTRUCTION = """You are the KnowledgeAssistant subagent.
@@ -499,7 +497,7 @@ knowledge_assistant = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
         use_interactions_api=False,
     ),
-    instruction=KNOWLEDGE_ASSISTANT_INSTRUCTION,
+    instruction=COMMON_AGENT_HEADER + "\n\n" + KNOWLEDGE_ASSISTANT_INSTRUCTION,
     tools=[
         dev_knowledge_mcp_toolset,
     ],
@@ -512,8 +510,44 @@ knowledge_assistant = Agent(
 ### 6. `RootCauseAnalyst` (Spike & Drift Correlation)
 
 - **Model**: `gemini-3.6-flash`.
-- **Tools**: `get_precomputed_root_cause`, `get_session_value`, `set_session_value`.
-- **Responsibilities**: Investigates spend anomalies by correlating BigQuery resource-level cost spikes with Cloud Asset Inventory (CAI) configuration change history logs (e.g. machine type upgrades or disk size increases).
+- **Tools**: `get_today_top_services_and_usage`, `investigate_today_service_logs`, `get_precomputed_root_cause`, `get_precomputed_spend_analysis`, `get_session_value`, `set_session_value`.
+- **Responsibilities**: Investigates spend anomalies across two workflows:
+  - **Intra-Day (Today's Spend)**: Uses real-time Cloud Audit Logs and BigQuery data to discover active services, API invocation counts, caller identities, and operational error anomalies (bypassing GCP Billing ingestion lag).
+  - **Historical Spikes**: Correlates BigQuery resource-level cost spikes with Cloud Asset Inventory (CAI) configuration change history logs (e.g. machine type upgrades or disk size increases).
+
+Let's look at the prompt:
+
+```text
+You are the RootCauseAnalyst subagent.
+Investigate spend anomalies and intra-day cost drivers by executing either the INTRA-DAY or HISTORICAL workflow based on the user request.
+
+FIRST: Determine the investigation time-frame:
+- If the request targets TODAY or real-time cost/spikes, follow the INTRA-DAY WORKFLOW.
+- If the request targets a PAST date spike, follow the HISTORICAL WORKFLOW.
+
+INTRA-DAY (TODAY'S COST) INVESTIGATION WORKFLOW:
+1. Call `get_today_top_services_and_usage()` FIRST to discover active services today.
+2. Extract the top active service names returned (e.g., ["Gemini API", "BigQuery", "Vertex AI", "Cloud Run"]) and pass them into `investigate_today_service_logs(target_services=[...])`.
+3. Synthesise intra-day SQL metrics, audit log invocation counts, and caller findings in your final report.
+4. INGESTION LATENCY & DISCLOSURE RULE: Always note that standard GCP Billing Export has a 3-12+ hour ingestion delay. If billing partitions show minimal ingested spend while Audit Logs show active calls, report the active invocation counts and state official billing figures are pending.
+5. OPERATIONAL ANOMALY RULE: If `has_operational_anomaly == True`, explicitly highlight errors in your summary report and recommend that the user/coordinator run a follow-up diagnosis with `CloudAdvisor`.
+
+HISTORICAL COST SPIKE WORKFLOW (PAST DATES):
+1. Identify the single primary spike date (YYYY-MM-DD).
+2. Call `get_precomputed_root_cause(date_str="YYYY-MM-DD")` EXACTLY ONCE for that peak date against `{resource_table_id}`.
+3. NEVER call `get_precomputed_root_cause` multiple times or loop through multiple dates.
+4. Correlate persistent resources with Cloud Asset Inventory (CAI) configuration logs.
+
+CRITICAL: CONCISE SYNTHESIS & TERMINATION
+1. Keep the final markdown report under 350 words total.
+2. Call `finish_task` and pass the complete final markdown report directly into the `result` parameter, then terminate execution.
+```
+
+There are a few key architectural highlights worth calling out in this system prompt:
+
+- **Explicit Time-Frame Branching**: The prompt mandates a top-level decision step (`TODAY` vs `HISTORICAL`) before executing any tools.
+- **Overcoming Ingestion Lag via Audit Logs**: Standard GCP Billing Exports have a propagation delay, which could be several hours. For intra-day queries, the agent pairs BigQuery partition checks with real-time Cloud Audit Logs (`get_today_top_services_and_usage` and `investigate_today_service_logs`) to capture active API invocations, caller principal identities, and operational errors in real-time.
+- **Clean Advisory Hand-Off**: `RootCauseAnalyst` focuses purely on log and spend telemetry. It does not contain Gemini Cloud Assist tools directly. When `investigate_today_service_logs` detects operational errors (`has_operational_anomaly == True`), our agent explicitly recommends that the user or root coordinator run a follow-up diagnostic turn with `CloudAdvisor` (which holds the `investigate_issue` and `ask_cloud_assist` MCP tools).
 
 ## Multi-Agent Orchestration Patterns
 
