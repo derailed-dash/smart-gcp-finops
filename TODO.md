@@ -62,7 +62,7 @@
   - [x] Arch diagram should show the Agent running in Agent Runtime, MCPs and other tools, and Agent Registry link
   - [x] Blog part 1
   - [x] Blog part 2
-  - [~] Blog part 3
+  - [x] Blog part 3
   - [ ] Blog part 4
   - [ ] Blog part 5
   - [ ] Blog part 6
@@ -84,5 +84,6 @@
   - [x] Profile and tune system instructions and loop thresholds to minimize routing latency and prevent runaway token consumption
 [x] n-day review is not updating the graph
 [x] Perform ADK best practices review
+[x] Make tools multi-threaded
 [ ] Introduce ADK-based evaluation, including trajectory.
 [ ] (Future Phase) Implement Dynamic Server-Side Chart Rendering (PNG) for text-centric channels like Gemini Enterprise

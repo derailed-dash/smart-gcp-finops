@@ -65,8 +65,9 @@ class Settings(BaseSettings):
     # Agent
     app_name: str = "smart_gcp_finops"  # must use underscores, not hyphens
     log_level: str = "INFO"
-    model: str = "gemini-3.5-flash"
-    fast_model: str = "gemini-3.1-flash-lite"
+    model: str = "gemini-3.6-flash"
+    fast_model: str = "gemini-3.5-flash-lite"
+    max_tool_calls_per_turn: int = 25
     local_developer_email: str = "local-dev@example.com"
     playground_service_identity: str = "vais-query-reasoning-engine"  # Identity used by the GCP Console Playground to query reasoning engines; used to apply restricted project scoping defensively
 

@@ -20,7 +20,7 @@ By default, `GOOGLE_GENAI_USE_VERTEXAI=True`. In this mode:
 
 Developers can optionally switch model inferences to Google AI Studio by setting `GOOGLE_GENAI_USE_VERTEXAI=False` in `.env`:
 * In this mode, the application loads `GEMINI_API_KEY` from environment settings and passes it to the `google-genai` client SDK.
-* All Gemini model calls (`gemini-3.5-flash` and `gemini-3.1-flash-lite`) are routed to Google AI Studio (`generativelanguage.googleapis.com`).
+* All Gemini model calls (`gemini-3.6-flash` and `gemini-3.5-flash-lite`) are routed to Google AI Studio (`generativelanguage.googleapis.com`).
 
 > [!IMPORTANT]
 > **Google Cloud ADC is Always Required**: Even if `GEMINI_API_KEY` is used for LLM inference, FinSavant still requires valid Google Cloud IAM credentials (ADC) to execute BigQuery billing export queries and perform Cloud Asset Inventory (CAI) resource sweeps.
@@ -41,19 +41,19 @@ Running FinSavant incurs costs across four main categories:
 ┌─────────────────┐    ┌─────────────────┐                   ┌──────────────────┐   ┌───────────────────┐
 │ 1. LLM / GenAI  │    │  2. BigQuery    │                   │ 3. Infrastructure│   │ 4. Asset Scans    │
 │    (Vertex AI)  │    │  Billing Data   │                   │    (Cloud Run    │   │   (Cloud Asset    │
-│ Gemini 3.5 & 3.1│    │ Scanned Bytes   │                   │ & Agent Runtime) │   │    Inventory)     │
+│ Gemini 3.6 & 3.5│    │ Scanned Bytes   │                   │ & Agent Runtime) │   │    Inventory)     │
 └─────────────────┘    └─────────────────┘                   └──────────────────┘   └───────────────────┘
 ```
 
 ### 1. Generative AI / Model Inference Costs (Vertex AI)
 
 * **Models In Use**:
-  * `gemini-3.5-flash`: Main reasoning orchestrator and analytical subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`).
-  * `gemini-3.1-flash-lite`: Fast model for lightweight subagents (`CloudAdvisor`, `KnowledgeAssistant`) and semantic caching.
+  * `gemini-3.6-flash`: Main reasoning orchestrator and analytical subagents (`BillingExplorer`, `InfrastructureAuditor`, `RootCauseAnalyst`).
+  * `gemini-3.5-flash-lite`: Fast model for lightweight subagents (`CloudAdvisor`, `KnowledgeAssistant`) and semantic caching.
 * **Billing Location**: Charged directly to the Google Cloud Billing Account attached to `GOOGLE_CLOUD_PROJECT` under Vertex AI pricing (per 1M input/output tokens and context cache storage).
 * **Built-in Cost Optimisations**:
   * **Context Caching**: Caches system instructions and heavy tool declarations model-side to slash token consumption on multi-turn conversations.
-  * **Semantic Caching**: Skips LLM calls for semantically matching prompts using `gemini-3.1-flash-lite`.
+  * **Semantic Caching**: Skips LLM calls for semantically matching prompts using `gemini-3.5-flash-lite`.
   * **Python Precomputation**: Executes heavy data aggregations natively in Python (`get_precomputed_spend_analysis`), reducing LLM reasoning loop turns and token generation.
 
 ### 2. BigQuery Billing Export Query Costs

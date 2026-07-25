@@ -221,13 +221,18 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/api/status")
-def get_status() -> dict:
-    """Returns the operational status of the agent (local fallback vs remote runtime)."""
-    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID")
-    return {
+def get_status(request: Request) -> dict:
+    """Returns the operational status and metadata of the agent and BFF API."""
+    agent_runtime_id = os.environ.get("AGENT_RUNTIME_ID") or None
+    agent_name = getattr(request.app.state, "agent_app_name", "finops_agent")
+    payload = {
+        "status": "ok",
+        "agent_name": agent_name,
         "mode": "remote" if agent_runtime_id else "local",
-        "agent_runtime_id": agent_runtime_id,
     }
+    if agent_runtime_id:
+        payload["agent_runtime_id"] = agent_runtime_id
+    return payload
 
 
 @app.get("/api/dashboard")

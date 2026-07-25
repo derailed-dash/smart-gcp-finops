@@ -472,8 +472,11 @@ def before_tool_check_limit(tool: Any, args: dict[str, Any], tool_context: Any) 
         tool.name,
         args,
     )
-    if count > 25:
-        logger.error("Defensive stop triggered: Tool call count exceeded limit of 25!")
+    if count > settings.max_tool_calls_per_turn:
+        logger.error(
+            "Defensive stop triggered: Tool call count exceeded limit of %d!",
+            settings.max_tool_calls_per_turn,
+        )
         raise RuntimeError("Defensive stop: too many tool calls executed in a single turn.")
 
 
