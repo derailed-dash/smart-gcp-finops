@@ -206,11 +206,11 @@ export default function App() {
 
     // Pre-normalize multiline markdown links: join [label]\n(url) into single-line [label](url) and strip internal URL newlines
     const normalizedText = cleanText
-      .replace(/\[([^\]]+)\]\s*\n\s*\((https?:\/\/[^\)]+)\)/g, (_, label, url) => {
+      .replace(/\[([^\]]+)\]\s*\n\s*\((https?:\/\/[^)]+)\)/g, (_, label, url) => {
         const cleanUrl = url.replace(/[\r\n\s]+/g, '')
         return `[${label}](${cleanUrl})`
       })
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_, label, url) => {
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, label, url) => {
         const cleanUrl = url.replace(/[\r\n\s]+/g, '')
         return `[${label}](${cleanUrl})`
       })
@@ -310,7 +310,7 @@ export default function App() {
       const formattedLine = line
         .replace(/`([^`]+)`/g, '<code style="font-family: var(--font-mono); background: rgba(255, 255, 255, 0.08); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; color: var(--color-primary);">$1</code>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); text-decoration: underline; font-weight: 500;">$1</a>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); text-decoration: underline; font-weight: 500;">$1</a>')
 
       const trimmed = formattedLine.trim()
 
