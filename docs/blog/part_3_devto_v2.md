@@ -48,13 +48,13 @@ _FinSavant_ is a FinOps solution that needs to do many different tasks. We could
 - We have to give our giant agent access to all the tools, meaning it’s less likely to pick the right one for a task.
 - The agent is ultimately less reliable and less consistent.
 
-![The Monolithic Agent Antipattern — What happens when you give a single agent every tool in the repository.](../images/monolithic_agent_tool_tidal_wave.png)
+![The Monolithic Agent Antipattern — What happens when you give a single agent every tool in the repository.](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/monolithic_agent_tool_tidal_wave.png)
 
 A much better approach is to have individual agents that each have a clear purpose, and which each have a limited set of tools they can use. We can then have a root agent that orchestrates the agents and decides which agent to use for each task.
 
 Something like this:
 
-![Multi-agent design](../images/illustrated_agent_architecture.png)
+![Multi-agent design](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/illustrated_agent_architecture.png)
 
 So this is what we’re going to build!
 
@@ -614,11 +614,11 @@ uv run adk run agent/finops_agent
 
 And then you can issue prompts to the agent, like this:
 
-![ADK CLI](../images/launch-adk-cli.png)
+![ADK CLI](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/launch-adk-cli.png)
 
 Let’s ask it what’s driving my costs over the last 30 days…
 
-![ADK CLI question](../images/adk-cli-question.png)
+![ADK CLI question](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/adk-cli-question.png)
 
 (Just type `exit` when you're done.)
 
@@ -641,7 +641,7 @@ playground:
 
 The ADK Web UI launches at `http://localhost:8000`. And it looks like this:
 
-![ADK Web](../images/adk-web.png)
+![ADK Web](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/adk-web.png)
 
 There’s so much cool stuff you can see and do from here. For example:
 
@@ -655,19 +655,19 @@ I’ll issue the same “30 day” prompt that we used before.
 
 Immediately, we get to see a load of useful real-time information. The first thing we see are the state changes, such as which sub-agents and tools are being called:
 
-![ADK Web state changes](../images/state-changes.png)
+![ADK Web state changes](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/state-changes.png)
 
 We can even view a dynamic visual graph, which reflects whatever event (e.g. request or response) we currently have highlighted:
 
-![ADK event graph view](../images/event-graph-view.png)
+![ADK event graph view](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/event-graph-view.png)
 
 Of course, we’ve still got our terminal logs:
 
-![ADK session terminal logs](../images/adk-session-terminal-logs.png)
+![ADK session terminal logs](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/adk-session-terminal-logs.png)
 
 And this is super-cool… We can even see a trace view in `ADK Web`, that shows a breakdown of the durations of each call:
 
-![ADK trace](../images/adk-web-trace.png)
+![ADK trace](https://raw.githubusercontent.com/derailed-dash/smart-gcp-finops/main/docs/images/adk-web-trace.png)
 
 Once upon a time, it was difficult to know what calls were causing our multi-agent solution to be slow. No longer!!
 
